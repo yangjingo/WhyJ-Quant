@@ -14,7 +14,7 @@
 ## Responsibilities
 
 - normalize configured source selection
-- fetch bars from AKShare, Tushare, LLMQuant, and Financial Datasets
+- fetch bars from AKShare, Tushare, TickFlow, LLMQuant, and Financial Datasets
 - fall back across providers when one source is empty, stale, or unavailable
 - fall back across AKShare upstream endpoints before falling through to another provider
 - merge provider results with cache behavior only through injectable runtime deps
@@ -42,6 +42,7 @@
 | `src/source/src/akshare-endpoints.ts` | AKShare public endpoint whitelists and endpoint types |
 | `src/source/src/sina-index-client.ts` | Sina A-index quote fallback client |
 | `src/source/src/tushare.ts` | Tushare-backed fetch |
+| `src/source/src/tickflow.ts` | native TickFlow HTTP daily/minute bars, adjustment factors and quote snapshots |
 | `src/source/src/llmquant.ts` | LLMQuant-backed market fetch |
 | `src/source/src/financial-datasets.ts` | Financial Datasets-backed fetch |
 | `src/source/src/http.ts` | shared JSON/text transport, body-inclusive deadline, cancellation and bounded UTF-8 text reads |
@@ -82,6 +83,23 @@ For `.OF` fund bars and dedicated fund NAV, empty data with every internal attem
 Callers may configure `providers.akshare.sourcePriority`, override a `BarProviderAdapter`, or set a market
 `fallbackOrder`. These are separate controls: endpoint order is internal to AKShare, while fallback order chooses
 between top-level providers.
+
+## TickFlow native interfaces
+
+Import from `src/source/index.ts`. `TickFlowOptions` accepts `apiKey`, `baseUrl`, an optional environment snapshot, `signal` and `timeoutMs`. The managed credential is `WHYJ_QUANT_TICKFLOW_API_KEY`; `TICKFLOW_BASE_URL` defaults to `https://api.tickflow.org`. Runtime injects settings-backed credentials. Source never reads TSP files, launches Python or connects MCP. The TickFlow data-source credential and TSP's gateway token are different capabilities.
+
+| Function | Result and boundary |
+| --- | --- |
+| `fetchFromTickFlowDetailed(symbol, start?, end?, options?)` | Daily `Bar[]`, actual endpoint and price basis for the normal provider pipeline; dates use Asia/Shanghai and request forward adjustment. |
+| `fetchTickFlowKlines(symbol, request?, options?)` | Daily or minute rows with millisecond timestamps; request includes period, count, start/end time and forward/unadjusted basis. Minute data never enters a daily cache. |
+| `fetchTickFlowFactors(symbols, window?, options?)` | Dated factors by exact requested symbol, without applying or inventing factors. |
+| `fetchTickFlowQuotes(symbols, options?)` | Quote snapshots with source timestamps and an explicit missing-symbol list; retrieval does not prove a fresh exchange tick. |
+
+This initial adapter covers SH/SZ/BJ instruments only, not US/HK or `.OF` NAV. It implements the [official REST contract](https://docs.tickflow.org/zh-Hans/api-reference/openapi.json): `x-api-key`, `/v1/klines`, `/v1/klines/ex-factors` and `/v1/quotes`. Compact columns must align; malformed prices, duplicate timestamps, conflicting declared identity and out-of-window rows fail as a whole. Missing turnover stays null. The compact daily response need not declare its symbol; request identity is then the only binding, not independently certified response identity. Volume/amount numbers are preserved without claiming shares/lots or currency certification. Strict research finality/calendar evidence remains unknown through the legacy adapter path.
+
+Each response is bounded to 8 MiB with the existing body-inclusive HTTP timeout, cancellation and no redirects. Kline count is limited to 10,000; bounded windows reaching the count cap fail as potentially truncated instead of returning a partial window. Use smaller windows when that happens. Quote/factor batches accept at most 100 symbols. HTTP status and fixed diagnostics replace raw upstream errors. No automatic polling, websocket, retries or additional SDK dependency is added.
+
+Select `tickflow` explicitly for A-share daily pulls. Existing automatic fallback order is unchanged; selected-source diagnosis never uses a backup to conceal failed authorization. Daily responses reuse existing attribution and immutable archives, not a new TickFlow cache. Direct adapter calls always perform HTTP reads; the shared `fetchBars` cache policy remains unchanged here. [#261](https://github.com/yangjingo/WhyJ-Quant/issues/261) separately proposes removing query-cache substitution while retaining research evidence.
 
 ## Test rules
 

@@ -10,7 +10,7 @@ import { err } from "./results.ts";
 
 export const HistoricalPriceFields = {
   market: ["A", "US", "HK"] as const,
-  source: ["auto", "akshare", "tushare", "llmquant-data", "financial-datasets"] as const,
+  source: ["auto", "akshare", "tushare", "tickflow", "llmquant-data", "financial-datasets"] as const,
 };
 
 export interface PriceAnalysisArgs {

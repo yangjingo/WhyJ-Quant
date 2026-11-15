@@ -213,7 +213,7 @@ export interface ReferenceCandidate {
 
 export interface Preferences {
   /** Research-tool routing is separate from the overview feed below. No credential values. */
-  readonly researchSource?: "akshare" | "tushare" | "llmquant-data" | "financial-datasets";
+  readonly researchSource?: "akshare" | "tushare" | "tickflow" | "llmquant-data" | "financial-datasets";
   readonly researchSources?: readonly { id: NonNullable<Preferences["researchSource"]>; label: string; credentialConfigured: boolean; requiresCredential: boolean }[];
   /** Opaque storage revision for concurrent setting edits; never a credential. */
   readonly revision?: string;

@@ -49,7 +49,7 @@ export function Settings(props: {
             {props.preferences.researchSources?.map(source => <option key={source.id} value={source.id}>{source.label} · {source.requiresCredential ? source.credentialConfigured ? "凭据已配置，待请求验证" : "需要本机配置凭据" : "公开接口，无需密钥"}</option>)}
           </select></label>
           {props.snapshot?.state === "running" && <p>请先等待或停止研究，再切换数据源。</p>}
-          <p className="supporting">AKShare 依赖本机 Python。Tushare、LLMQuant 和 Financial Datasets 的凭据仍在本机配置，页面不接收或显示密钥。各源覆盖的市场和字段不同，缺失项以工具实际返回为准。</p>
+          <p className="supporting">AKShare 依赖本机 Python。TickFlow、Tushare、LLMQuant 和 Financial Datasets 的凭据仍在本机配置，页面不接收或显示密钥。各源覆盖的市场和字段不同，缺失项以工具实际返回为准。</p>
           <h3>行情概览</h3><p>右侧指数概览使用已有快照接口，按源时间显示点位与相对前收涨跌；观察组沿用研究日线路由。逐条显示实际来源与数据日期，不保证实时行情；快照失败后的历史日线与旧值单独标记。</p>
         </> : <><p>仅连接成功的数据源才能提供行情。变更偏好不会把旧数据当作新数据。</p><label className="field-row">数据源<select aria-label="数据源" disabled={pending} value={props.preferences.source} onChange={event => void savePreferences({ ...props.preferences, source: event.target.value as Preferences["source"] })}><option value="none">未启用</option>{props.mode === "demo" && <option value="demo">本地合成 · 示例</option>}<option value="akshare">AKShare · 需研究服务连接</option></select></label></>}</>}
         {props.page === "portfolio" && <><p>观察组用于行情概览，不改变已经保存的研究。</p>{props.preferences.availablePortfolios?.length ? <label className="field-row">观察组<select aria-label="投资组合" value={props.preferences.portfolio} disabled={pending} onChange={event => void savePreferences({ ...props.preferences, portfolio: event.target.value })}>{props.preferences.availablePortfolios.map(name => <option key={name}>{name}</option>)}</select></label> : <p className="notice">研究服务尚未提供观察组。</p>}</>}

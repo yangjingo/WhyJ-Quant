@@ -1,9 +1,11 @@
 import type { ToolDataCapability, ToolDataRoute, ToolRequirements } from "../types/tool-capabilities.ts";
 
 const AKSHARE: ToolDataRoute = { provider: "akshare", markets: ["A", "US", "HK", "Fund"], dependencies: ["python", "akshare"], permission: "Public endpoint access; each market endpoint may fail independently." };
+const TUSHARE: ToolDataRoute = { provider: "tushare", markets: ["A", "Fund"], dependencies: [], credential: "WHYJ_QUANT_TUSHARE_TOKEN", permission: "Daily price or fund NAV API entitlement; other APIs have separate permissions." };
 const DAILY_ROUTES: ToolDataRoute[] = [
   AKSHARE,
-  { provider: "tushare", markets: ["A", "Fund"], dependencies: [], credential: "WHYJ_QUANT_TUSHARE_TOKEN", permission: "Daily price or fund NAV API entitlement; other APIs have separate permissions." },
+  { provider: "tickflow", markets: ["A"], dependencies: [], credential: "WHYJ_QUANT_TICKFLOW_API_KEY", permission: "A-share daily API entitlement; quotes, minutes and factors have separate permissions." },
+  TUSHARE,
   { provider: "llmquant-data", markets: ["US", "HK"], dependencies: [], credential: "WHYJ_QUANT_LLMQUANT_API_KEY", permission: "Historical daily price API entitlement." },
   { provider: "financial-datasets", markets: ["US"], dependencies: [], credential: "WHYJ_QUANT_FINANCIAL_DATASETS_KEY", permission: "Historical prices API entitlement." },
 ];
@@ -21,7 +23,7 @@ export const MAINBOARD_SCAN_REQUIREMENTS: ToolRequirements = {
   capability: "mainboard-scan", routes: [{ ...AKSHARE, markets: ["A"],
     endpoints: ["stock_info_sh_name_code", "stock_info_sz_name_code", "daily-series"] }],
   effects: ["public-network", "market-cache"],
-  limitations: "Both public exchange rosters require Python/AKShare, without a token. Prices additionally need a configured A-share route (AKShare or entitled Tushare) or usable cache. A token or daily sample does not verify roster access, batch coverage, comparable price dates or ranking. Partial runs remain partial; no scheduler or restart recovery.",
+  limitations: "Both public exchange rosters require Python/AKShare, without a token. Prices additionally need a configured A-share route (AKShare, entitled Tushare or TickFlow) or usable cache. A token or daily sample does not verify roster access, batch coverage, comparable price dates or ranking. Partial runs remain partial; no scheduler or restart recovery.",
 };
 
 export function dailyRequirements(computation = false): ToolRequirements {
@@ -67,7 +69,7 @@ export function akshareRequirements(capability: ToolDataCapability, endpoints: r
     limitations: "Requires an actual response from the selected endpoint and parameters. Importing akshare or checking another endpoint does not verify access." };
 }
 export const SEARCH_REQUIREMENTS: ToolRequirements = {
-  capability: "symbol-search", routes: [{ ...DAILY_ROUTES[1]!, markets: ["A"], endpoints: ["stock_basic"], permission: "Tushare stock_basic permission; a successful daily request is insufficient." }],
+  capability: "symbol-search", routes: [{ ...TUSHARE, markets: ["A"], endpoints: ["stock_basic"], permission: "Tushare stock_basic permission; a successful daily request is insufficient." }],
   effects: ["public-network"], limitations: "A-share catalogue search only; US/HK symbol search is not implemented.",
 };
 export const INDEX_SPOT_REQUIREMENTS: ToolRequirements = {

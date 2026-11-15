@@ -6,7 +6,7 @@ import type { ToolReadiness } from "../../types/tool-capabilities.ts";
 import type { ToolProbeContext } from "./tool-probe-draft.ts";
 
 const ENDPOINT_KEYS: Record<DataSource, string | null> = {
-  akshare: null, tushare: "TUSHARE_BASE_URL", "llmquant-data": "LLMQUANT_BASE_URL", "financial-datasets": "FINANCIAL_DATASETS_BASE_URL",
+  tickflow: "TICKFLOW_BASE_URL", akshare: null, tushare: "TUSHARE_BASE_URL", "llmquant-data": "LLMQUANT_BASE_URL", "financial-datasets": "FINANCIAL_DATASETS_BASE_URL",
 };
 export interface DataSettingsOptions {
   probe?: typeof probeDataConnection;

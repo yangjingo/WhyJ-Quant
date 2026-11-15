@@ -30,6 +30,7 @@ export function createStorageSourceRuntimeDeps(): SourceRuntimeDeps {
 export function createStorageSourceProviderOptions(settings: OhQuantSettings = loadSettings()): SourceProviderOptions {
   const env = { ...process.env, ...settings.env };
   return {
+    tickflow: { apiKey: env.WHYJ_QUANT_TICKFLOW_API_KEY, baseUrl: env.TICKFLOW_BASE_URL, env },
     tushare: { token: env.WHYJ_QUANT_TUSHARE_TOKEN, baseUrl: env.TUSHARE_BASE_URL, env },
     llmquant: { apiKey: env.WHYJ_QUANT_LLMQUANT_API_KEY, baseUrl: env.LLMQUANT_BASE_URL, env },
     financialDatasets: { apiKey: env.WHYJ_QUANT_FINANCIAL_DATASETS_KEY, baseUrl: env.FINANCIAL_DATASETS_BASE_URL, env },
