@@ -21,8 +21,9 @@ for await (const line of lines) {
     }
     if (mode === "selection" || mode === "malformed") {
       const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const alertTime = process.env.TSP_FIXTURE_ALERT_MS === undefined ? Date.now() : Number(process.env.TSP_FIXTURE_ALERT_MS);
       const data = request.params.name === "get_recent_alerts"
-        ? { alerts: [{ ts: Date.now(), symbol: "600000.SH", price: 11, message: "Synthetic source price move <safe>" },
+        ? { alerts: [{ ts: alertTime, symbol: "600000.SH", price: 11, message: "Synthetic source price move <safe>" },
             { ts: Date.now(), symbol: "", message: "Do not bind a batch alert" }, { ts: Date.now(), symbol: "000001.SZ", message: "Other stock" }], total: 3 }
         : { symbol: request.params.arguments.symbol, asset_type: "stock", source: "live", rows: [
             { date: "2026-11-12", open: 9, high: 11, low: 8, close: 10, volume: 90 },
