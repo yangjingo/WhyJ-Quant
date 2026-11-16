@@ -3,3 +3,6 @@
 export { getAgentDir } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/config.js";
 export { addMcpServerConfig, removeMcpServerConfig, loadMcpConfig,
   type McpServerConfig } from "../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/config.js";
+
+/** Optional explicit observation reads reuse Pi's connection and transport lifecycle. */
+export const loadPiMcpRuntime = () => import("../../../node_modules/@earendil-works/pi-coding-agent/dist/extensions/mcp/runtime.js");
