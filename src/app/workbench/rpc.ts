@@ -27,6 +27,30 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
     case "identity": count(0); return client.identity();
     case "workspaces": count(0); return client.workspaces();
     case "preferences": count(0); return client.preferences();
+    case "startDataDraft": count(0); {
+      if (!client.startDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
+      return client.startDataDraft();
+    }
+    case "editDataDraft": count(1); {
+      if (!client.editDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
+      return client.editDataDraft(args[0] as Parameters<NonNullable<WorkbenchClient["editDataDraft"]>>[0]);
+    }
+    case "verifyDataDraft": count(1); {
+      if (!client.verifyDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
+      return client.verifyDataDraft(requestString(args[0]));
+    }
+    case "cancelDataDraft": count(1); {
+      if (!client.cancelDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
+      return client.cancelDataDraft(requestString(args[0]));
+    }
+    case "saveDataDraft": count(1); {
+      if (!client.saveDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
+      return client.saveDataDraft(args[0] as Parameters<NonNullable<WorkbenchClient["saveDataDraft"]>>[0]);
+    }
+    case "closeDataDraft": count(1); {
+      if (!client.closeDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
+      return client.closeDataDraft(requestString(args[0]));
+    }
     case "market": count(0); return client.market();
     case "refreshMarket": count(1); {
       if (typeof args[0] !== "boolean") throw new WorkbenchError("INPUT_INVALID", "重试参数无效。");
