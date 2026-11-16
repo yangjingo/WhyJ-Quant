@@ -48,6 +48,7 @@ export { fetchMainboardUniverse } from "./src/mainboard-universe.ts";
 export type { MainboardMember, MainboardUniverse } from "./src/mainboard-universe.ts";
 export { fetchNews, normalizeNewsScope } from "./src/news.ts";
 export { readNewsDocument } from "./src/news-document.ts";
+export { readDisclosurePdf } from "./src/disclosure-pdf.ts";
 export { fetchSinaAIndexSpotQuotes } from "./src/sina-index-client.ts";
 export {
   SOURCE_LABELS,
