@@ -11,6 +11,7 @@ import type { WorkbenchEvent } from "../../types/workbench.ts";
 import { createWorkbenchService } from "./service.ts";
 import { dispatchWorkbench } from "./rpc.ts";
 import { publicError, WorkbenchError } from "./errors.ts";
+import { artifactRequest } from "../services/requests.ts";
 import { startLocalHttpServer, type LocalHttpServer } from "./http-server.ts";
 
 export const WORKBENCH_ASSETS_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..", "apps/web/dist");
@@ -90,6 +91,22 @@ export function startWorkbenchServer(options: { port?: number; assetsRoot?: stri
             stopping = true;
             setTimeout(() => { void close().catch(() => { /* The owning process handles bounded shutdown. */ }); }, 25);
             return json({ stopping: true, instanceId: lease.instanceId });
+          }
+          if (request.method === "POST" && url.pathname === "/api/workbench/report") {
+            const input = artifactRequest(await hostBody(request));
+            if (!service.client.readReport) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持原始报告下载。", 503);
+            operations++;
+            try {
+              const report = await service.client.readReport(input);
+              // Never redact/reconstruct the exported bytes. Reject a leaked Host capability instead.
+              if (report.html.includes(token) || report.html.includes(controlToken)) throw new WorkbenchError("ARTIFACT_UNAVAILABLE", "报告包含当前连接凭据，无法导出；原文件已保留。", 409);
+              return new Response(report.html, { headers: { ...headers,
+                "Content-Type": "text/html; charset=utf-8", "Content-Length": String(report.bytes),
+                "Content-Disposition": `attachment; filename="${input.artifactId}-${input.sha256.slice(0, 12)}.html"`,
+                "X-Report-Revision": input.sha256, "X-Report-Content-SHA256": report.htmlSha256,
+                "Content-Security-Policy": "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+              } });
+            } finally { operations--; }
           }
           if (request.method === "POST" && url.pathname === "/api/workbench/rpc") {
             if (!request.headers.get("content-type")?.startsWith("application/json")) throw new WorkbenchError("INPUT_INVALID", "请使用 JSON 请求。");
