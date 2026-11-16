@@ -1,5 +1,24 @@
 @import "./terminal/base.css";
 
+/* Keep the conversation and its scroll/draft state mounted while reading a report. */
+.app.report-open { grid-template-rows: 58px minmax(0,1fr) 40px; }
+.app.report-open .workspace { grid-template-columns: minmax(0,1fr); }
+.app.report-open.sidebar-open .workspace { grid-template-columns: 210px minmax(0,1fr); }
+.report-open .session-panel, .report-open .overview, .report-open > .composer { display: none; }
+.report-view { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; overflow: auto; }
+.report-view-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.report-view-header h2 { font-size: 20px; line-height: 1.4; margin: 0; overflow-wrap: anywhere; }
+.report-view-header .eyebrow { margin-bottom: 4px; }
+.report-preview-note, .report-preview-status { margin: 0; font-size: 12px; line-height: 1.5; }
+.report-preview-status { color: var(--muted); }
+.report-digests { font-size: 12px; }
+.report-digests summary { cursor: pointer; padding-block: 4px; }
+.report-digests dl { display: grid; grid-template-columns: 110px minmax(0,1fr); gap: 6px; }
+.report-digests dd { margin: 0; overflow-wrap: anywhere; }
+.report-frame { border: 1px solid var(--line); width: 100%; flex: 1; min-height: 280px; background: var(--panel); }
+@media (max-width: 1000px) { .app.report-open.sidebar-open .workspace { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 760px) { .report-view-header { align-items: flex-start; flex-direction: column; gap: 6px; }.report-view-header h2 { font-size: 16px; }.report-frame { min-height: 360px; } }
+
 /* Keep the shared palette; layout and controls belong to this React renderer. */
 :root { --reading-link: #c4b68e; --outline: #817f77; }
 html, body, #root { height: 100%; overflow: hidden; }

@@ -11,6 +11,7 @@ import type { WorkbenchEvent } from "../../types/workbench.ts";
 import { createWorkbenchService } from "./service.ts";
 import { dispatchWorkbench } from "./rpc.ts";
 import { publicError, WorkbenchError } from "./errors.ts";
+import { artifactRequest } from "../services/requests.ts";
 import { startLocalHttpServer, type LocalHttpServer } from "./http-server.ts";
 
 export const WORKBENCH_ASSETS_ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "../../..", "apps/web/dist");
@@ -91,6 +92,22 @@ export function startWorkbenchServer(options: { port?: number; assetsRoot?: stri
             setTimeout(() => { void close().catch(() => { /* The owning process handles bounded shutdown. */ }); }, 25);
             return json({ stopping: true, instanceId: lease.instanceId });
           }
+          if (request.method === "POST" && url.pathname === "/api/workbench/report") {
+            const input = artifactRequest(await hostBody(request));
+            if (!service.client.readReport) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持原始报告下载。", 503);
+            operations++;
+            try {
+              const report = await service.client.readReport(input);
+              // Never redact/reconstruct the exported bytes. Reject a leaked Host capability instead.
+              if (report.html.includes(token) || report.html.includes(controlToken)) throw new WorkbenchError("ARTIFACT_UNAVAILABLE", "报告包含当前连接凭据，无法导出；原文件已保留。", 409);
+              return new Response(report.html, { headers: { ...headers,
+                "Content-Type": "text/html; charset=utf-8", "Content-Length": String(report.bytes),
+                "Content-Disposition": `attachment; filename="${input.artifactId}-${input.sha256.slice(0, 12)}.html"`,
+                "X-Report-Revision": input.sha256, "X-Report-Content-SHA256": report.htmlSha256,
+                "Content-Security-Policy": "sandbox; default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+              } });
+            } finally { operations--; }
+          }
           if (request.method === "POST" && url.pathname === "/api/workbench/rpc") {
             if (!request.headers.get("content-type")?.startsWith("application/json")) throw new WorkbenchError("INPUT_INVALID", "请使用 JSON 请求。");
             let payload: unknown;
@@ -145,6 +162,10 @@ export function startWorkbenchServer(options: { port?: number; assetsRoot?: stri
         const contained = relative(assetsRoot, realpathSync(file));
         if (isAbsolute(contained) || contained.startsWith("..")) throw new WorkbenchError("NOT_FOUND", "没有这个页面。", 404);
         if (name === "index.html") return new Response((await readFile(file, "utf8")).replace("</head>", '<meta name="whyj-workbench-host" content="1"></head>'), { headers: { ...headers, "Content-Type": "text/html; charset=utf-8" } });
+        if (name === "assets/report-shell.html") return new Response(await readFile(file), { headers: { ...headers,
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+        } });
         const types: Record<string, string> = { ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json",
           ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".ico": "image/x-icon", ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf" };
         return new Response(await readFile(file), { headers: { ...headers, "Content-Type": types[extname(file).toLowerCase()] ?? "application/octet-stream" } });

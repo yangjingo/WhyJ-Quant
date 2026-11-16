@@ -115,6 +115,41 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     submit: value => rpc("submit", [value]), cancel: id => rpc("cancel", [id]),
     continue: value => rpc("continue", [value]), followup: value => rpc("followup", [value]),
     save: value => rpc("save", [value]), reload: value => rpc("reload", [value]),
+    readReport: async input => {
+      const snapshot = await rpc("session", [input.sessionId]);
+      if (!isWorkbenchSnapshot(snapshot) || snapshot.identity.workspaceId !== input.workspaceId || snapshot.identity.sessionId !== input.sessionId)
+        throw new Error("报告所属会话无法验证。");
+      const artifact = snapshot.output.artifacts.find(item => item.id === input.artifactId && item.sha256 === input.sha256);
+      if (!artifact) throw new Error("当前会话中没有这个固定报告版本。");
+      const response = await request(new URL("/api/workbench/report", baseUrl), { method: "POST", credentials: "omit", cache: "no-store", redirect: "error",
+        signal: AbortSignal.timeout(30_000), headers: { "Content-Type": "application/json", "x-workbench-token": await token(),
+          ...(options.connection ? { "x-host-instance-id": options.connection.instanceId } : {}) }, body: JSON.stringify(input) });
+      if (response.status === 401) bootstrap = undefined;
+      if (!response.ok) {
+        const value: unknown = await response.json().catch(() => null);
+        throw new Error(object(value) && object(value.error) && typeof value.error.message === "string" ? value.error.message.slice(0, 500) : "原始报告暂时无法读取。");
+      }
+      const hash = response.headers.get("x-report-content-sha256"), length = Number(response.headers.get("content-length"));
+      if (!response.headers.get("content-type")?.startsWith("text/html") || response.headers.get("x-report-revision") !== input.sha256
+        || !hash || !/^[a-f0-9]{64}$/.test(hash) || !response.headers.has("content-length") || !Number.isSafeInteger(length) || length < 0 || length > 8 * 1024 * 1024 || !response.body) {
+        await response.body?.cancel(); throw new Error("原始报告响应标识或大小无效。");
+      }
+      const reader = response.body.getReader(), chunks: Uint8Array[] = []; let bytes = 0;
+      try {
+        while (true) { const chunk = await reader.read(); if (chunk.done) break;
+          bytes += chunk.value.byteLength;
+          if (bytes > length || bytes > 8 * 1024 * 1024) throw new Error("报告响应超出声明的大小。");
+          chunks.push(chunk.value);
+        }
+      } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+      if (bytes !== length) throw new Error("原始报告传输不完整。");
+      const content = new Uint8Array(bytes); let offset = 0;
+      for (const chunk of chunks) { content.set(chunk, offset); offset += chunk.byteLength; }
+      const actual = [...new Uint8Array(await crypto.subtle.digest("SHA-256", content))].map(byte => byte.toString(16).padStart(2, "0")).join("");
+      if (actual !== hash) throw new Error("原始报告内容校验失败，未打开或下载。");
+      const html = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(content);
+      return { artifact, html, htmlSha256: actual, bytes };
+    },
     review: value => rpc("review", [value]),
     deleteSession: value => rpc("deleteSession", [value]),
     acknowledgeInterruption: id => rpc("acknowledgeInterruption", [id]),
