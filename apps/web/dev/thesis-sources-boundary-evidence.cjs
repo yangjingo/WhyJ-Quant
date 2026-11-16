@@ -1,0 +1,32 @@
+async (page, control, output='output/playwright/thesis-sources') => {
+  const state=async()=>await(await page.request.get(control+'/state')).json();
+  const mode=async value=>{if(!(await page.request.get(control+'/source-mode?value='+value)).ok())throw new Error('Mode failed');};
+  await page.reload();await page.getByRole('button',{name:'研究成果',exact:true}).waitFor();
+  if(!await page.getByRole('button',{name:'查看复核记录 ↗',exact:true}).isVisible())await page.getByRole('button',{name:'切换研究概览',exact:true}).click();
+  await page.getByRole('button',{name:'查看复核记录 ↗',exact:true}).click();await page.getByRole('button',{name:'登记事件复核',exact:true}).click();
+  const field=name=>page.locator('.thesis-form [name="'+name+'"]');
+  await field('summary').fill('合成来源失败后保留的事件');await field('eventUrl').fill('https://example.com/disclosure-needed');
+  await page.getByLabel('核对开始日期',{exact:true}).fill('2020-01-02');await page.getByLabel('核对结束日期',{exact:true}).fill('2020-01-03');
+  await page.getByLabel('公告 PDF 直链（可留空）',{exact:true}).fill('https://static.cninfo.com.cn/synthetic.pdf');
+  const before=await state(),ids=[];
+  page.on('request',request=>{if(request.url().endsWith('/api/workbench/rpc')){const body=request.postDataJSON();if(body?.method==='collectThesisSources')ids.push(body.args[0].requestId);}});
+  await mode('error');await page.getByRole('button',{name:'读取一次核对来源',exact:true}).click();await page.locator('.thesis-sources [role="alert"]').waitFor();
+  if(await field('summary').inputValue()!=='合成来源失败后保留的事件')throw new Error('Draft changed on error');
+  await page.locator('.thesis-sources [role="alert"]').scrollIntoViewIfNeeded();await page.screenshot({path:output+'/07-source-error.png'});
+  await mode('available');let dropped=false;
+  await page.route('**/api/workbench/rpc',async route=>{if(!dropped&&route.request().postDataJSON()?.method==='collectThesisSources'){dropped=true;await route.fetch();await route.abort('failed');}else await route.continue();});
+  await page.getByRole('button',{name:'重试本次来源核对',exact:true}).click();await page.locator('.thesis-sources [role="alert"]').filter({hasText:'请求结果未确认'}).waitFor();
+  await page.getByRole('button',{name:'重试本次来源核对',exact:true}).click();await page.getByRole('combobox',{name:'读取公告页',exact:true}).waitFor();
+  await page.getByRole('button',{name:'读取一次核对来源',exact:true}).waitFor();await page.unrouteAll({behavior:'wait'});
+  const retried=await state();if(ids.length!==3||new Set(ids).size!==1||retried.priceCalls-before.priceCalls!==2||retried.pdfCalls-before.pdfCalls!==2)throw new Error('Duplicate collection on unknown response retry '+JSON.stringify({ids,before,retried}));
+  await mode('unavailable');await page.getByRole('button',{name:'读取一次核对来源',exact:true}).click();
+  await page.locator('.thesis-sources').getByText(/公告：unavailable/).waitFor();
+  await page.locator('.thesis-sources').getByText(/公告：unavailable/).scrollIntoViewIfNeeded();await page.screenshot({path:output+'/08-unavailable-disclosure.png'});
+  await page.getByRole('button',{name:'保存固定复核',exact:true}).click();await page.locator('.thesis-success').waitFor();
+  await page.getByRole('button',{name:'打开已保存报告',exact:true}).click();await page.getByRole('status').filter({hasText:'隔离交互预览'}).waitFor();
+  const inner=page.frameLocator('iframe[title="隔离交互报告"]').frameLocator('iframe[title="报告正文"]');
+  if(await inner.locator('[data-thesis-outcome="pending_verification"]').count()!==1)throw new Error('Unavailable disclosure became verified fact');
+  await page.screenshot({path:output+'/09-pending-review.png'});await mode('available');
+  const after=await state();if(after.modelRequests!==before.modelRequests)throw new Error('Unexpected model request');
+  return {synthetic:true,sameRetryId:true,noDuplicateCollection:true,unavailableRemainsPending:true,modelRequests:after.modelRequests};
+}
