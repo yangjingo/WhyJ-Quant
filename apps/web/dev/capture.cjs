@@ -21,6 +21,7 @@ async (page) => {
     await capture('01-desktop');
     await page.getByRole('button', { name: '界面设置', exact: true }).click();
     const settings = page.locator('dialog.settings-dialog');
+    await settings.waitFor();
     const nav = settings.getByRole('navigation', { name: '设置分区' });
     const sections = ['界面', '会话', '模型', '数据'];
     check(JSON.stringify(await nav.getByRole('button').allTextContents()) === JSON.stringify(sections), 'Settings section order');
