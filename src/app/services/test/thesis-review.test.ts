@@ -286,7 +286,13 @@ test("review selects an exact retained TSP alert and fixed closed-day window, wi
   const input: ThesisReviewRequest = { ...await reviewRequest(base), event: capture.alerts[0]!.event, evidence: [], retainedEvidence: [],
     tsp: { artifactId: capture.artifact.id, revision: capture.artifact.sha256, alertIndex: capture.alerts[0]!.index,
       price: { start: "2026-11-12", end: "2026-11-13", volumeUnit: "lots" } } };
-  const report = await service.client.saveThesisReview!(input), html = (await service.client.readReport!(ref(report))).html;
+  let report: ArtifactSummary;
+  try { report = await service.client.saveThesisReview!(input); }
+  catch (error) {
+    console.error("Synthetic TSP selection timing", JSON.stringify({ event: input.event.occurredAt, cutoff: input.cutoff, observations: capture.observations.map(item => ({ tool: item.tool, retrievedAt: item.retrievedAt })), daily: capture.daily }));
+    throw error;
+  }
+  const html = (await service.client.readReport!(ref(report))).html;
   expect(html).toContain(capture.artifact.sha256); expect(html).toContain("前复权"); expect(html).toContain("原始提醒索引 0");
   await service.close(); service = createResearchService(options()); configureTsp("hold");
   const view = await service.client.readThesis!(ref(report)); if (view.kind !== "review") throw new Error();
