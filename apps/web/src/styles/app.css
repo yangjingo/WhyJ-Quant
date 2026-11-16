@@ -256,3 +256,32 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .settings-group h4 { color: var(--cream); font-size: 14px; font-weight: 500; margin: 0 0 8px; }
 .settings-link { color: var(--reading-link); text-decoration: underline; text-underline-offset: 3px; }
 .reading-preview { padding: 16px; border: 1px solid var(--line); background: var(--panel); color: var(--cream); line-height: 1.75; overflow-wrap: anywhere; }
+
+.thesis-dashboard { border-bottom: 1px solid var(--line); padding: 14px 0; margin-bottom: 16px; }
+.thesis-heading, .thesis-actions, .thesis-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.thesis-heading { justify-content: space-between; }
+.thesis-dashboard p { font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.thesis-dialog { width: min(820px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; }
+.thesis-dialog .modal-header { padding: 18px 24px; }
+.thesis-tabs { padding: 12px 24px; border-bottom: 1px solid var(--line); }
+.thesis-tabs [aria-pressed=true] { color: var(--gold); border-color: var(--gold); }
+.thesis-content { padding: 20px 24px; overflow: auto; min-height: 0; }
+.thesis-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; border: 0; padding: 0; margin: 20px 0; min-width: 0; }
+.thesis-form label { display: flex; flex-direction: column; gap: 8px; font-size: 13px; min-width: 0; }
+.thesis-form .full { grid-column: 1 / -1; }
+.thesis-form input, .thesis-form textarea, .thesis-form select { width: 100%; min-width: 0; box-sizing: border-box; background: var(--bg); color: var(--cream); border: 1px solid var(--line); border-radius: 6px; padding: 10px; font: inherit; }
+.thesis-form textarea { resize: vertical; }
+.thesis-form :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.thesis-record { padding: 18px 0; border-bottom: 1px solid var(--line); }
+.thesis-record h3 { font-size: 16px; margin: 6px 0; }.thesis-record p { font-size: 14px; }
+.thesis-record small { color: var(--muted); }.thesis-record .thesis-actions { margin-top: 12px; }
+.thesis-success { padding: 16px; margin-top: 16px; border: 1px solid var(--gold); border-radius: 6px; }
+.thesis-success button + button { margin-left: 12px; }
+@media(max-width: 600px) { .thesis-form { grid-template-columns: minmax(0, 1fr); }.thesis-content, .thesis-tabs { padding: 14px; }.thesis-dialog .modal-header { padding: 14px; } }
+
+.thesis-tsp, .thesis-sources { border: 1px solid var(--line); border-radius: 12px; padding: 14px; min-width: 0; }
+.thesis-tsp h3, .thesis-sources h3 { margin-top: 0; }
+.thesis-tsp ul, .thesis-sources ul { padding-left: 20px; overflow-wrap: anywhere; }
+.thesis-tsp label, .thesis-sources label { margin-block: 10px; }
+.thesis-tsp .thesis-check, .thesis-sources .thesis-check { display: flex; align-items: center; gap: 8px; }
+.thesis-tsp .thesis-check input, .thesis-sources .thesis-check input { width: auto; min-width: auto; }
