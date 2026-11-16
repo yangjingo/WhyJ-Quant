@@ -47,11 +47,14 @@ it("uses Pi config APIs to install and remove selected presets without overwriti
   expect(config.metadata).toEqual({ keep: true });
 }));
 
-it("all templates load through Pi with Tushare disabled until its account URL is filled", () => fixture(options => {
+it("all templates load through Pi with account-dependent Tushare and TSP disabled", () => fixture(options => {
   expect(manageMcpPresets("install", MCP_PRESETS.map(preset => preset.name), options).success).toBe(true);
   const loaded = loadMcpConfig({ ...options, projectTrusted: false });
-  expect(loaded.errors).toEqual([]); expect(loaded.servers).toHaveLength(5);
+  expect(loaded.errors).toEqual([]); expect(loaded.servers).toHaveLength(6);
   expect(loaded.servers.find(server => server.name === "tushare")?.config.enabled).toBe(false);
+  const tsp = loaded.servers.find(server => server.name === "tsp")!.config;
+  expect(tsp.enabled).toBe(false); expect(tsp.exposure).toBe("hidden");
+  expect(Object.keys(tsp.toolExposure ?? {})).toEqual(["get_recent_alerts", "get_kline"]);
 }));
 
 it("edits project overrides without replacing the user config and explains inherited servers", () => fixture(options => {

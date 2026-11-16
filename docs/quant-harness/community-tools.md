@@ -56,6 +56,20 @@ MCP 配置保存在哪个作用域、何时加载、使用哪份凭证，都属�
 
 凭证与访问权限由目标客户端及服务维护，协议集成也不是隔离恶意代码的沙箱。MCP 架构强调宿主的权限与生命周期责任；本项目遵循这类责任分工，不据此声称所有第三方实现已经安全。[2]
 
+### TSP 的显式只读观察
+
+普通 `/mcp` 管理操作仍只编辑 Pi 配置，WhyJ 的默认研究工具列表不会因此自动加载所有 MCP。事件复核的可选 TSP 读取由 `runtime/research/tsp-observations.ts` 单独组成：每次显式调用读取 Pi 用户目录中已启用的 `tsp` 配置，复用 Pi 的 `McpServerConnection` 和 stdio transport。它不创建模型会话、不轮询、不保存报告，也不加载项目覆盖或其他 MCP 服务；表单入口及私有归档由复核服务接入。
+
+`/mcp install tsp` 只写入禁用模板。用户需在自己的 Python 环境安装 [TSP stdio bridge](https://github.com/shy3130/tick-stock-panel/tree/ea4d38e0dc9259ad3500f3c248ab991cd12d3ea1/mcp-server)，核对启动命令，并在 Host 进程环境提供 `TSP_BASE`、`TSP_TOKEN`，再显式启用 Pi 用户配置中的该项。不是把面板 HTTP 地址直接当成 MCP endpoint，也不自动下载第三方代码。该入口只支持这个 stdio 形态；配置启动命令仍是用户信任的本地程序，不是进程沙箱。
+
+模板及收集器要求 `TSP_SCOPES=read:market,read:analysis`。面板 token 也应只授予这两项；本地声明不是对 token 实际权限的认证。收集器只调用 `get_recent_alerts(limit=20)` 和 `get_kline(symbol,limit=100)`，即使服务额外列出写入、回测或其他工具也不会调用。TSP 的告警窗口最多七天，日线为前复权；二者是观察材料，不代替原始披露，也不自动证实基本面假设。
+
+返回记录保留工具名、参数、来源路径、取得时间、原始 JSON 文本及 SHA-256。单项文本最多512 KiB，与复核保留证据的单项上限一致，可容纳包含技术指标的日线响应；仍保留完整字节而不裁剪字段。非 JSON、工具错误、缺失工具、凭证回显均标为不可用，连接失败只返回固定可重试提示。JSON 可解析不等于数据口径或事实经过核验。总收集时长最多25秒，正常、异常和取消均等待同一个 Pi 连接关闭过程，避免取消返回后留下子进程。配置和返回边界不导出 token、启动命令或本地配置路径。
+
+固定参考版本中的 MCP `get_kline` 将 `limit` 传给面板，但 [面板日线接口](https://github.com/shy3130/tick-stock-panel/blob/ea4d38e0dc9259ad3500f3c248ab991cd12d3ea1/backend/app/api/kline.py) 接收的是 `days/start_date/end_date`，并可能补入当日蜡烛。因此工具参数不证明返回100条或固定历史窗口；收集器保留实际原文并执行自己的大小上限，不据参数标签补造窗口。超大响应显示不可用。后续价量导入还需核对成交量单位和观察边界，不能只因字段名为 `volume` 就声明口径已验证。
+
+受控 stdio fixture 通过 Pi 的实际握手、发现与调用路径测试只读工具限制、缺项、错误、取消和子进程退出。它不是 TSP 网关或真实数据验收。真实集成仍须在用户提供实例与只读配置后记录配置作用域、真实工具结果及证据限制；不可用时保留手工复核和待核验路径。
+
 <a id="readiness"></a>
 <a id="capabilities"></a>
 <a id="supplied-evidence"></a>
