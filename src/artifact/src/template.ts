@@ -10,6 +10,7 @@ import { marketColorLabel, normalizeMarketColorScheme, type MarketColorScheme } 
 
 export interface ArtifactTemplateInput {
   title: string; sessionId: string; model?: string; quantModel?: string; messageCount: number;
+  description?: string;
   createdAt: string; dashboardHtml?: string; bodyHtml: string; dockHtml: string; trajectoryHtml: string; generatedAt: string;
   /** Independently rendered public projection. Never pass a copy of the full report. */
   shareHtml?: string;
@@ -51,7 +52,7 @@ export function renderArtifactTemplate(input: ArtifactTemplateInput): string {
     <div class="hero-copy">
       <div class="hero-kicker"><span>INVESTMENT INTELLIGENCE</span><span>${esc(input.createdAt.slice(0,10))}</span></div>
       <h1>${esc(input.title)}</h1>
-      <p>基于会话证据、量化工具与模型推理生成的可审计研究报告。</p>
+      <p>${esc(input.description ?? "基于会话证据、量化工具与模型推理生成的可审计研究报告。")}</p>
       <div class="hero-meta">
         <span><b>${input.messageCount}</b> messages</span>
         <span><b>${esc(input.model || "ai")}</b> model</span>
