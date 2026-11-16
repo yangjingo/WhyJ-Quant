@@ -8,6 +8,7 @@ export { normalizeBarSeries } from "../../market/bars.ts";
 import { fetchFromAKShareDetailed } from "./akshare.ts";
 import { fetchFromAKShareGlobalDetailed } from "./akshare-global-bars.ts";
 import { fetchFromFinancialDatasets } from "./financial-datasets.ts";
+import { fetchFromTickFlowDetailed } from "./tickflow.ts";
 import { fetchFromLlmQuant } from "./llmquant.ts";
 import { fetchFromTushareDetailed, searchTushareSymbols } from "./tushare.ts";
 import type { Bar, Market, PriceAdjustment, SymbolInfo } from "../../types/data.ts";
@@ -167,6 +168,10 @@ function createProviderAdapters(options: SourceProviderOptions, budget: Provider
       fetchBars: async ({ symbol, start, end, signal }) => fetchFromTushareDetailed(symbol, start, end,
         { ...(await credentials()).tushare, ...options.tushare, signal }),
     },
+    tickflow: options.adapters?.tickflow ?? {
+      fetchBars: async ({ symbol, start, end, signal }) => fetchFromTickFlowDetailed(symbol, start, end,
+        { ...(await credentials()).tickflow, ...options.tickflow, signal }),
+    },
     "llmquant-data": options.adapters?.["llmquant-data"] ?? {
       fetchBars: async ({ symbol, start, end, signal }) => fetchFromLlmQuant(symbol, start, end,
         { ...(await credentials()).llmquant, ...options.llmquant, signal }),
@@ -183,10 +188,11 @@ export function providerOrderFor(
   selected: DataSource,
   overrides?: SourceProviderOptions["fallbackOrder"],
 ): ProviderSource[] {
-  const supported: ProviderSource[] = market === "A" ? ["akshare", "tushare"]
+  const supported: ProviderSource[] = market === "A" ? ["akshare", "tushare", "tickflow"]
     : market === "US" ? ["llmquant-data", "financial-datasets", "akshare"] : ["llmquant-data", "akshare"];
   const configured = overrides?.[market]?.filter(id => supported.includes(id));
-  const fallback = configured?.length ? configured : supported;
+  // Paid TickFlow is opt-in; keep the existing automatic fallback chain unchanged.
+  const fallback = configured?.length ? configured : supported.filter(id => id !== "tickflow");
   return orderedWithSelectedFirst(supported.includes(selected as ProviderSource) ? selected : "auto", fallback);
 }
 
