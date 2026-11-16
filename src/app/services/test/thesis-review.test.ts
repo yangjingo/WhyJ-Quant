@@ -296,6 +296,7 @@ test("review selects an exact retained TSP alert and fixed closed-day window, wi
   expect(html).toContain(capture.artifact.sha256); expect(html).toContain("前复权"); expect(html).toContain("原始提醒索引 0");
   await service.close(); service = createResearchService(options()); configureTsp("hold");
   const view = await service.client.readThesis!(ref(report)); if (view.kind !== "review") throw new Error();
+  if (view.result.outcome !== "price_observation") console.error("Synthetic TSP classification", JSON.stringify({ result: view.result, observations: capture.observations.map(item => ({ tool: item.tool, retrievedAt: item.retrievedAt })), daily: capture.daily }));
   expect(view.result.outcome).toBe("price_observation"); expect(view.result.input.decision).toBeNull();
   expect(view.result.input.evidence[0]!.metric.value).toBe(11); expect(view.price?.rows).toHaveLength(2);
   expect(view.price?.rows[1]!.vol).toBe(100); expect(view.price?.volumeUnit).toBe("lots");
