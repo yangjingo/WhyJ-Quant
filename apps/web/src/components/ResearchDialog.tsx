@@ -11,9 +11,10 @@ export type ResearchPage = "conclusion" | "evidence" | "report";
 const pages: ResearchPage[] = ["conclusion", "evidence", "report"];
 const labels = { conclusion: "结论与条件", evidence: "证据", report: "报告版本" };
 
-export function ResearchDialog({ page, setPage, snapshot, title, demo, canSave, canOpen, canReview, onSave, onOpen, onReview, onClose }: {
+export function ResearchDialog({ page, setPage, snapshot, title, demo, canSave, canOpen, canReview, onSave, onOpen, onReview, onClose, onPreview }: {
   page: ResearchPage; setPage(page: ResearchPage): void; snapshot: SessionSnapshot; title: string; demo: boolean; onClose(): void;
   canSave: boolean; canOpen: boolean; canReview: boolean; onSave(): Promise<void>; onOpen(artifact: ArtifactSummary): Promise<SavedResearch>; onReview(artifact: ArtifactSummary, text: string): Promise<void>;
+  onPreview?(artifact: ArtifactSummary): void;
 }) {
   const [copied, setCopied] = useState("");
   const [compare, setCompare] = useState(false);
@@ -80,7 +81,7 @@ export function ResearchDialog({ page, setPage, snapshot, title, demo, canSave, 
         {artifacts.map((artifact, index) => <article className="evidence-card" key={artifact.id + artifact.version + artifact.sha256}>
           <div className="evidence-heading"><h3>{artifact.title}</h3><span className="badge">v{artifact.version}{index === 0 ? " · 最新记录" : ""}</span></div>
           <p className="supporting">{artifact.createdAt}</p><details><summary>文件校验标识 SHA-256</summary><code>{artifact.sha256}</code><button className="text-action" onClick={() => void navigator.clipboard.writeText(artifact.sha256).then(() => setCopied("校验标识已复制。"), () => setCopied("复制未完成，请展开后手动选择标识。"))}>复制校验标识</button></details>
-          <div className="report-actions"><button className="text-action" disabled={!canOpen || pending} onClick={() => void perform(async () => { setSaved(await onOpen(artifact)); setReview(null); }, "已打开固定版本。")}>查看记录</button><button className="text-action" disabled={!canReview || pending} onClick={() => { setReview(artifact); setSaved(null); setFeedback(null); }}>发起复核</button></div>
+          <div className="report-actions">{onPreview && <button className="action" onClick={() => onPreview(artifact)}>打开交互报告</button>}<button className="text-action" disabled={!canOpen || pending} onClick={() => void perform(async () => { setSaved(await onOpen(artifact)); setReview(null); }, "已打开固定版本。")}>查看记录</button><button className="text-action" disabled={!canReview || pending} onClick={() => { setReview(artifact); setSaved(null); setFeedback(null); }}>发起复核</button></div>
         </article>)}
         {saved && <section className="saved-report" aria-label="保存的研究记录"><h3>固定记录 · v{saved.artifact.version}</h3><p className="supporting">只读记录，未恢复或启动运行。证据 {saved.evidence.filter(item => item.available).length} / {saved.evidence.length} 可用，数据仍需核对。</p>{saved.turns.map(turn => <article key={turn.id}><strong>{turn.role === "user" ? "问题" : "回答"}</strong><div className="markdown-body"><ResearchMarkdown text={turn.text || "（无文字内容）"} /></div></article>)}</section>}
         {review && <section className="saved-report"><h3>复核版本 v{review.version}</h3><p className="supporting">将从固定版本创建独立会话，并按你的问题开始新的研究。</p><label className="field-row">复核问题<textarea aria-label="复核问题" value={question} onChange={event => setQuestion(event.target.value)} rows={3} /></label><button className="action primary-action" disabled={pending || !question.trim()} onClick={() => void perform(async () => { await onReview(review, question); setReview(null); setQuestion(""); }, "复核已提交；新会话会出现在会话列表中。")}>开始复核</button></section>}
