@@ -1,3 +1,4 @@
+import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
 /**
  * The workbench's view of the Host.
  *
@@ -124,6 +125,7 @@ export interface ArtifactSummary {
   readonly sha256: string;
   readonly createdAt: string;
   readonly runId?: string;
+  readonly kind?: "thesis-baseline" | "thesis-review" | "tsp-observation" | "source-check";
 }
 
 export interface WorkspaceOutput {
@@ -257,6 +259,13 @@ export interface WorkbenchClient {
   save?(request: SaveRequest): Promise<ArtifactSummary>;
   reload?(request: ArtifactRequest): Promise<SavedResearch>;
   readReport?(request: ArtifactRequest): Promise<OriginalReport>;
+establishThesis?(request: ThesisBaselineRequest): Promise<ArtifactSummary>;
+  saveThesisReview?(request: ThesisReviewRequest): Promise<ArtifactSummary>;
+  readThesis?(request: ArtifactRequest): Promise<ThesisView>;
+  collectThesisTsp?(request: ThesisTspRequest): Promise<ThesisTspView>;
+  readThesisTsp?(request: ArtifactRequest): Promise<ThesisTspView>;
+  collectThesisSources?(request: ThesisSourcesRequest): Promise<ThesisSourcesView>;
+  readThesisSources?(request: ThesisSourcesReadRequest): Promise<ThesisSourcesView>;
   review?(request: ReviewRequest): Promise<SubmitResult>;
   deleteSession?(request: DeleteSessionRequest): Promise<void>;
   /** Explicit user intent. Releasing a subscription must never do this. */
@@ -316,5 +325,6 @@ export function isWorkbenchSnapshot(value: unknown): value is SessionSnapshot {
   return nullable(conclusion.statement) && nullable(conclusion.boundary) && [null, "low", "medium", "high"].includes(conclusion.confidence as null | string) && typeof conclusion.settled === "boolean"
     && value.output.evidence.every(item => object(item) && string(item.id) && string(item.label) && nullable(item.source) && nullable(item.asOf) && typeof item.available === "boolean")
     && value.output.artifacts.every(item => object(item) && string(item.id) && string(item.title) && string(item.sha256) && /^[a-f0-9]{64}$/i.test(item.sha256) && string(item.createdAt) && typeof item.version === "number" && Number.isSafeInteger(item.version) && item.version > 0
-      && (item.runId === undefined || string(item.runId) && item.runId.length > 0 && item.runId.length <= 160));
+      && (item.runId === undefined || string(item.runId) && item.runId.length > 0 && item.runId.length <= 160)
+      && (item.kind === undefined || item.kind === "thesis-baseline" || item.kind === "thesis-review" || item.kind === "tsp-observation" || item.kind === "source-check"));
 }

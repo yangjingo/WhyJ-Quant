@@ -28,7 +28,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     const capability = await token();
     try { const body = JSON.stringify({ method, args });
       response = await request(new URL("/api/workbench/rpc", baseUrl), { method: "POST", credentials: "omit", cache: "no-store", redirect: "error",
-      ...(options.connection ? { signal: AbortSignal.timeout(30_000) } : {}),
+      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources"].includes(method) ? { signal: AbortSignal.timeout(method === "collectThesisSources" ? 45_000 : 30_000) } : {}),
       headers: { "Content-Type": "application/json", "x-workbench-token": capability,
         ...(options.connection ? { "x-host-instance-id": options.connection.instanceId } : {}) },
       ...(options.connection ? terminalRequestConnection(body) : {}), body }); }
@@ -115,6 +115,9 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     submit: value => rpc("submit", [value]), cancel: id => rpc("cancel", [id]),
     continue: value => rpc("continue", [value]), followup: value => rpc("followup", [value]),
     save: value => rpc("save", [value]), reload: value => rpc("reload", [value]),
+    establishThesis: value => rpc("establishThesis", [value]), saveThesisReview: value => rpc("saveThesisReview", [value]), readThesis: value => rpc("readThesis", [value]),
+    collectThesisSources: value => rpc("collectThesisSources", [value]), readThesisSources: value => rpc("readThesisSources", [value]),
+    collectThesisTsp: value => rpc("collectThesisTsp", [value]), readThesisTsp: value => rpc("readThesisTsp", [value]),
     review: value => rpc("review", [value]),
     deleteSession: value => rpc("deleteSession", [value]),
     acknowledgeInterruption: id => rpc("acknowledgeInterruption", [id]),

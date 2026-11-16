@@ -4,7 +4,7 @@ import { createDefaultSessionDependencies } from "../../runtime/session-dependen
 import { BUILTIN_TOOL_REGISTRY } from "../../tools/registry.ts";
 import { acquireResourceLeaseSet, acquireResourceLeases, artifactReference, createWorkbenchSessionStore, loadArtifactSnapshot } from "../../storage/index.ts";
 import type { QuantAgentDependencies, QuantAgentEvent, QuantAgentSession } from "../../agent/src/session-contracts.ts";
-import type { AgentPhase, Preferences, RunState, SessionSnapshot, SubmitRequest, SubmitResult, ToolActivity, Turn, WorkbenchClient, WorkbenchEvent, WorkspaceOutput, WorkspaceSummary } from "../../types/workbench.ts";
+import type { AgentPhase, ArtifactSummary, Preferences, RunState, SessionSnapshot, SubmitRequest, SubmitResult, ToolActivity, Turn, WorkbenchClient, WorkbenchEvent, WorkspaceOutput, WorkspaceSummary } from "../../types/workbench.ts";
 import { WorkbenchError, modelError } from "../workbench/errors.ts";
 import { localSettings, publicPreferences, secretValues, updateModel, type SettingsPort } from "../workbench/model.ts";
 import { completeRunActivity, recoverSnapshot } from "../workbench/session-recovery.ts";
@@ -18,6 +18,13 @@ import { hasExplicitReference } from "../workbench/references.ts";
 import { artifactRequest, deleteSessionRequest, nextRunRequest, preferencesRequest, renameSessionRequest, requestString, reviewRequest, runIdentity, runRevisionRequest, saveRequest, submitRequest } from "./requests.ts";
 import { researchWorkspaceId } from "./workspace.ts";
 import { forkResearchReport, readOriginalReport, reloadResearchReport, saveResearchReport } from "./artifacts.ts";
+import { prepareThesisRecord, readThesisRecord, thesisRequest } from "./thesis-review.ts";
+import { prepareThesisTsp, readThesisTspRecord, thesisTspRequest } from "./thesis-tsp.ts";
+import { collectThesisPriceCheck } from "../../runtime/research/thesis-price-check.ts";
+import { readDisclosurePdf } from "../../source/index.ts";
+import { prepareThesisSources, readThesisSourcesRecord, thesisSourcesRequest, thesisSourcesReadRequest } from "./thesis-sources.ts";
+import type { ThesisSourcesView, ThesisTspView } from "../../types/thesis-workbench.ts";
+import { collectTspObservations } from "../../runtime/research/tsp-observations.ts";
 import { clarificationTool, CLARIFICATION_TOOL } from "./clarification.ts";
 import { TerminalEnvironment } from "./terminal-environment.ts";
 import { reviewTerminalAnswer } from "./terminal-answer-review.ts";
@@ -95,7 +102,7 @@ function publicTurns(turns: readonly Turn[]): Turn[] {
 }
 
 /** Owns live runs/observers; the existing Quant/Pi session still owns tools, context and its journal. */
-export function createResearchService(options: { cwd?: string; workspaceId?: string; settings?: SettingsPort; dependencies?: () => QuantAgentDependencies; store?: ReturnType<typeof createWorkbenchSessionStore>; overview?: OverviewRefreshOptions } = {}) {
+export function createResearchService(options: { cwd?: string; workspaceId?: string; settings?: SettingsPort; dependencies?: () => QuantAgentDependencies; store?: ReturnType<typeof createWorkbenchSessionStore>; overview?: OverviewRefreshOptions; sourceChecks?: { prices?: typeof collectThesisPriceCheck; disclosure?: typeof readDisclosurePdf } } = {}) {
   const cwd = options.cwd ?? process.cwd(), settings = options.settings ?? localSettings;
   const clean = (text: string) => redactModelText(text, secretValues(settings.read()));
   const workspaceId = options.workspaceId ?? researchWorkspaceId();
@@ -879,6 +886,98 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     terminalCommands.set(input.requestId, { identity, fingerprint, cancel, receipt }); operations.set(source.id, receipt);
     return structuredClone(await receipt);
   };
+  const thesisOperations = new Map<string, { fingerprint: string; promise: Promise<ArtifactSummary> }>();
+  const thesisControllers = new Map<string, AbortController>();
+  function collectThesis(kind: "tsp", value: unknown): Promise<ThesisTspView>;
+  function collectThesis(kind: "sources", value: unknown): Promise<ThesisSourcesView>;
+  async function collectThesis(kind: "tsp" | "sources", value: unknown): Promise<ThesisTspView | ThesisSourcesView> {
+    assertOpen(); const input = kind === "tsp" ? thesisTspRequest(value) : thesisSourcesRequest(value);
+    if (input.workspaceId !== workspaceId) throw new WorkbenchError("WORKSPACE_MISMATCH", "工作区不匹配。", 409);
+    await ready; assertOpen(); const session = get(input.sessionId);
+    const prepared = kind === "tsp" ? prepareThesisTsp(input, snapshot(session), clean) : prepareThesisSources(input, snapshot(session), clean);
+    const view = (report: ArtifactSummary) => {
+      try { const ref = { ...input, artifactId: report.id, sha256: report.sha256 }, current = snapshot(get(session.id));
+        return kind === "tsp" ? readThesisTspRecord(ref, current) : readThesisSourcesRecord(ref, current); }
+      finally { unload(session); }
+    };
+    const pending = thesisOperations.get(prepared.artifactId);
+    if (pending) {
+      if (pending.fingerprint !== prepared.fingerprint) throw new WorkbenchError("REQUEST_CONFLICT", "请求标识已用于不同输入，未重复采集。", 409);
+      return view(await pending.promise);
+    }
+    if (prepared.existing && session.output?.artifacts.some(item => item.id === prepared.existing!.id && item.sha256 === prepared.existing!.sha256)) return view(prepared.existing);
+    if (session.active || operations.has(session.id)) throw new WorkbenchError("SESSION_BUSY", "会话仍在执行或保存，原运行已保留；请稍后采集。", 409);
+    if (session.revision !== input.expectedRevision) throw new WorkbenchError("REVISION_CONFLICT", "会话已变化，请重新读取后采集。", 409);
+    const controller = new AbortController();
+    const operation = (async () => {
+      let releaseResources: (() => void) | undefined;
+      try {
+        await session.writes; assertOpen(); assertCurrentCheckpoint(session);
+        let report = prepared.existing;
+        if (!report) {
+          releaseResources = await acquireResourceRead(session.cwd, controller.signal);
+          if (kind === "tsp") {
+            const batch = await collectTspObservations(prepared.symbol, { cwd: session.cwd, signal: controller.signal }).catch(() => {
+              if (controller.signal.aborted) throw new WorkbenchError("TSP_CANCELLED", "TSP 采集已取消，原记录已保留。", 503);
+              throw new WorkbenchError("TSP_UNAVAILABLE", "TSP 只读连接不可用。请检查 Pi 用户配置中的 tsp、服务地址、只读授权和本地启动环境后重试。", 503);
+            });
+            assertOpen(); controller.signal.throwIfAborted(); assertCurrentCheckpoint(session);
+            report = prepareThesisTsp(input, snapshot(session), clean).save(batch);
+          } else {
+            const source = prepareThesisSources(input, snapshot(session), clean), request = source.request;
+            const results = await Promise.allSettled([
+              (options.sourceChecks?.prices ?? collectThesisPriceCheck)({ symbol: source.symbol, start: request.start, end: request.end }, { signal: controller.signal }),
+              request.disclosureUrl === null ? Promise.resolve(null) : (options.sourceChecks?.disclosure ?? readDisclosurePdf)(source.symbol, request.disclosureUrl, { signal: controller.signal }),
+            ]);
+            // Drain both observations before releasing the lease, including cancellation or one failed source.
+            if (controller.signal.aborted) throw new WorkbenchError("SOURCES_CANCELLED", "来源核对已取消，原记录已保留。", 503);
+            if (results[0].status !== "fulfilled" || results[1].status !== "fulfilled") throw new WorkbenchError("SOURCES_UNAVAILABLE", "来源核对暂不可用，请检查行情配置或公告地址后重试。", 503);
+            assertOpen(); assertCurrentCheckpoint(session);
+            report = prepareThesisSources(input, snapshot(session), clean).save({ price: results[0].value, disclosure: results[1].value });
+          }
+        }
+        const saved = { ...snapshot(session), revision: session.revision + 1,
+          output: { ...(session.output ?? emptyOutput()), artifacts: [...(session.output?.artifacts ?? []), report] } };
+        const updatedAt = new Date().toISOString();
+        await flush(session, saved, updatedAt);
+        Object.assign(session, { output: saved.output, revision: saved.revision, updatedAt }); publish(session);
+        return report;
+      } finally { releaseResources?.(); }
+    })();
+    operations.set(session.id, operation); thesisControllers.set(prepared.artifactId, controller);
+    thesisOperations.set(prepared.artifactId, { fingerprint: prepared.fingerprint, promise: operation });
+    try { return view(await operation); }
+    finally { thesisControllers.delete(prepared.artifactId); thesisOperations.delete(prepared.artifactId); operations.delete(session.id); unload(session); }
+  };
+  const saveThesis = async (kind: "baseline" | "review", value: unknown) => {
+    assertOpen();
+    const input = kind === "baseline" ? thesisRequest("baseline", value) : thesisRequest("review", value);
+    if (input.workspaceId !== workspaceId) throw new WorkbenchError("WORKSPACE_MISMATCH", "工作区不匹配。", 409);
+    await ready; assertOpen(); const session = get(input.sessionId);
+    const prepared = prepareThesisRecord(kind, input, snapshot(session), clean);
+    const pending = thesisOperations.get(prepared.artifactId);
+    if (pending) {
+      if (pending.fingerprint !== prepared.fingerprint) throw new WorkbenchError("REQUEST_CONFLICT", "请求标识已用于不同的复核输入，未重复保存。", 409);
+      return structuredClone(await pending.promise);
+    }
+    if (prepared.existing && session.output?.artifacts.some(item => item.id === prepared.existing!.id && item.sha256 === prepared.existing!.sha256)) return structuredClone(prepared.existing);
+    if (session.active || operations.has(session.id)) throw new WorkbenchError("SESSION_BUSY", "会话仍在执行或保存，原运行已保留；请稍后重试。", 409);
+    if (session.revision !== input.expectedRevision) throw new WorkbenchError("REVISION_CONFLICT", "会话已变化，请重新读取后保存复核。", 409);
+    const operation = (async () => {
+      await session.writes; assertOpen(); assertCurrentCheckpoint(session);
+      const report = prepared.save();
+      const saved = { ...snapshot(session), revision: session.revision + 1,
+        output: { ...(session.output ?? emptyOutput()), artifacts: [...(session.output?.artifacts ?? []), report] } };
+      const updatedAt = new Date().toISOString();
+      await flush(session, saved, updatedAt);
+      Object.assign(session, { output: saved.output, revision: saved.revision, updatedAt }); publish(session);
+      return structuredClone(report);
+    })();
+    operations.set(session.id, operation);
+    thesisOperations.set(prepared.artifactId, { fingerprint: prepared.fingerprint, promise: operation });
+    try { return await operation; } finally { thesisOperations.delete(prepared.artifactId); operations.delete(session.id); unload(session); }
+  };
+
   const client: WorkbenchClient = {
     mode: "host",
     async identity() {
@@ -918,6 +1017,25 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     submit: value => accept("submit", value),
     continue: value => accept("continue", value),
     followup: value => accept("followup", value),
+    establishThesis: value => saveThesis("baseline", value),
+    saveThesisReview: value => saveThesis("review", value),
+    collectThesisTsp: value => collectThesis("tsp", value),
+    collectThesisSources: value => collectThesis("sources", value),
+    async readThesisSources(value) {
+      assertOpen(); const input = thesisSourcesReadRequest(value);
+      if (input.workspaceId !== workspaceId) throw new WorkbenchError("WORKSPACE_MISMATCH", "工作区不匹配。", 409);
+      return readThesisSourcesRecord(input, await read(input.sessionId));
+    },
+    async readThesisTsp(value) {
+      assertOpen(); const input = artifactRequest(value);
+      if (input.workspaceId !== workspaceId) throw new WorkbenchError("WORKSPACE_MISMATCH", "工作区不匹配。", 409);
+      return readThesisTspRecord(input, await read(input.sessionId));
+    },
+    async readThesis(value) {
+      assertOpen(); const input = artifactRequest(value);
+      if (input.workspaceId !== workspaceId) throw new WorkbenchError("WORKSPACE_MISMATCH", "工作区不匹配。", 409);
+      return readThesisRecord(input, await read(input.sessionId));
+    },
     async save(value) {
       assertOpen(); const input = saveRequest(value);
       if (input.workspaceId !== workspaceId) throw new WorkbenchError("WORKSPACE_MISMATCH", "工作区不匹配。", 409);
@@ -1121,6 +1239,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
       if (closing) return closing;
       closed = true;
       market.close();
+      for (const controller of thesisControllers.values()) controller.abort();
       for (const command of terminalCommands.values()) command.cancel();
       const pending = [...sessions.values()].flatMap(session => session.active
         ? [client.cancel({ workspaceId, sessionId: session.id, runId: session.active.id })] : []);

@@ -1,5 +1,8 @@
 import type { WorkbenchClient } from "../../types/workbench.ts";
 import { WorkbenchError } from "./errors.ts";
+import { thesisRequest } from "../services/thesis-review.ts";
+import { thesisSourcesRequest, thesisSourcesReadRequest } from "../services/thesis-sources.ts";
+import { thesisTspRequest } from "../services/thesis-tsp.ts";
 import { artifactRequest, deleteSessionRequest, nextRunRequest, preferencesRequest, renameSessionRequest, requestString, reviewRequest, runIdentity, runRevisionRequest, saveRequest, submitRequest } from "../services/requests.ts";
 
 function object(value: unknown): Record<string, unknown> {
@@ -53,6 +56,41 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
       count(1); const input = nextRunRequest(args[0], "followup");
       if (!client.followup) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持追问操作。");
       return client.followup(input);
+    }
+    case "establishThesis": {
+      count(1); const input = thesisRequest("baseline", args[0]);
+      if (!client.establishThesis) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持设立假设基线。");
+      return client.establishThesis(input);
+    }
+    case "saveThesisReview": {
+      count(1); const input = thesisRequest("review", args[0]);
+      if (!client.saveThesisReview) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持事件假设复核。");
+      return client.saveThesisReview(input);
+    }
+    case "collectThesisSources": {
+      count(1); const input = thesisSourcesRequest(args[0]);
+      if (!client.collectThesisSources) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持来源核对。");
+      return client.collectThesisSources(input);
+    }
+    case "readThesisSources": {
+      count(1); const input = thesisSourcesReadRequest(args[0]);
+      if (!client.readThesisSources) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持固定核对来源读取。");
+      return client.readThesisSources(input);
+    }
+    case "collectThesisTsp": {
+      count(1); const input = thesisTspRequest(args[0]);
+      if (!client.collectThesisTsp) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持 TSP 观察采集。");
+      return client.collectThesisTsp(input);
+    }
+    case "readThesisTsp": {
+      count(1); const input = artifactRequest(args[0]);
+      if (!client.readThesisTsp) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持 TSP 观察读取。");
+      return client.readThesisTsp(input);
+    }
+    case "readThesis": {
+      count(1); const input = artifactRequest(args[0]);
+      if (!client.readThesis) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持复核记录读取。");
+      return client.readThesis(input);
     }
     case "save": {
       count(1); const input = saveRequest(args[0]);
