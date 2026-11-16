@@ -14,7 +14,7 @@ const Common = {
   start: Type.String({ description: "Inclusive first price date YYYY-MM-DD; warmup stays inside this window" }),
   end: Type.String({ description: "Inclusive last price date YYYY-MM-DD" }),
   observed_before: Type.String({ description: "Exact UTC application observation cutoff YYYY-MM-DDTHH:mm:ss.sssZ" }),
-  source: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("akshare"), Type.Literal("tushare"),
+  source: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("akshare"), Type.Literal("tushare"), Type.Literal("tickflow"),
     Type.Literal("llmquant-data"), Type.Literal("financial-datasets")])),
 };
 

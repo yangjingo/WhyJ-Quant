@@ -10,10 +10,13 @@ CLI Web 入口沿用 `OHQUANT_DIR` 选择工作区，不迁移或合并配置。
 |---|---|---|
 | AKShare | A 股、指数、基金 | 无 token，需要所选 Python 环境中的依赖 |
 | Tushare | A 股、基金 | `WHYJ_QUANT_TUSHARE_TOKEN` |
+| TickFlow | 沪深京日线；分钟、因子和快照为独立接口 | `WHYJ_QUANT_TICKFLOW_API_KEY` |
 | LLMQuant Data | 美股、港股 | `WHYJ_QUANT_LLMQUANT_API_KEY` |
 | Financial Datasets | 美股价格与快照 | `WHYJ_QUANT_FINANCIAL_DATASETS_KEY` |
 
 在 Market Data 选择兼容的市场/源，填写凭证、可选端点和样本范围，先 Check data，再 Save verified。检查只请求当前源，不保存配置或行情，不用其他源回退证明成功。输入、有效环境凭证或端点变化后须重新检查；关闭面板取消检查，迟到结果不发布。
+
+TickFlow 使用原生 HTTP 数据源，默认服务根地址为 `https://api.tickflow.org`，可通过 `TICKFLOW_BASE_URL` 设置。只允许 HTTPS 或本机 HTTP 调试地址，不跟随重定向；凭证放在请求头。运行时从本机设置注入凭证，source 不读取 TSP 配置或使用面板 token。共享日线检查只验证所选日线样本。Desktop/Web 的完整凭证编辑、验证与保存流程另由 [#258](https://github.com/yangjingo/WhyJ-Quant/issues/258) 跟踪；本次 provider 接入不等于该界面流程已完成。
 
 保存的 key/端点优先于进程环境；移除 key 回到环境凭证，清空端点移除本地覆盖。成功只证明本次日线/NAV 样本，不代表所有端点权限或实时性。保存后刷新行情一次，关闭面板不重复刷新。来源、覆盖及回退规则见[数据源](../quant-harness/source-data-providers.md)。
 

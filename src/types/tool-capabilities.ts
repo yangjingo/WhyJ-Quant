@@ -4,7 +4,7 @@ export type ToolDataCapability = "daily-bars" | "archived-bars" | "archived-anal
   | "index-endpoint" | "fund-nav" | "fund-profile" | "fund-purchase" | "fund-fee" | "fund-performance" | "fund-endpoint"
   | "benchmark-results" | "shell" | "observation-portfolios" | "portfolio-comparison" | "comparison-results"
   | "alpha-backtest" | "alpha-results" | "alpha-engine-status" | "news-research" | "annual-research" | "position-scenarios" | "weighted-score" | "mainboard-scan";
-export type ToolProvider = "akshare" | "tushare" | "llmquant-data" | "financial-datasets" | "sina" | "local" | "frankfurter" | "yahoo";
+export type ToolProvider = "akshare" | "tushare" | "tickflow" | "llmquant-data" | "financial-datasets" | "sina" | "local" | "frankfurter" | "yahoo";
 export interface ToolDataRoute {
   provider: ToolProvider;
   markets: readonly DataMarket[];
