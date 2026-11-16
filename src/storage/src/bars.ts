@@ -14,7 +14,7 @@ import { isPriceAdjustment } from "../../market/price-adjustment.ts";
 import type { Bar, BarsSnapshot, CachedBars, DatasetRef, PriceAdjustment, SymbolMeta } from "../../types/data.ts";
 
 const CACHE_MAX_AGE_MS = 5 * 60_000;
-const SOURCES = ["akshare", "tushare", "llmquant-data", "financial-datasets"];
+const SOURCES = ["akshare", "tushare", "tickflow", "llmquant-data", "financial-datasets"];
 const COMMIT_PROTOCOL = "head-or-marker-v1" as const;
 
 function symbolDir(symbol: string, source: string): string {

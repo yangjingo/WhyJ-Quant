@@ -24,8 +24,8 @@ export function Sessions(props: { sessions: readonly WorkspaceSummary[]; active:
     </div>)}{!sessions.length && <p className="empty-state">没有匹配的会话。试试名称或证券代码。</p>}
   </aside>;
 }
-export function Footer({ preferences, mode, onOpen }: { preferences: Preferences; mode: string; onOpen(page: DialogPage): void }) {
+export function Footer({ preferences, mode, onOpen }: { preferences: Preferences; mode: string; onOpen(page: DialogPage, focusPortfolio?: boolean): void }) {
   return <footer className="status"><button className="status-model" onClick={() => onOpen("model")} title={mode === "demo" ? "演示模式未调用模型" : preferences.model || "模型未连接"}><Icon name="settings-2" /><span>{mode === "demo" ? "演示 · 未调用模型" : preferences.model || "模型未连接"}</span></button>
     <button className="status-source" onClick={() => onOpen("source")}>{mode === "host" && preferences.researchSource ? "研究源：" + (preferences.researchSources?.find(item => item.id === preferences.researchSource)?.label ?? preferences.researchSource) : preferences.source === "demo" && mode === "demo" ? "本地合成 · 示例" : "数据源未连接"}</button>
-    <button id="statusText" className="status-portfolio" onClick={() => onOpen("portfolio")}>{preferences.portfolio || "选择投资组合"}</button></footer>;
+    <button id="statusText" className="status-portfolio" onClick={() => onOpen("source", true)}>{preferences.portfolio || "选择投资组合"}</button></footer>;
 }

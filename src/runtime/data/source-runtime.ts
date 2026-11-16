@@ -1,4 +1,5 @@
 import {
+  createMarketDataSource,
   fetchBars as fetchSourceBars,
   fetchLiveBars as fetchSourceLiveBars,
   fetchResearchBars as fetchSourceResearchBars,
@@ -30,6 +31,7 @@ export function createStorageSourceRuntimeDeps(): SourceRuntimeDeps {
 export function createStorageSourceProviderOptions(settings: OhQuantSettings = loadSettings()): SourceProviderOptions {
   const env = { ...process.env, ...settings.env };
   return {
+    tickflow: { apiKey: env.WHYJ_QUANT_TICKFLOW_API_KEY, baseUrl: env.TICKFLOW_BASE_URL, env },
     tushare: { token: env.WHYJ_QUANT_TUSHARE_TOKEN, baseUrl: env.TUSHARE_BASE_URL, env },
     llmquant: { apiKey: env.WHYJ_QUANT_LLMQUANT_API_KEY, baseUrl: env.LLMQUANT_BASE_URL, env },
     financialDatasets: { apiKey: env.WHYJ_QUANT_FINANCIAL_DATASETS_KEY, baseUrl: env.FINANCIAL_DATASETS_BASE_URL, env },
@@ -51,6 +53,15 @@ export async function fetchBars(
   return fetchSourceBars(symbol, market, start, end, source, bound);
 }
 
+/** Bind the configured provider and its local credential to the neutral live facade. */
+export async function createConfiguredMarketDataSource(signal?: AbortSignal) {
+  const settings = await readSettingsAsync(signal);
+  signal?.throwIfAborted();
+  const env = { ...process.env, ...settings.env };
+  return createMarketDataSource({ source: settings.preferences.source,
+    apiKey: settings.preferences.source === "tickflow" ? env.WHYJ_QUANT_TICKFLOW_API_KEY : undefined,
+    baseUrl: settings.preferences.source === "tickflow" ? env.TICKFLOW_BASE_URL : undefined, env });
+}
 export async function createStorageSourceProviderOptionsAsync(signal?: AbortSignal): Promise<SourceProviderOptions> {
   return createStorageSourceProviderOptions(await readSettingsAsync(signal));
 }

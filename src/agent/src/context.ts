@@ -77,7 +77,7 @@ interface CachedInfo {
 
 function listCachedSymbols(): CachedInfo[] {
   const result: CachedInfo[] = [];
-  const sources = ["tushare", "akshare", "llmquant-data", "financial-datasets"];
+  const sources = ["tushare", "akshare", "tickflow", "llmquant-data", "financial-datasets"];
   for (const src of sources) {
     try {
       for (const symbol of listStoredSymbols(src)) {

@@ -24,7 +24,7 @@ export { fundDcaBacktestTool } from "./fund-dca-tools.ts";
 const Historical = {
   market: Type.Optional(Type.Union([Type.Literal("A"), Type.Literal("US"), Type.Literal("HK")],
     { description: "Optional symbol-market identity check for current analysis; required with observed_before." })),
-  source: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("akshare"), Type.Literal("tushare"),
+  source: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("akshare"), Type.Literal("tushare"), Type.Literal("tickflow"),
     Type.Literal("llmquant-data"), Type.Literal("financial-datasets")],
     { description: "Optional archive source with observed_before; otherwise /config source is used." })),
   observed_before: Type.Optional(Type.String({ description: "Exact UTC app-observation cutoff YYYY-MM-DDTHH:mm:ss.sssZ. Requires market/start/end; archive only, no current provider or cache head. Does not prove provider publication or complete trading days." })),
