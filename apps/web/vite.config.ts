@@ -21,7 +21,7 @@ function connectedDevelopment(target: string): Plugin {
         const host = address && typeof address !== "string" ? `127.0.0.1:${address.port}` : "";
         const origin = request.headers.origin;
         const allowed = (request.method === "GET" && ["/api/workbench/bootstrap", "/api/workbench/events"].includes(request.url))
-          || (request.method === "POST" && request.url === "/api/workbench/rpc");
+          || (request.method === "POST" && ["/api/workbench/rpc", "/api/workbench/report"].includes(request.url));
         if (!allowed || request.headers.host !== host || (origin && origin !== `http://${host}`)
           || request.headers["sec-fetch-site"] === "cross-site") {
           response.writeHead(403, { "Content-Type": "text/plain", "Cache-Control": "no-store" }); response.end("Development request denied."); return;
@@ -49,7 +49,7 @@ export default defineConfig(({ command, mode }) => {
     host: "127.0.0.1",
     port,
     strictPort: true,
-    ...(target ? { proxy: { "^/api/workbench/(bootstrap|rpc|events)$": {
+    ...(target ? { proxy: { "^/api/workbench/(bootstrap|rpc|events|report)$": {
       target, changeOrigin: true,
       configure(proxy) { proxy.on("proxyReq", (outgoing, request) => {
         outgoing.removeHeader("x-host-control-token");
