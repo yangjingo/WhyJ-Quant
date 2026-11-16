@@ -7,6 +7,7 @@ import { Transcript, Overview } from "./components/Research";
 import type { DialogPage } from "./components/Settings";
 import type { ResearchPage } from "./components/ResearchDialog";
 import { runLabels } from "./presentation";
+import { readClientSettings, writeClientSettings, type ClientSettings } from "./state/client-settings";
 
 const Settings = lazy(() => import("./components/Settings").then(module => ({ default: module.Settings })));
 const ResearchDialog = lazy(() => import("./components/ResearchDialog").then(module => ({ default: module.ResearchDialog })));
@@ -23,15 +24,19 @@ export function Workbench({ client }: { client: WorkbenchClient }) {
   const collapsedOverviewScroll = useRef(0);
   const restoreOverviewScroll = useRef(false);
   const [dialog, setDialog] = useState<DialogPage | null>(null);
+  const [focusPortfolio, setFocusPortfolio] = useState(false);
+  const [focusVersion, setFocusVersion] = useState(false);
   const [research, setResearch] = useState<ResearchPage | null>(null);
   const [positions] = useState(() => new Map<string, number>());
-  const [fontSize, setFontSize] = useState(15);
+  const [clientSettings, setClientSettings] = useState<ClientSettings>(readClientSettings);
+  const [settingsSaved, setSettingsSaved] = useState(true);
+  const updateClientSettings = (next: ClientSettings) => { setClientSettings(next); setSettingsSaved(writeClientSettings(next)); };
   const [operationError, setOperationError] = useState("");
   const session = view.sessions.find(s => s.sessionId === view.selected);
   const snapshot = view.snapshot;
   const running = snapshot?.state === "running";
   const selected = view.selected ?? "";
-  const openSettings = (page: DialogPage) => { setResearch(null); setDialog(page); };
+  const openSettings = (page: DialogPage, portfolio = false, version = false) => { setResearch(null); setFocusPortfolio(portfolio); setFocusVersion(version); setDialog(page); };
   const openResearch = (page: ResearchPage) => { setDialog(null); setResearch(page); };
   const focusInput = () => requestAnimationFrame(() => {
     const expandedControl = document.querySelector<HTMLElement>(".overview-expanded #overview .overview-heading-actions .text-action");
@@ -62,11 +67,11 @@ export function Workbench({ client }: { client: WorkbenchClient }) {
     if (name === "clear") { void store.create().then(focusInput); return true; }
     if (name === "resume") { if (window.innerWidth <= 760) setOverview(false); setSidebar(true); return true; }
     if (name === "evidence" || name === "artifact") { openResearch(name === "evidence" ? "evidence" : "report"); return true; }
-    const pages: Record<string, DialogPage> = { config: "reading", help: "help", portfolio: "portfolio" };
-    if (pages[name]) { openSettings(pages[name]!); return true; }
+    const pages: Record<string, DialogPage> = { config: "reading", portfolio: "source" };
+    if (pages[name]) { openSettings(pages[name]!, name === "portfolio"); return true; }
     return false;
   };
-  return <div id="app" className={"app " + (sidebar ? "sidebar-open " : "") + (overview ? "" : "no-panel ") + (overviewExpanded ? "overview-expanded" : "")} style={{ "--answer-font-size": fontSize + "px" } as React.CSSProperties}>
+  return <div id="app" className={"app " + (sidebar ? "sidebar-open " : "") + (overview ? "" : "no-panel ") + (overviewExpanded ? "overview-expanded" : "")} style={{ "--answer-font-size": clientSettings.fontSize + "px" } as React.CSSProperties}>
     <Header title={session?.name ?? "研究工作台"} code={session?.code ?? ""} running={!!running} mode={client.mode}
       sidebar={sidebar} onSidebar={() => { if (window.innerWidth <= 760 && !overviewExpanded) setOverview(false); setSidebar(!sidebar); }} onNew={() => void store.create().then(focusInput)}
       onSettings={() => openSettings("reading")} onOverview={() => { setSidebar(false); if (overviewExpanded) { restoreOverviewScroll.current = true; setOverviewExpanded(false); if (window.innerWidth <= 760) setOverview(false); } else { setOverview(!overview); } }} />
@@ -84,20 +89,20 @@ export function Workbench({ client }: { client: WorkbenchClient }) {
         {snapshot && ["cancelled", "failed", "interrupted"].includes(snapshot.state) && snapshot.identity.runId && client.continue && !snapshot.recovery?.acknowledgementRequired && <div className="recovery-notice"><p>这次研究尚未完成。服务会检查能否安全继续；若不能，请核对后提交新问题。</p><button className="action" onClick={() => { setOperationError(""); void store.continueRun().catch(error => setOperationError(error instanceof Error ? error.message : "继续研究失败。")); }}>继续未完成的研究</button></div>}
         {view.phase === "loading" && <p role="status" className="empty-state">正在读取会话…</p>}
         {snapshot && <Transcript key={selected} snapshot={snapshot} positions={positions} mode={client.mode} onEvidence={() => openResearch("evidence")} onReport={() => openResearch("report")} onSuggestion={text => { store.setDraft(text); focusInput(); }} />}
-        {!snapshot && view.phase !== "loading" && <div className="empty-state research-welcome"><span className="eyebrow">研究工作台</span><h2>{view.sessions.length ? "这条会话暂时无法打开" : "连接工作区后开始研究"}</h2><p>{view.sessions.length ? "请切换其他会话或新建研究，原记录会保留。" : "当前没有可打开的会话。请检查连接或新建研究。"}</p><div className="welcome-actions"><button className="action" onClick={() => client.mode !== "disconnected" ? void store.create().then(focusInput) : openSettings("about")}>{client.mode !== "disconnected" ? "新建研究" : "了解当前连接方式"}</button><button className="text-action" onClick={() => void store.load()}>重试连接</button></div><p className="supporting">界面不会用演示记录替代缺失的 Host 数据。</p></div>}
+        {!snapshot && view.phase !== "loading" && <div className="empty-state research-welcome"><span className="eyebrow">研究工作台</span><h2>{view.sessions.length ? "这条会话暂时无法打开" : "连接工作区后开始研究"}</h2><p>{view.sessions.length ? "请切换其他会话或新建研究，原记录会保留。" : "当前没有可打开的会话。请检查连接或新建研究。"}</p><div className="welcome-actions"><button className="action" onClick={() => client.mode !== "disconnected" ? void store.create().then(focusInput) : openSettings("reading", false, true)}>{client.mode !== "disconnected" ? "新建研究" : "了解当前连接方式"}</button><button className="text-action" onClick={() => void store.load()}>重试连接</button></div><p className="supporting">界面不会用演示记录替代缺失的 Host 数据。</p></div>}
       </main>
       <Overview elementRef={overviewElement} hidden={!overview} snapshot={view.market ?? snapshot?.market ?? null} error={view.marketError} onRefresh={client.refreshMarket ? failedOnly => void store.refreshMarket(failedOnly) : undefined} portfolio={view.preferences.portfolio} demo={client.mode === "demo"} expanded={overviewExpanded} onExpand={() => { setSidebar(false); if (overviewExpanded) restoreOverviewScroll.current = true; else collapsedOverviewScroll.current = overviewElement.current?.scrollTop ?? 0; if (overviewExpanded && window.innerWidth <= 760) setOverview(false); setOverviewExpanded(!overviewExpanded); if (overviewExpanded && window.innerWidth <= 760) focusInput(); }} onClose={() => { if (overviewExpanded) restoreOverviewScroll.current = true; setOverviewExpanded(false); setOverview(false); focusInput(); }} />
     </div>
     <Composer key={selected} client={client} sessionId={selected} text={view.draft}
       onText={text => store.setDraft(text)}
-      disabled={!snapshot || view.phase !== "ready"} running={!!running} onCancel={() => void store.cancel()} onCommand={command}
+      disabled={!snapshot || view.phase !== "ready"} running={!!running} sendKey={clientSettings.sendKey} onCancel={() => void store.cancel()} onCommand={command}
       submitBlocked={!!snapshot?.recovery?.acknowledgementRequired}
       onSubmit={text => store.submit(text)} />
     <Footer preferences={view.preferences} mode={client.mode} onOpen={openSettings} />
     <Suspense fallback={<div className="overlay-loading" role="status">正在打开面板…</div>}>
-    {dialog && <Settings key={selected} page={dialog} setPage={setDialog} onClose={() => setDialog(null)} preferences={view.preferences}
+    {dialog && <Settings key={selected} page={dialog} setPage={page => { setFocusPortfolio(false); setFocusVersion(false); setDialog(page); }} onClose={() => setDialog(null)} focusPortfolio={focusPortfolio} focusVersion={focusVersion} preferences={view.preferences}
       onPreferences={p => store.preferences(p)} snapshot={snapshot} title={session?.name ?? ""} onRename={title => store.rename(title)}
-      canDelete={!!client.deleteSession} onDelete={() => store.deleteSelected()} fontSize={fontSize} onFontSize={setFontSize} onStop={() => void store.cancel()} mode={client.mode} />}
+      canDelete={!!client.deleteSession} onDelete={() => store.deleteSelected()} clientSettings={clientSettings} onClientSettings={updateClientSettings} settingsSaved={settingsSaved} onStop={() => void store.cancel()} mode={client.mode} />}
     {research && snapshot && <ResearchDialog key={selected} page={research} setPage={setResearch} snapshot={snapshot} title={session?.name ?? "当前研究"} demo={client.mode === "demo"} onClose={() => setResearch(null)}
       canSave={!!client.save} canOpen={!!client.reload} canReview={!!client.review} onSave={() => store.saveReport()} onOpen={artifact => store.openReport(artifact)} onReview={async (artifact, text) => { if (await store.reviewReport(artifact, text)) setResearch(null); }} />}
     </Suspense>
