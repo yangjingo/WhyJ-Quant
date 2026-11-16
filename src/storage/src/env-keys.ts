@@ -9,6 +9,7 @@ export const WHYJ_ENV_KEY_ALIASES = {
   contextWindow: ["WHYJ_QUANT_CONTEXT_WINDOW"],
   compactTriggerTokens: ["WHYJ_QUANT_COMPACT_TRIGGER_TOKENS"],
   tushareToken: ["WHYJ_QUANT_TUSHARE_TOKEN", "TUSHARE_TOKEN"],
+  tickflowApiKey: ["WHYJ_QUANT_TICKFLOW_API_KEY"],
   financialDatasetsKey: ["WHYJ_QUANT_FINANCIAL_DATASETS_KEY", "FINANCIAL_DATASETS_KEY"],
   llmquantApiKey: ["WHYJ_QUANT_LLMQUANT_API_KEY", "LLMQUANT_API_KEY"],
   akquantPython: ["WHYJ_QUANT_AKQUANT_PYTHON"],

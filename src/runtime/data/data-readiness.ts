@@ -15,11 +15,11 @@ export function akshareJavaScriptFailure(dependency: PythonReadiness): "blocked-
     : status === "unavailable" ? "unavailable" : null;
 }
 export function dataSourcesForMarket(market: DataMarket): DataSource[] {
-  return market === "A" || market === "Fund" ? ["akshare", "tushare"]
+  return market === "A" ? ["akshare", "tushare", "tickflow"] : market === "Fund" ? ["akshare", "tushare"]
     : market === "US" ? ["llmquant-data", "financial-datasets", "akshare"] : market === "HK" ? ["llmquant-data", "akshare"] : [];
 }
 export function dataCredentialKey(source: DataSource): string | null {
-  return source === "tushare" ? "WHYJ_QUANT_TUSHARE_TOKEN" : source === "llmquant-data" ? "WHYJ_QUANT_LLMQUANT_API_KEY"
+  return source === "tickflow" ? "WHYJ_QUANT_TICKFLOW_API_KEY" : source === "tushare" ? "WHYJ_QUANT_TUSHARE_TOKEN" : source === "llmquant-data" ? "WHYJ_QUANT_LLMQUANT_API_KEY"
     : source === "financial-datasets" ? "WHYJ_QUANT_FINANCIAL_DATASETS_KEY" : null;
 }
 
@@ -28,7 +28,7 @@ export function defaultDataProbeRequest(settings: OhQuantSettings, now = new Dat
   const source = settings.preferences.source;
   const preferred = settings.preferences.defaultMarket;
   const market: DataMarket = DATA_MARKETS.includes(preferred as DataMarket) && dataSourcesForMarket(preferred as DataMarket).includes(source)
-    ? preferred as DataMarket : source === "akshare" || source === "tushare" ? "A" : "US";
+    ? preferred as DataMarket : source === "akshare" || source === "tushare" || source === "tickflow" ? "A" : "US";
   return { source, market, symbol: market === "A" ? "000001.SZ" : market === "US" ? "AAPL" : market === "HK" ? "00700.HK" : "270042.OF",
     start: new Date(now.getTime() - 30 * 86400_000).toISOString().slice(0, 10), end: now.toISOString().slice(0, 10) };
 }
@@ -96,6 +96,7 @@ export async function probeDataConnection(settings: OhQuantSettings, request: Da
       const market = input.market === "Fund" ? "A" : input.market;
       const pulled = await pullBarsFromProviders(input.symbol, market, input.start, input.end, input.source, {
         signal, adapters: options.adapters, fallbackOrder: { [market]: [input.source] },
+        tickflow: { apiKey: input.source === "tickflow" ? credential : undefined, baseUrl: env.TICKFLOW_BASE_URL, env },
         tushare: { token: input.source === "tushare" ? credential : undefined, baseUrl: env.TUSHARE_BASE_URL, env },
         llmquant: { apiKey: input.source === "llmquant-data" ? credential : undefined, baseUrl: env.LLMQUANT_BASE_URL, env },
         financialDatasets: { apiKey: input.source === "financial-datasets" ? credential : undefined, baseUrl: env.FINANCIAL_DATASETS_BASE_URL, env },

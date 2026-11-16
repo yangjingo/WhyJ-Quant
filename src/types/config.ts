@@ -1,7 +1,7 @@
 import type { MarketColorScheme } from "./theme-colors.ts";
 
 export type Market = "A" | "HK" | "US" | "Fund" | "Crypto";
-export type DataSource = "akshare" | "tushare" | "llmquant-data" | "financial-datasets";
+export type DataSource = "akshare" | "tushare" | "tickflow" | "llmquant-data" | "financial-datasets";
 export type HudMode = "full" | "context" | "off";
 
 export const DEFAULT_TERMINAL_OPERATION_KEYBINDINGS = {

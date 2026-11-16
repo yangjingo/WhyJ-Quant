@@ -25,7 +25,7 @@ const FetchBars = Type.Object({
   market: Type.Optional(Type.String({ description: "Market code: A, US, HK" })),
   start: Type.Optional(Type.String({ description: "Start date YYYY-MM-DD" })),
   end: Type.Optional(Type.String({ description: "End date YYYY-MM-DD" })),
-  source: Type.Optional(Type.String({ description: "Optional override: akshare, tushare, llmquant-data, or financial-datasets. Defaults to /config." })),
+  source: Type.Optional(Type.String({ description: "Optional override: akshare, tushare, tickflow, llmquant-data, or financial-datasets. Defaults to /config." })),
   observed_before: Type.Optional(Type.String({ description: "Exact UTC application observation cutoff YYYY-MM-DDTHH:mm:ss.sssZ. Opt-in archive-only request; no provider call or current cache head. Does not prove provider publication or trading-day completeness." })),
 });
 
@@ -51,7 +51,7 @@ export const fetchBarsTool: AgentTool<typeof FetchBars> = {
     if (!["A", "US", "HK"].includes(market)) return err("INPUT_INVALID_SYMBOL", "Market must be A, US, or HK.");
     try { normalizeSymbol(args.symbol, market); }
     catch { return err("INPUT_INVALID_SYMBOL", "Symbol must match the selected market."); }
-    if (args.source !== undefined && !isDataSource(args.source)) return err("DATA_BACKEND_UNAVAILABLE", "Unknown source. Choose auto, akshare, tushare, llmquant-data, or financial-datasets.");
+    if (args.source !== undefined && !isDataSource(args.source)) return err("DATA_BACKEND_UNAVAILABLE", "Unknown source. Choose auto, akshare, tushare, tickflow, llmquant-data, or financial-datasets.");
     if (args.observed_before !== undefined) {
       try { validateObservationCutoff(args.observed_before); }
       catch { return err("DATA_INVALID_OBSERVATION_CUTOFF"); }
@@ -218,5 +218,5 @@ export const DATA_TOOLS: AgentTool[] = [
 ];
 
 function isDataSource(value: unknown): value is DataSource {
-  return value === "auto" || value === "akshare" || value === "tushare" || value === "llmquant-data" || value === "financial-datasets";
+  return value === "auto" || value === "akshare" || value === "tushare" || value === "tickflow" || value === "llmquant-data" || value === "financial-datasets";
 }

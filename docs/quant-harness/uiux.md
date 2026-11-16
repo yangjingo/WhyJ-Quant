@@ -14,9 +14,15 @@ Desktop 面向 Windows/macOS 用户，CLI/TUI 面向 Linux 专业用户。它们
 
 TUI 将研究、行情概览和输入组织在有限空间里，保持输入可达、长内容可滚动。底栏只保留模型、数据来源和组合等必要身份，避免把所有后台状态都塞进一行。字体与中文宽度依赖终端，因此不能仅凭某张截图推断所有环境一致。
 
-共享 React 界面保持完整对话与固定输入区，会话列表、对话、行情概览和结果入口有独立位置；窄屏通过开关访问侧区。浏览器演示使用显式合成客户端，不能代替真实研究服务验收。
+共享 React 界面保持完整对话与固定输入区，会话列表、对话、行情概览和结果入口有独立位置；窄屏通过开关访问侧区。浏览器演示使用显式合成客户端，不能代替真实研究服务验收。 欢迎内容和消息流统一以会话内容区左侧内边距为起点，模型流式输出和结束后的消息保持同一对齐；正文仍受最大宽度约束。
 
 这种差异不是两套产品逻辑。任务状态与数据含义应来自共享服务，布局负责让各入口的用户看懂它们。具体组件、状态与接入边界参见 [共享 Web UI](./web-ui.md)；演示与正常入口共用组件，示例数据仅由开发适配器提供。
+
+## 共享界面的设置面板
+
+共享 React 设置面板按「界面、会话、模型、数据」组织。模型与数据入口目前保留已支持的选择和偏好；服务商凭据配置及连接测试尚未在该界面开放。版本和连接信息位于界面设置底部；观察组选择位于数据，运行状态和显式停止位于会话设置；观察组不等于真实持仓。底栏模型、数据源和观察组入口分别打开对应设置区域。
+
+设置面板在桌面放大并限制于视口，窄屏导航可横向滚动，内容独立滚动。前端移除命令帮助设置页；终端命令及其帮助保持不变。
 
 ## 先保护输入，再考虑提交速度
 
@@ -84,3 +90,6 @@ W3C 的颜色使用原则要求信息不能只靠颜色区分。[1] 因此涨跌
 
 1. W3C. [Understanding Success Criterion 1.4.1: Use of Color](https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html). WCAG 2.2 理解文档；作为设计参考，不构成全站无障碍符合性声明。
 2. WhyJ-Quant. [视觉规范](../../DESIGN.md)、[运行与恢复](../agent-runtime/README.md). 视觉真源与状态所有权分别维护。
+
+
+The shared settings dialog keeps reading font size and the Enter versus Ctrl/Command+Enter send shortcut in client-local storage. Changes apply immediately, can be reset, and show a warning when storage is unavailable. These presentation preferences contain no credentials and do not change the workspace settings. The data page links to provider-owned documentation or registration; opening a link does not check a connection or configure credentials.
