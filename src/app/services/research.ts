@@ -17,7 +17,7 @@ import { redactModelText } from "../workbench/redaction.ts";
 import { hasExplicitReference } from "../workbench/references.ts";
 import { artifactRequest, deleteSessionRequest, nextRunRequest, preferencesRequest, renameSessionRequest, requestString, reviewRequest, runIdentity, runRevisionRequest, saveRequest, submitRequest } from "./requests.ts";
 import { researchWorkspaceId } from "./workspace.ts";
-import { forkResearchReport, reloadResearchReport, saveResearchReport } from "./artifacts.ts";
+import { forkResearchReport, readOriginalReport, reloadResearchReport, saveResearchReport } from "./artifacts.ts";
 import { clarificationTool, CLARIFICATION_TOOL } from "./clarification.ts";
 import { TerminalEnvironment } from "./terminal-environment.ts";
 import { reviewTerminalAnswer } from "./terminal-answer-review.ts";
@@ -945,6 +945,13 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
       })();
       operations.set(session.id, operation);
       try { return await operation; } finally { operations.delete(session.id); unload(session); }
+    },
+    async readReport(value) {
+      assertOpen(); const input = artifactRequest(value);
+      if (input.workspaceId !== workspaceId) throw new WorkbenchError("WORKSPACE_MISMATCH", "工作区不匹配。", 409);
+      const current = await read(input.sessionId);
+      assertOpen();
+      return readOriginalReport(input, current);
     },
     async reload(value) {
       const input = artifactRequest(value);
