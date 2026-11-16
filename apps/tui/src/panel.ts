@@ -606,6 +606,8 @@ export class PanelController {
     switch (source) {
       case "tushare":
         return "tushareToken";
+      case "tickflow":
+        return "tickflowApiKey";
       case "llmquant-data":
         return "llmquantApiKey";
       case "financial-datasets":

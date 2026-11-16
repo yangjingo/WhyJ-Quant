@@ -14,7 +14,7 @@
 ## Responsibilities
 
 - normalize configured source selection
-- fetch bars from AKShare, Tushare, LLMQuant, and Financial Datasets
+- fetch bars from AKShare, Tushare, TickFlow, LLMQuant, and Financial Datasets
 - fall back across providers when one source is empty, stale, or unavailable
 - fall back across AKShare upstream endpoints before falling through to another provider
 - merge provider results with cache behavior only through injectable runtime deps
@@ -42,6 +42,7 @@
 | `src/source/src/akshare-endpoints.ts` | AKShare public endpoint whitelists and endpoint types |
 | `src/source/src/sina-index-client.ts` | Sina A-index quote fallback client |
 | `src/source/src/tushare.ts` | Tushare-backed fetch |
+| `src/source/src/tickflow.ts` | native TickFlow HTTP daily/minute bars, adjustment factors and quote snapshots |
 | `src/source/src/llmquant.ts` | LLMQuant-backed market fetch |
 | `src/source/src/financial-datasets.ts` | Financial Datasets-backed fetch |
 | `src/source/src/http.ts` | shared JSON/text transport, body-inclusive deadline, cancellation and bounded UTF-8 text reads |
@@ -83,6 +84,21 @@ Callers may configure `providers.akshare.sourcePriority`, override a `BarProvide
 `fallbackOrder`. These are separate controls: endpoint order is internal to AKShare, while fallback order chooses
 between top-level providers.
 
+## Provider-neutral market data facade
+
+Import `createMarketDataSource` and the request/result types from `src/source/index.ts`. Runtime can bind local settings with `createConfiguredMarketDataSource`. The facade currently implements the TickFlow slice for SH/SZ/BJ; other providers explicitly report unsupported instead of silently switching source. The established `fetchBars` route remains compatible and retains its own fallback and cache policy.
+
+| Method | Contract |
+| --- | --- |
+| `fetchKlines({ symbol, interval, adjustment, startTime?, endTime?, count? })` | Daily or minute OHLCV with millisecond timestamps, explicit period and price basis. |
+| `fetchAdjustmentFactors({ symbols, startTime?, endTime? })` | Dated factors for each requested symbol; no local factor application. |
+| `fetchQuotes({ symbols })` | Quote snapshots with source timestamps and explicit missing symbols. |
+| `fetchFinancials({ symbols, kind, startDate?, endDate?, latest? })` | Income, balance sheet, cash flow, metrics or shares; report-period and announcement dates remain distinct. Currency and units are unknown. |
+| `subscribeQuotes({ symbols }, handlers, options?)` | Explicit quote subscription; resolves only after provider acknowledgement, returns `close()` and `closed`, and reports failures without reconnecting. |
+
+The result reports actual source, endpoint, observation time, and unknown units. Source time is retained per observation; retrieval time does not certify freshness or finality. Time windows use inclusive UTC milliseconds; no assumptions about calendar completeness. Direct facade calls always request the selected provider and do not read or write cache; this does not change the shared daily `fetchBars` cache policy tracked in [#261](https://github.com/yangjingo/WhyJ-Quant/issues/261).
+
+The current TickFlow adapter maps these contracts to [TickFlow REST](https://docs.tickflow.org/zh-Hans/api-reference/openapi.json), using `WHYJ_QUANT_TICKFLOW_API_KEY` and optional `TICKFLOW_BASE_URL`. It does not use TSP, Python or MCP. Compact columns must align; malformed data, identity conflicts, duplicate timestamps and out-of-window rows fail. Bounded windows reaching the 10,000-row count cap fail as potentially truncated; use smaller windows. Batch factor/quote requests are limited to 100 symbols. Each response is limited to 8 MiB with timeout, cancellation and no redirects. Strict finality, calendar completeness and volume/amount units remain unverified. Financial dates filter reporting period, not publication; an announcement date alone does not establish point-in-time availability or revision history. Missing financial fields remain null; currency, magnitude and ratio units are not certified. WebSocket authentication uses the provider-required URL query key, never returned in diagnostic errors. Quote subscriptions do not reconnect, persist, or feed the UI automatically; closing or cancellation ends the stream. Stream permission is separate from snapshot access. Unified contracts and adapters for additional families and providers remain tracked by [#264](https://github.com/yangjingo/WhyJ-Quant/issues/264).
 ## Test rules
 
 - put provider parsing tests in `src/source/tests/`

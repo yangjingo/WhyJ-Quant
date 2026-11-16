@@ -16,6 +16,7 @@ export function publicPreferences(settings: OhQuantSettings): Preferences {
     researchSource: settings.preferences.source,
     researchSources: [
       { id: "akshare", label: "AKShare", requiresCredential: false, credentialConfigured: false },
+      { id: "tickflow", label: "TickFlow", requiresCredential: true, credentialConfigured: !!(settings.env.WHYJ_QUANT_TICKFLOW_API_KEY ?? process.env.WHYJ_QUANT_TICKFLOW_API_KEY)?.trim() },
       { id: "tushare", label: "Tushare", requiresCredential: true, credentialConfigured: !!readWhyjEnvValue({ ...process.env, ...settings.env }, "tushareToken") },
       { id: "llmquant-data", label: "LLMQuant", requiresCredential: true, credentialConfigured: !!readWhyjEnvValue({ ...process.env, ...settings.env }, "llmquantApiKey") },
       { id: "financial-datasets", label: "Financial Datasets", requiresCredential: true, credentialConfigured: !!readWhyjEnvValue({ ...process.env, ...settings.env }, "financialDatasetsKey") },
@@ -28,7 +29,7 @@ export function updateModel(port: SettingsPort, next: Preferences) {
   if (typeof next.model !== "string" || !next.model.trim() || next.model.length > 160) throw new WorkbenchError("MODEL_INVALID", "请输入不超过 160 字符的模型 ID。");
   const settings = port.read();
   if (next.researchSource !== undefined) {
-    if (!["akshare", "tushare", "llmquant-data", "financial-datasets"].includes(next.researchSource)) throw new WorkbenchError("SOURCE_INVALID", "请选择已接入的研究数据源。");
+    if (!["akshare", "tushare", "tickflow", "llmquant-data", "financial-datasets"].includes(next.researchSource)) throw new WorkbenchError("SOURCE_INVALID", "请选择已接入的研究数据源。");
     settings.preferences.source = next.researchSource;
   }
   settings.model = next.model.trim(); settings.revision = next.revision;
