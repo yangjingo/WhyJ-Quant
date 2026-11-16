@@ -150,7 +150,7 @@ Host 从实际 tool_execution_end 事件保留模型可见的文本块，执行�
 
 保存后可打开当前固定 HTML 或精确原基线，复用上述隔离报告预览；返回工作区保留研究对话、草稿和运行。记录不会自动改写原假设，不自动下单，不调用新模型或生成公开分享副本。当前切片由用户手动发起，不自动订阅 TSP 事件；MCP/数据源的真实可用性需在用户后续提供实例配置后单独验证。
 
-本地验证复用 `report-preview-fixture.ts`，在合成会话运行 `apps/web/dev/thesis-dashboard-evidence.cjs` 与 `thesis-boundary-evidence.cjs`，覆盖设立基线、固定报告前后跳转、各类结果、固定价量图、丢失响应重试和宽/窄/低高度窗口。截图与日志保留在 `output/playwright/thesis-dashboard/` 和 `output/254/`。合成记录不是已接入 TSP 的验收证据。
+本地验证复用 `report-preview-fixture.ts`，在合成会话运行 `apps/web/dev/thesis-dashboard-evidence.cjs` 与 `thesis-boundary-evidence.cjs`，覆盖设立基线、固定报告前后跳转、各类结果、固定价量图、丢失响应重试和宽/窄/低高度窗口。截图与日志保留在 `output/playwright/thesis-dashboard/` 和 `output/254/`。合成记录不是已接入 TSP 的验收证据。 Web review CI 可将独立 Host 的合成来源、TSP 选择、失败和重试截图作为运行产物保存；产物有效期与权限由 CI 配置决定，不替代真实来源或 Desktop 验收。
 
 `thesis-read-states-evidence.cjs`、`thesis-version-evidence.cjs` 和 `thesis-active-evidence.cjs` 分别检查不可用/加载/重试、同一报告 ID 的精确版本选择、活动运行保护。三项人工 RPC 最长等待 30 秒；超时表示结果未确认，保留输入并显式重试，服务复用请求标识。Desktop 先以 `--desktop` 启动独立 fixture，再运行 `node apps/desktop/scripts/thesis-review-evidence.mjs`，覆盖真实 `app://desktop` 的登记、重开、窄屏、草稿和原生下载摘要；它连接既有模拟 Host，不代表安装包自行启动或真实 TSP 验收。
 

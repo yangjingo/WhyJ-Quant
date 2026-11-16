@@ -58,6 +58,7 @@ try {
   if (hasHostCapture) receipt.host = await (await import(pathToFileURL(hostCapture).href)).captureHost({ browser, output, root });
   receipt.actions = await (await import('./review-actions-evidence.mjs')).captureActions({ browser, output, root });
   receipt.recovery = await (await import(pathToFileURL(join(web, 'dev/review-recovery-evidence.mjs')).href)).captureRecovery({ browser, output });
+  receipt.thesis = await (await import('./review-thesis-evidence.mjs')).captureThesis({ browser, output, root });
   receipt.result = 'passed';
 } catch (error) { receipt.result = 'failed'; receipt.failure = String(error); throw error; }
 finally {
