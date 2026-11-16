@@ -135,7 +135,7 @@ else {
       if (url.host !== "desktop") return new Response("Not found", { status: 404 });
       if (["recovery.html", "recovery.js", "recovery.css", "logo-mark.svg"].includes(name)) return net.fetch(pathToFileURL(join(app.getAppPath(), "dist", name)).href);
       if (!connection || !["GET", "POST", "HEAD"].includes(request.method)
-        || !(url.pathname === "/" || url.pathname.startsWith("/assets/") || ["/api/workbench/bootstrap", "/api/workbench/rpc", "/api/workbench/events"].includes(url.pathname))) return new Response("Not found", { status: 404 });
+        || !(url.pathname === "/" || url.pathname.startsWith("/assets/") || ["/api/workbench/bootstrap", "/api/workbench/rpc", "/api/workbench/events", "/api/workbench/report"].includes(url.pathname))) return new Response("Not found", { status: 404 });
       // The stable app origin keeps view-only drafts across Host port changes.
       // Only the selected, authenticated loopback Host receives these requests.
       const target = new URL(connection.url); target.pathname = url.pathname; target.search = url.search;
