@@ -31,9 +31,9 @@ async function requestJson<TResponse>(url: string, init: RequestInit, options: H
 }
 
 /** Bounded UTF-8 text; the same deadline covers headers and the entire body. */
-export async function getText(url: string, maxBytes: number, options: HttpOptions = {}): Promise<string> {
+export async function getText(url: string, maxBytes: number, options: HttpOptions = {}, headers: Record<string, string> = {}): Promise<string> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) throw new Error("Invalid text response limit");
-  return request(url, { ...(options.redirect ? { redirect: options.redirect } : {}) }, options, async response => {
+  return request(url, { headers, ...(options.redirect ? { redirect: options.redirect } : {}) }, options, async response => {
     if (!response.body) throw new Error("Provider response invalid");
     const reader = response.body.getReader(), decoder = new TextDecoder("utf-8", { fatal: true });
     let bytes = 0, text = "";

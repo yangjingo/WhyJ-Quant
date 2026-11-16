@@ -2,13 +2,14 @@ import type { Bar, CachedBars, DatasetRef, Market, PriceAdjustment } from "../..
 import type { DailyBarDataset } from "../../types/research-data.ts";
 import type { FinancialDatasetsOptions } from "./financial-datasets.ts";
 import type { LlmQuantOptions } from "./llmquant.ts";
+import type { TickFlowOptions } from "./tickflow.ts";
 import type { TushareOptions } from "./tushare.ts";
 import type { AkshareBarsOptions } from "./akshare-types.ts";
 
-export type DataSource = "auto" | "akshare" | "tushare" | "llmquant-data" | "financial-datasets";
+export type DataSource = "auto" | "akshare" | "tushare" | "tickflow" | "llmquant-data" | "financial-datasets";
 
 /** Provider id returned by live pull (not cache). */
-export type PullSource = "akshare" | "tushare" | "llmquant-data" | "financial-datasets" | "unavailable";
+export type PullSource = "akshare" | "tushare" | "tickflow" | "llmquant-data" | "financial-datasets" | "unavailable";
 export type ProviderSource = Exclude<PullSource, "unavailable">;
 
 export interface SourceBarsRequest {
@@ -89,10 +90,11 @@ export interface SourceProviderOptions {
   /** Monotonic request deadline: fetchBars also applies it to cache and save; live window retries share it. */
   budgetMs?: number;
   /** Host-owned credentials are read only if a concrete paid adapter is dispatched. */
-  loadCredentials?: (signal?: AbortSignal) => Pick<SourceProviderOptions, "akshare" | "tushare" | "llmquant" | "financialDatasets">
-    | Promise<Pick<SourceProviderOptions, "akshare" | "tushare" | "llmquant" | "financialDatasets">>;
+  loadCredentials?: (signal?: AbortSignal) => Pick<SourceProviderOptions, "akshare" | "tushare" | "tickflow" | "llmquant" | "financialDatasets">
+    | Promise<Pick<SourceProviderOptions, "akshare" | "tushare" | "tickflow" | "llmquant" | "financialDatasets">>;
   akshare?: AkshareBarsOptions;
   tushare?: TushareOptions;
+  tickflow?: TickFlowOptions;
   llmquant?: LlmQuantOptions;
   financialDatasets?: FinancialDatasetsOptions;
   /** Per-call adapter overrides, useful for replacing an unavailable provider. */
@@ -111,6 +113,7 @@ export interface SourceFetchOptions {
 export const SOURCE_LABELS: Record<PullSource, string> = {
   akshare: "AKShare",
   tushare: "Tushare",
+  tickflow: "TickFlow",
   "llmquant-data": "LLMQuant",
   "financial-datasets": "Financial Datasets",
   unavailable: "暂无数据",

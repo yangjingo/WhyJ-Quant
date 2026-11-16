@@ -3,10 +3,10 @@ import type { ReferenceCandidate, WorkbenchClient } from "../client/contract";
 import { detect, replaceToken } from "../features/composer/editor.mjs";
 import { canSubmitText } from "../presentation";
 
-const descriptions: Record<string, string> = { config: "界面与连接设置", resume: "切换会话", clear: "新建研究", portfolio: "选择观察组", artifact: "报告与版本", evidence: "当前证据", help: "输入快捷键" };
+const descriptions: Record<string, string> = { config: "界面与连接设置", resume: "切换会话", clear: "新建研究", portfolio: "选择观察组", artifact: "报告与版本", evidence: "当前证据" };
 export function Composer(props: {
   client: WorkbenchClient; sessionId: string; text: string; onText(text: string): void;
-  running: boolean; disabled: boolean; submitBlocked?: boolean; onSubmit(text: string): Promise<boolean>; onCancel(): void; onCommand(name: string): boolean;
+  running: boolean; disabled: boolean; sendKey: "enter" | "ctrl-enter"; submitBlocked?: boolean; onSubmit(text: string): Promise<boolean>; onCancel(): void; onCommand(name: string): boolean;
 }) {
   const input = useRef<HTMLTextAreaElement>(null);
   const [caret, setCaret] = useState(props.text.length);
@@ -98,13 +98,13 @@ export function Composer(props: {
           if (open && choices.length && ["ArrowDown", "ArrowUp"].includes(e.key)) {
             e.preventDefault(); setIndex((index + (e.key === "ArrowDown" ? 1 : choices.length - 1)) % choices.length); return;
           }
-          if (open && choices[index] && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
+          if (open && choices[index] && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey))) {
             e.preventDefault(); complete(choices[index]!); return;
           }
-          if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); }
+          if (e.key === "Enter" && !e.shiftKey && (props.sendKey === "enter" ? !e.ctrlKey && !e.metaKey : e.ctrlKey || e.metaKey)) { e.preventDefault(); void send(); }
         }} /></div>
       <div className="composer-actions"><button key={props.running ? "stop" : "send"} id="send" type={props.running ? "button" : "submit"} onClick={props.running ? event => { event.preventDefault(); props.onCancel(); requestAnimationFrame(() => input.current?.focus()); } : undefined} className="icon-button send-button" disabled={props.disabled || props.submitBlocked || pending || (!props.running && !props.text.trim())}
-        aria-label={props.running ? "停止生成" : "发送问题"} title={props.running ? "停止生成 · Ctrl + G" : "发送 · Enter"}><span aria-hidden="true">{props.running ? "■" : "↵"}</span></button></div>
+        aria-label={props.running ? "停止生成" : "发送问题"} title={props.running ? "停止生成 · Ctrl + G" : (props.sendKey === "enter" ? "发送 · Enter" : "发送 · Ctrl/⌘ + Enter")}><span aria-hidden="true">{props.running ? "■" : "↵"}</span></button></div>
     </div>
     {open && <section id="cmdMenu" className="suggestion-panel" aria-label="输入候选">
       <div className="suggestion-header"><strong>{trigger === "/" ? "命令" : "文件 · 会话 · 证据"}</strong><small>{props.client.mode === "demo" ? "示例工作区" : "当前工作区"}</small></div>
@@ -114,6 +114,6 @@ export function Composer(props: {
       </div><div className="suggestion-footer">↑ ↓ 选择 · Enter / Tab 确认 · Esc 收起</div>
     </section>}
     {feedback && <div role="status" className="composer-feedback">{feedback}</div>}
-    <div className="composer-hint"><span>{props.running ? "可继续写草稿，运行结束后发送" : "Enter 发送 · Shift + Enter 换行"}</span><span>{props.running ? "Ctrl + G 停止" : ""}</span></div>
+    <div className="composer-hint"><span>{props.running ? "可继续写草稿，运行结束后发送" : (props.sendKey === "enter" ? "Enter 发送 · Shift + Enter 换行" : "Ctrl/⌘ + Enter 发送 · Enter 换行")}</span><span>{props.running ? "Ctrl + G 停止" : ""}</span></div>
   </form>;
 }

@@ -145,7 +145,7 @@ function normalizeArtifactGeneration(
   };
 }
 
-const VALID_SOURCES = new Set(["akshare", "tushare", "llmquant-data", "financial-datasets"]);
+const VALID_SOURCES = new Set(["akshare", "tushare", "tickflow", "llmquant-data", "financial-datasets"]);
 function isValidSource(s: unknown): boolean {
   return typeof s === "string" && VALID_SOURCES.has(s);
 }
