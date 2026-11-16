@@ -159,6 +159,13 @@ export interface ArtifactRequest {
   readonly artifactId: string;
   readonly sha256: string;
 }
+/** Private original HTML, verified against a fixed stored snapshot; never a public-share projection. */
+export interface OriginalReport {
+  readonly artifact: ArtifactSummary;
+  readonly html: string;
+  readonly htmlSha256: string;
+  readonly bytes: number;
+}
 export interface ReviewRequest extends ArtifactRequest {
   readonly requestId: string;
   readonly expectedRevision: number;
@@ -249,6 +256,7 @@ export interface WorkbenchClient {
   followup?(request: FollowupRequest): Promise<SubmitResult>;
   save?(request: SaveRequest): Promise<ArtifactSummary>;
   reload?(request: ArtifactRequest): Promise<SavedResearch>;
+  readReport?(request: ArtifactRequest): Promise<OriginalReport>;
   review?(request: ReviewRequest): Promise<SubmitResult>;
   deleteSession?(request: DeleteSessionRequest): Promise<void>;
   /** Explicit user intent. Releasing a subscription must never do this. */
