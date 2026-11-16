@@ -134,7 +134,7 @@ Host 从实际 tool_execution_end 事件保留模型可见的文本块，执行�
 
 本地按需加载固定 ECharts 5.6.0，以支持既有报告图表、Chart/Raw、Dashboard/Trajectory 与主题切换；依赖外网的内容可能不可用。预览是受限视图，下载保持已核验原始 HTML 的 UTF-8 字节（含 BOM），不覆盖保存文件。原文件保留自己的脚本和外部引用，用户另行打开时可能访问网络。该入口不发布报告、不提供交易动作，也不将旧报告数字更新为最新行情。
 
-隔离验收可先运行 `bun run web:build`，再启动 `bun run tests/app/dev/report-preview-fixture.ts`。该 fixture 使用独立临时存储、固定 HTML 和本地合成模型，不读取个人配置、不调用真实模型或 TSP。打开其输出的 origin，选中“报告体验 · 合成研究”。`apps/web/dev/report-states-evidence.cjs` 覆盖空文件、读取失败/重试、预览超时、加载中返回和切换会话；`report-interaction-evidence.cjs` 与 `report-security-evidence.cjs` 分别覆盖图表/下载和攻击探针，通过 Playwright CLI `run-code --filename` 在该页面运行。截图留在忽略的 `output/playwright/report-ui/`。浏览器、Desktop 和真实数据源的验收结果分别记录，合成测试不替代真实集成验收。
+隔离验收可先运行 `bun run web:build`，再启动 `bun run tests/app/dev/report-preview-fixture.ts`。该 fixture 使用独立临时存储、固定 HTML 和本地合成模型，不读取个人配置、不调用真实模型或 TSP。打开其输出的 origin，选中“报告体验 · 合成研究”。`apps/web/dev/report-states-evidence.cjs` 覆盖空文件、读取失败/重试、预览超时、加载中返回和切换会话；`report-interaction-evidence.cjs` 与 `report-security-evidence.cjs` 分别覆盖图表/下载和攻击探针，通过 Playwright CLI `run-code --filename` 在该页面运行。截图留在忽略的 `output/playwright/report-ui/`。Web review CI 使用独立合成 Host 保存报告交互和隔离探针截图，产物权限与有效期由 CI 配置决定。浏览器、Desktop 和真实数据源的验收结果分别记录，合成测试不替代真实集成验收。
 
 低高度与键盘返回使用 `report-scroll-evidence.cjs`，需先通过 fixture 输出的本地 control 地址 `/start` 开始一轮合成运行，使会话内容可滚动。Desktop 使用 `--desktop` 启动同一 fixture，再运行 `bun run desktop:build` 和 `node apps/desktop/scripts/report-preview-evidence.mjs`；它连接已运行的隔离 Host，并覆盖 `app://desktop` 下的交互、下载与隔离探针。此路径不证明打包后的 Host 可在目标机器上自行启动，也不替代安装包验收。
 
