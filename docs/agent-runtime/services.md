@@ -100,6 +100,14 @@ HTTP `/api/host/terminal` 要求普通连接 token、私有 control token 和当
 
 `review` 另外要求 requestId、来源会话的 expectedRevision 和复核问题。来源有待核对工具结果时不能启动复核；确认前仍可只读重开已有报告。服务校验报告引用及原 journal 分支哈希，通过已有 SessionRepo.fork 在报告的固定 leaf 创建新核心会话，再创建新的工作台 session/run。分叉前后均核对磁盘 checkpoint 修订；另一客户端已修改来源时拒绝启动复核。新会话保留 source 中的报告身份；不会移动原会话的 leaf，也不会把报告保存后追加的问题带入旧版本复核。原分支损坏或注入的仓库不支持 fork 时拒绝复核，不改用空上下文。复核的接受回执同样只在当前服务中去重。
 
+### 原始 HTML 的私有读取
+
+`readReport` 接收与 `reload` 相同的 workspace/session/artifact/revision 身份，但返回经过不可变快照校验的原始 HTML、UTF-8 字节数及独立内容 SHA-256。先确认报告属于指定会话，再读指定版本；旧版本不被当前 head 替代。它不启动 Agent、不读取新行情，也不改变当前运行。空报告返回零字节；缺失、损坏或不属于该会话的版本返回 `ARTIFACT_UNAVAILABLE`，超过 8 MiB 返回 `ARTIFACT_TOO_LARGE`。该限制约束导出大小，不是底层快照文件读取的内存上限。
+
+HTTP 使用 `POST /api/workbench/report`，JSON body 为 `ArtifactRequest`，沿用当前 Host 的 token、origin 与实例身份校验。成功响应为原始 UTF-8 HTML attachment，携带 `X-Report-Revision`、`X-Report-Content-SHA256`、Content-Length、no-store、nosniff 和禁止执行/嵌入的 CSP。报告快照 revision 包含元数据，不能拿它替代 HTML 内容哈希。导出不经过对话脱敏重写；若原文包含当前 Host 的连接或控制 token，则拒绝导出并保留文件。
+
+这是显式私有下载能力，不是公开分享，也不代表已实现工作台交互预览。原始 HTML 可能包含私有轨迹、脚本与外部引用；保存到文件后打开的行为不受下载响应头保护。界面接入与隔离预览由独立实现验收。
+
 ## 删除与失败边界
 
 `deleteSession` 明确删除工作台会话 checkpoint，要求 workspaceId、sessionId 和 expectedRevision。活动运行及保存/复核中的会话不可删除。存储在同一写锁内验证文件格式、工作区身份和字节修订后删除；已损坏的文件即使哈希已知也保留。它不删除核心 journal 或不可变报告版本，也不等同于旧单股项目的删除。

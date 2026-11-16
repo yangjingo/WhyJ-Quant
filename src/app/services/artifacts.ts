@@ -4,10 +4,30 @@ import { verifyReportSession } from "../../artifact/src/report-input.ts";
 import { artifactReference, loadArtifactSnapshot, saveArtifact } from "../../storage/index.ts";
 import type { QuantAgentDependencies } from "../../agent/src/session-contracts.ts";
 import type { JsonlSessionRepoApi } from "../../agent/src/session-runtime/harness/types.ts";
-import type { ArtifactRequest, ArtifactSummary, EvidenceItem, SavedResearch, SessionSnapshot } from "../../types/workbench.ts";
+import type { ArtifactRequest, ArtifactSummary, EvidenceItem, OriginalReport, SavedResearch, SessionSnapshot } from "../../types/workbench.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
 const unavailable = () => new WorkbenchError("ARTIFACT_UNAVAILABLE", "固定报告版本无法读取或验证，原文件已保留。", 409);
+
+export const MAX_ORIGINAL_REPORT_BYTES = 8 * 1024 * 1024;
+
+/** Membership and immutable content are verified without loading a journal or starting research. */
+export function readOriginalReport(input: ArtifactRequest, snapshot: SessionSnapshot): OriginalReport {
+  if (snapshot.identity.workspaceId !== input.workspaceId || snapshot.identity.sessionId !== input.sessionId) throw unavailable();
+  const artifact = snapshot.output.artifacts.find(item => item.id === input.artifactId && item.sha256 === input.sha256);
+  if (!artifact) throw unavailable();
+  try {
+    const reference = `${artifact.id}@${artifact.sha256}`, saved = loadArtifactSnapshot(reference);
+    if (!saved || artifactReference(saved.meta) !== reference) throw unavailable();
+    const bytes = Buffer.byteLength(saved.html, "utf8");
+    if (bytes > MAX_ORIGINAL_REPORT_BYTES) throw new WorkbenchError("ARTIFACT_TOO_LARGE", "报告超过 8 MiB 下载限制，原文件已保留。", 413);
+    return { artifact: structuredClone(artifact), html: saved.html, bytes,
+      htmlSha256: createHash("sha256").update(saved.html, "utf8").digest("hex") };
+  } catch (error) {
+    if (error instanceof WorkbenchError) throw error;
+    throw unavailable();
+  }
+}
 
 /** Existing generator/storage keep the private report; only bounded metadata leaves this boundary. */
 export async function saveResearchReport(input: {
