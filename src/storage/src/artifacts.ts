@@ -6,6 +6,7 @@ import { emitFileEvent } from "./fs-events.ts";
 import { ensureDirs, resolveArtifactsDir } from "./dirs.ts";
 import { atomicWriteJson, atomicWriteText, withFileLock } from "./atomic-file.ts";
 import type { ReportProvenance } from "../../types/research-evidence.ts";
+import type { ThesisArchive } from "../../types/thesis-archive.ts";
 
 export interface ArtifactMeta {
   /** Report id; the source session may have a different id. */
@@ -21,8 +22,25 @@ export interface ArtifactMeta {
   bytes: number;
 }
 export interface ArtifactPruneResult { artifacts: ArtifactMeta[]; removedIds: string[] }
-export interface ArtifactSnapshot { version: 1; meta: ArtifactMeta; html: string }
-type ArtifactSaveMeta = Pick<ArtifactMeta, "title" | "messageCount" | "sourceSessionId" | "provenance">;
+export interface ArtifactSnapshot { version: 1; meta: ArtifactMeta; html: string; privateResearch?: ThesisArchive }
+type ArtifactSaveMeta = Pick<ArtifactMeta, "title" | "messageCount" | "sourceSessionId" | "provenance"> & { privateResearch?: ThesisArchive };
+
+/** Storage checks the private envelope; source semantics and authorization belong to the service. */
+function privateResearch(value: ThesisArchive | undefined): ThesisArchive | undefined {
+  if (value === undefined) return undefined;
+  if (!value || value.version !== 1 || !["baseline", "review", "tsp-observation", "source-check"].includes(value.kind)
+    || ![value.workspaceId, value.sessionId, value.requestId].every(id => typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{0,159}$/.test(id))
+    || typeof value.requestFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(value.requestFingerprint)
+    || typeof value.recordedAt !== "string" || !Number.isFinite(Date.parse(value.recordedAt)) || new Date(value.recordedAt).toISOString() !== value.recordedAt)
+    throw new Error("Invalid private research envelope.");
+  const text = JSON.stringify(value, (_key, item) => {
+    if (typeof item === "number" && !Number.isFinite(item) || ["undefined", "function", "symbol", "bigint"].includes(typeof item))
+      throw new Error("Private research must contain only finite JSON values.");
+    return item;
+  });
+  if (Buffer.byteLength(text) > 4 * 1024 * 1024) throw new Error("Private research exceeds the 4 MiB limit.");
+  return JSON.parse(text) as ThesisArchive;
+}
 
 function parseRef(ref: string): { id: string; revision?: string } {
   const [id = "", revision, extra] = ref.split("@");
@@ -38,9 +56,9 @@ export function artifactReference(meta: ArtifactMeta): string {
 
 function headPath(id: string): string { return join(resolveArtifactsDir(), `${id}.report.json`); }
 function revisionDir(id: string, revision: string): string { return join(resolveArtifactsDir(), ".revisions", id, revision); }
-function fingerprint(meta: ArtifactMeta, html: string): string {
+function fingerprint(meta: ArtifactMeta, html: string, retained?: ThesisArchive): string {
   const { revision: _revision, ...fields } = meta;
-  return createHash("sha256").update(JSON.stringify({ version: 1, meta: fields, html })).digest("hex");
+  return createHash("sha256").update(JSON.stringify({ version: 1, meta: fields, html, ...(retained ? { privateResearch: retained } : {}) })).digest("hex");
 }
 
 function readSnapshot(path: string, id: string, revision?: string): ArtifactSnapshot | null {
@@ -54,7 +72,7 @@ function readSnapshot(path: string, id: string, revision?: string): ArtifactSnap
       || (meta.previousRevision !== undefined && !/^[a-f0-9]{64}$/.test(meta.previousRevision))
       || typeof meta.title !== "string" || !Number.isFinite(Date.parse(meta.createdAt))
       || !Number.isInteger(meta.messageCount) || meta.messageCount < 0
-      || meta.bytes !== Buffer.byteLength(snapshot.html) || fingerprint(meta, snapshot.html) !== meta.revision) return null;
+      || meta.bytes !== Buffer.byteLength(snapshot.html) || fingerprint(meta, snapshot.html, privateResearch(snapshot.privateResearch)) !== meta.revision) return null;
     return snapshot;
   } catch { return null; }
 }
@@ -108,6 +126,7 @@ export function artifactPath(ref: string): string {
 
 export function saveArtifact(id: string, html: string, input: Partial<ArtifactSaveMeta> = {}, expectedRevision?: string | null): ArtifactMeta {
   if (parseRef(id).revision) throw new Error("Save a new report version using its report id.");
+  const retained = privateResearch(input.privateResearch);
   ensureDirs();
   const dir = resolveArtifactsDir();
   mkdirSync(dir, { recursive: true });
@@ -132,8 +151,8 @@ export function saveArtifact(id: string, html: string, input: Partial<ArtifactSa
     };
     parseRef(meta.sourceSessionId!);
     if (!Number.isInteger(meta.messageCount) || meta.messageCount < 0) throw new Error("Invalid report message count.");
-    meta.revision = fingerprint(meta, html);
-    const snapshot: ArtifactSnapshot = { version: 1, meta, html };
+    meta.revision = fingerprint(meta, html, retained);
+    const snapshot: ArtifactSnapshot = { version: 1, meta, html, ...(retained ? { privateResearch: retained } : {}) };
     archiveSnapshot(snapshot);
     const path = headPath(id);
     const bytes = atomicWriteJson(path, snapshot);
