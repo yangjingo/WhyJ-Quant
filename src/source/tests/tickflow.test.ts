@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { fetchFromTickFlowDetailed, fetchTickFlowFactors, fetchTickFlowKlines, fetchTickFlowQuotes } from "../index.ts";
+import { fetchFromTickFlowDetailed, fetchTickFlowFactors, fetchTickFlowKlines, fetchTickFlowQuotes } from "../src/tickflow.ts";
 import { providerOrderFor, pullBarsFromProviders } from "../src/source-providers.ts";
 
 const originalFetch = globalThis.fetch;

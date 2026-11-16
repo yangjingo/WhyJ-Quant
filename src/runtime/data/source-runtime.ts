@@ -1,4 +1,5 @@
 import {
+  createMarketDataSource,
   fetchBars as fetchSourceBars,
   fetchLiveBars as fetchSourceLiveBars,
   fetchResearchBars as fetchSourceResearchBars,
@@ -52,6 +53,15 @@ export async function fetchBars(
   return fetchSourceBars(symbol, market, start, end, source, bound);
 }
 
+/** Bind the configured provider and its local credential to the neutral live facade. */
+export async function createConfiguredMarketDataSource(signal?: AbortSignal) {
+  const settings = await readSettingsAsync(signal);
+  signal?.throwIfAborted();
+  const env = { ...process.env, ...settings.env };
+  return createMarketDataSource({ source: settings.preferences.source,
+    apiKey: settings.preferences.source === "tickflow" ? env.WHYJ_QUANT_TICKFLOW_API_KEY : undefined,
+    baseUrl: settings.preferences.source === "tickflow" ? env.TICKFLOW_BASE_URL : undefined, env });
+}
 export async function createStorageSourceProviderOptionsAsync(signal?: AbortSignal): Promise<SourceProviderOptions> {
   return createStorageSourceProviderOptions(await readSettingsAsync(signal));
 }

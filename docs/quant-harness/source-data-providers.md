@@ -12,7 +12,9 @@ Source 负责识别市场与标的、适配响应、安排兼容来源回退，�
 
 目前接入包括 AKShare、Tushare、TickFlow、Financial Datasets 和 LLMQuant Data，各自覆盖范围与可用权限不同。AKShare 内部还可能切换公开端点。逻辑供应商名称不足以描述实际路径，因此响应保留实际端点与尝试状态。港股链中存在 LLMQuant 路由，不等于已经确认该供应商的港股能力。
 
-TickFlow 原生 HTTP 适配归 `src/source`，通过[统一出口](../../src/source/index.ts)提供日线、分钟线、复权因子和行情快照接口，不依赖 TSP 面板、Python 或 MCP。初始范围为沪深京标的；只有日线进入现有 `Bar` 取数链，分钟与快照保留独立时间戳。显式选择 TickFlow 才启用此来源，原有自动回退顺序不变。接口、响应上限及身份/单位证据边界见 [Source 模块](../../src/source/README.md#tickflow-native-interfaces)；日线样本成功不能代替其他权限验证。
+TickFlow 原生 HTTP 适配归 `src/source`，通过[供应商无关接口](../../src/source/README.md#provider-neutral-market-data-facade)提供日线、分钟线、复权因子和行情快照接口，不依赖 TSP 面板、Python 或 MCP。初始范围为沪深京标的；只有日线进入现有 `Bar` 取数链，分钟与快照保留独立时间戳。显式选择 TickFlow 才启用此来源，原有自动回退顺序不变。接口、响应上限及身份/单位证据边界见 [Source 模块](../../src/source/README.md#provider-neutral-market-data-facade)；日线样本成功不能代替其他权限验证。
+
+统一 Source 还提供财务报表与行情订阅接口：财务记录保留报告期和公告日期，单位与币种未知时不推断；行情订阅须单独具备推送权限，断线后不自动重连。财务的报告期过滤不证明历史时点可获得，不能直接作为回测时点证据。当前尚未将推送接入界面或自动持久化。
 
 原生适配器每次调用均请求供应商，共享取数层当前仍有缓存命中与失败回退策略。[#261](https://github.com/yangjingo/WhyJ-Quant/issues/261) 单独跟踪取消普通日线查询的缓存替代，同时保留报告使用的不可变研究证据；该 issue 不等于策略已经变更。
 

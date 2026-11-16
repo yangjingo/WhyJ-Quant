@@ -49,7 +49,7 @@ function nativeSymbol(input: string): string {
   if (!/^\d{6}\.(SH|SZ|BJ)$/.test(symbol)) throw new Error("TickFlow adapter supports SH/SZ/BJ instruments only");
   return symbol;
 }
-function symbolsFor(inputs: readonly string[]): string[] {
+export function symbolsFor(inputs: readonly string[]): string[] {
   if (!Array.isArray(inputs) || !inputs.length || inputs.length > 100) throw new Error("TickFlow requires 1 to 100 symbols");
   return [...new Set(inputs.map(nativeSymbol))];
 }
@@ -66,7 +66,7 @@ function identity(value: Record<string, unknown>, symbol: string): void {
   if (value.symbol !== undefined && value.symbol !== symbol) throw new Error("Provider identity mismatch");
 }
 
-async function request(path: string, query: Record<string, string>, options: TickFlowOptions): Promise<Record<string, unknown>> {
+export async function request(path: string, query: Record<string, string>, options: TickFlowOptions): Promise<Record<string, unknown>> {
   options.signal?.throwIfAborted();
   const env = options.env ?? process.env;
   const key = options.apiKey ?? env.WHYJ_QUANT_TICKFLOW_API_KEY;

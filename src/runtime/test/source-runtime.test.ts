@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadDataset, saveBars, saveSettings } from "../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../types/config.ts";
-import { createStorageSourceProviderOptions, createStorageSourceProviderOptionsAsync, fetchBars, fetchLiveBars, fetchResearchBars } from "../data/source-runtime.ts";
+import { createConfiguredMarketDataSource, createStorageSourceProviderOptions, createStorageSourceProviderOptionsAsync, fetchBars, fetchLiveBars, fetchResearchBars } from "../data/source-runtime.ts";
 
 const OHQ = join(process.cwd(), ".ohquant-test-source-runtime");
 
@@ -19,6 +19,20 @@ afterEach(() => {
 });
 
 describe("storage source runtime", () => {
+  it("binds settings credentials to the neutral configured source facade", async () => {
+    saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
+      env: { WHYJ_QUANT_TICKFLOW_API_KEY: "neutral-fixture-key" } });
+    const request = spyOn(globalThis, "fetch").mockImplementation((async (_url, init) => {
+      expect(new Headers(init?.headers).get("x-api-key")).toBe("neutral-fixture-key");
+      return Response.json({ data: { timestamp: [Date.parse("2026-11-12T00:00:00+08:00")],
+        open: [10], high: [11], low: [9], close: [10], volume: [100], amount: [null] } });
+    }) as typeof fetch);
+    try {
+      const source = await createConfiguredMarketDataSource();
+      const result = await source.fetchKlines({ symbol: "600000.SH", interval: "1d", adjustment: "forward" });
+      expect(result).toMatchObject({ source: "tickflow", data: [{ close: 10 }] });
+    } finally { request.mockRestore(); }
+  });
   it("binds TickFlow credentials and retains exact daily revisions across explicit fresh reads", async () => {
     saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
       env: { WHYJ_QUANT_TICKFLOW_API_KEY: "tickflow-test-key" } });
