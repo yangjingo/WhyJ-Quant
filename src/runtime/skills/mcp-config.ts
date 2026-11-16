@@ -68,7 +68,7 @@ export function manageMcpPresets(action: string, names: string[], options: { loc
     return { success: false, message: [...messages, `Could not update ${path}. Check file permissions and configuration in Pi.`].join("\n") };
   }
   return { success: true, message: [...messages, `Config: ${path}`,
-    "Start Pi or run /reload in Pi to apply. JQ does not connect to servers; removal does not erase package caches or OAuth credentials.",
+    "Start Pi or run /reload in Pi to apply general MCP changes. This management operation does not connect; explicit TSP observations use a separate read-only path. Removal does not erase package caches or OAuth credentials.",
     ...(options.local && action === "remove" ? ["Removing a project entry can reveal a user-level server with the same name. Disable it in Pi if needed."] : []),
   ].join("\n") };
 }

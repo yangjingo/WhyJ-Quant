@@ -1,7 +1,13 @@
 import type { McpServerConfig } from "../../agent/src/pi-mcp.ts";
 
-/** Templates only. Credentials are resolved by Pi; JQ never starts these servers. */
+/** Templates only. Installing a preset never connects; an explicit TSP read may use Pi's transport. */
 export const MCP_PRESETS: ReadonlyArray<{ name: string; description: string; docs: string; setup: string; config: McpServerConfig }> = [
+  { name: "tsp", description: "Optional A-share alerts and forward-adjusted daily observations",
+    docs: "https://github.com/shy3130/tick-stock-panel/tree/ea4d38e0dc9259ad3500f3c248ab991cd12d3ea1/mcp-server",
+    setup: "Install the TSP stdio bridge in a Python environment, set TSP_BASE and TSP_TOKEN, and replace python with that environment's executable if needed. Grant only read:market and read:analysis at the panel gateway, then explicitly enable this global Pi entry. Installing this disabled template does not start or download a server.",
+    config: { command: "python", args: ["-m", "tsp_mcp_server.server"], enabled: false, exposure: "hidden",
+      toolExposure: { get_recent_alerts: "deferred", get_kline: "deferred" },
+      env: { TSP_BASE: "${TSP_BASE}", TSP_TOKEN: "${TSP_TOKEN}", TSP_SCOPES: "read:market,read:analysis" } } },
   { name: "financial-datasets", description: "US fundamentals, filings, prices and news",
     docs: "https://docs.financialdatasets.ai/mcp-server", setup: "Set FINANCIAL_DATASETS_API_KEY in the Pi process environment.",
     config: { url: "https://mcp.financialdatasets.ai/api", headers: { "X-API-KEY": "${FINANCIAL_DATASETS_API_KEY}" } } },
