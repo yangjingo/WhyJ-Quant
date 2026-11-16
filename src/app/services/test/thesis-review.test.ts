@@ -43,11 +43,11 @@ afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 const ref = (artifact: ArtifactSummary) => ({ workspaceId: identity.workspaceId, sessionId: identity.sessionId, artifactId: artifact.id, sha256: artifact.sha256 });
-function configureTsp(mode = "normal") {
+function configureTsp(mode = "normal", alertMs?: number) {
   mkdirSync(process.env.PI_CODING_AGENT_DIR!, { recursive: true });
   writeFileSync(join(process.env.PI_CODING_AGENT_DIR!, "mcp.json"), JSON.stringify({ mcpServers: { tsp: {
     enabled: mode !== "disabled", command: process.execPath, args: [resolve(import.meta.dirname, "../../../runtime/test/fixtures/tsp-mcp-server.ts")],
-    env: { TSP_BASE: "http://127.0.0.1:3018", TSP_TOKEN: "fixture-tsp-key", TSP_SCOPES: "read:market,read:analysis", TSP_FIXTURE_MODE: mode, TSP_FIXTURE_LOG: join(root, "tsp-calls.jsonl") },
+    env: { TSP_BASE: "http://127.0.0.1:3018", TSP_TOKEN: "fixture-tsp-key", TSP_SCOPES: "read:market,read:analysis", TSP_FIXTURE_MODE: mode, TSP_FIXTURE_LOG: join(root, "tsp-calls.jsonl"), ...(alertMs === undefined ? {} : { TSP_FIXTURE_ALERT_MS: String(alertMs) }) },
   } } }));
 }
 const tspEvents = () => existsSync(join(root, "tsp-calls.jsonl")) ? readFileSync(join(root, "tsp-calls.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];
@@ -279,17 +279,27 @@ test("damaged TSP snapshot fails closed and cannot silently refetch or fall back
 });
 
 test("review selects an exact retained TSP alert and fixed closed-day window, without re-fetching or trusting client bars", async () => {
-  configureTsp("selection"); const base = await service.client.establishThesis!(await baselineRequest());
+  const base = await service.client.establishThesis!(await baselineRequest());
+  const baseline = await service.client.readThesis!(ref(base)); if (baseline.kind !== "baseline") throw new Error("Not a baseline");
+  // A child process clock can lead the Host by milliseconds on Windows; pin the synthetic event to the Host baseline.
+  configureTsp("selection", Date.parse(baseline.recordedAt));
   const capture = await service.client.collectThesisTsp!(await tspRequest(base));
   expect(capture.alerts).toHaveLength(1); expect(capture.omittedAlerts).toBe(2);
   expect(capture.daily).toEqual({ count: 2, start: "2026-11-12", end: "2026-11-13" });
   const input: ThesisReviewRequest = { ...await reviewRequest(base), event: capture.alerts[0]!.event, evidence: [], retainedEvidence: [],
     tsp: { artifactId: capture.artifact.id, revision: capture.artifact.sha256, alertIndex: capture.alerts[0]!.index,
       price: { start: "2026-11-12", end: "2026-11-13", volumeUnit: "lots" } } };
-  const report = await service.client.saveThesisReview!(input), html = (await service.client.readReport!(ref(report))).html;
+  let report: ArtifactSummary;
+  try { report = await service.client.saveThesisReview!(input); }
+  catch (error) {
+    console.error("Synthetic TSP selection timing", JSON.stringify({ event: input.event.occurredAt, cutoff: input.cutoff, observations: capture.observations.map(item => ({ tool: item.tool, retrievedAt: item.retrievedAt })), daily: capture.daily }));
+    throw error;
+  }
+  const html = (await service.client.readReport!(ref(report))).html;
   expect(html).toContain(capture.artifact.sha256); expect(html).toContain("前复权"); expect(html).toContain("原始提醒索引 0");
   await service.close(); service = createResearchService(options()); configureTsp("hold");
   const view = await service.client.readThesis!(ref(report)); if (view.kind !== "review") throw new Error();
+  if (view.result.outcome !== "price_observation") console.error("Synthetic TSP classification", JSON.stringify({ result: view.result, observations: capture.observations.map(item => ({ tool: item.tool, retrievedAt: item.retrievedAt })), daily: capture.daily }));
   expect(view.result.outcome).toBe("price_observation"); expect(view.result.input.decision).toBeNull();
   expect(view.result.input.evidence[0]!.metric.value).toBe(11); expect(view.price?.rows).toHaveLength(2);
   expect(view.price?.rows[1]!.vol).toBe(100); expect(view.price?.volumeUnit).toBe("lots");
