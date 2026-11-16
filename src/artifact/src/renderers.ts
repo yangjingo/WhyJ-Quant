@@ -58,7 +58,10 @@ export function computeKlineSeries(kl: KlineData) {
   return { dates, ohlc, closes, vols, hasVol, ma5, ma10, ma20, ma60, dif, dea, macd };
 }
 
-export function renderEchartsKline(kls: KlineData[]): string {
+export function renderEchartsKline(kls: KlineData[], options: { id?: string; eventDate?: string } = {}): string {
+  if (options.id !== undefined && !/^[A-Za-z][A-Za-z0-9_-]{0,159}$/.test(options.id)) throw new Error("Invalid chart identifier");
+  if (options.eventDate !== undefined && (!/^\d{4}-\d\d-\d\d$/.test(options.eventDate)
+    || new Date(options.eventDate).toISOString().slice(0, 10) !== options.eventDate)) throw new Error("Invalid chart event date");
   // Compute all timeframe data
   const tfData: Record<string, ReturnType<typeof computeKlineSeries>> = {};
   const tfLabels: string[] = [];
@@ -76,7 +79,7 @@ export function renderEchartsKline(kls: KlineData[]): string {
   const bm = (kls[0] as KlineData & { bm?: { label: string; closes: number[] }; bm2?: { label: string; closes: number[] } }).bm;
   const bm2 = (kls[0] as KlineData & { bm?: { label: string; closes: number[] }; bm2?: { label: string; closes: number[] } }).bm2;
 
-  const id = `kl${Math.random().toString(36).slice(2,6)}`;
+  const id = options.id ?? `kl${Math.random().toString(36).slice(2,6)}`;
   const firstKl = kls[0]!;
   const rawText = esc(firstKl.header.join("  ") + "\n" + firstKl.rows.map((r) => `${r.date}  ${r.open}  ${r.high}  ${r.low}  ${r.close}` + (r.vol ? `  ${r.vol}` : "")).join("\n"));
   const json = scriptJson(tfData);
@@ -104,6 +107,7 @@ export function renderEchartsKline(kls: KlineData[]): string {
 	function buildOption(c){
 	  var ohlcData=c.ohlc.map(function(d){return d[0]===d[1]?{value:d,itemStyle:{color:muted,color0:muted,borderColor:muted,borderColor0:muted}}:d});
 	  var legendData=['K线','MA5(5日均)','MA10(10日均)','MA20(20日均)','MA60(60日均)','DIF(快线)','DEA(慢线)','MACD(柱线)'];
+	  var eventDate=${scriptJson(options.eventDate ?? null)};
 	  var series=[
 	    {name:'K线',type:'candlestick',xAxisIndex:0,yAxisIndex:0,data:ohlcData,itemStyle:{color:up,color0:dn,borderColor:up,borderColor0:dn}},
 	    {name:'MA5(5日均)',type:'line',xAxisIndex:0,yAxisIndex:0,data:c.ma5,smooth:true,lineStyle:{color:cream,width:1},symbol:'none',connectNulls:false},
@@ -114,6 +118,7 @@ export function renderEchartsKline(kls: KlineData[]): string {
 	    {name:'DEA(慢线)',type:'line',xAxisIndex:1,yAxisIndex:1,data:c.dea,smooth:true,lineStyle:{color:gold,width:1},symbol:'none',connectNulls:false},
 	    {name:'MACD(柱线)',type:'bar',xAxisIndex:1,yAxisIndex:1,data:c.macd.map(function(v,i){if(v===null)return'-';return{value:v,itemStyle:{color:v===0?muted:v>0?up:dn}}})}
 	  ];
+	  if(eventDate&&c.dates.indexOf(eventDate)!==-1){series[0].markLine={symbol:['none','none'],silent:true,label:{formatter:'事件 '+eventDate,color:gold},lineStyle:{color:gold,type:'dashed'},data:[{xAxis:eventDate}]};}
 	  if(bm){legendData.push(bm.label);series.push({name:bm.label,type:'line',xAxisIndex:0,yAxisIndex:0,data:bm.closes,smooth:true,lineStyle:{color:'#FFF3C4',width:2},symbol:'none',emphasis:{focus:'series',lineStyle:{width:3}},z:2,label:{show:true,position:'right',fontSize:8,color:'#FFF3C4',formatter:function(p){return p.dataIndex===p.data.length-1?bm.label:''}}});} if(bm2){legendData.push(bm2.label);series.push({name:bm2.label,type:'line',xAxisIndex:0,yAxisIndex:0,data:bm2.closes,smooth:true,lineStyle:{color:'#5B9BD5',width:2},symbol:'none',emphasis:{focus:'series',lineStyle:{width:3}},z:2,label:{show:true,position:'right',fontSize:8,color:'#5B9BD5',formatter:function(p){return p.dataIndex===p.data.length-1?bm2.label:''}}});}
 	  if(c.hasVol){series.push({name:'Vol',type:'bar',xAxisIndex:2,yAxisIndex:2,data:c.vols.map(function(v,i){return{value:v,itemStyle:{color:!c.ohlc[i]||c.ohlc[i][1]===c.ohlc[i][0]?muted:c.ohlc[i][1]>c.ohlc[i][0]?up:dn}}}),barWidth:'60%'});}
 	  return {animation:true,backgroundColor:'transparent',textStyle:{color:cream,fontFamily:'Cascadia Code,monospace'},tooltip:{trigger:'axis',backgroundColor:canvas,borderColor:hairline,textStyle:{color:cream},axisPointer:{type:'cross',lineStyle:{color:gold},crossStyle:{color:gold}}},legend:{data:legendData,bottom:0,textStyle:{fontSize:9,color:muted}},grid:[{left:'8%',right:'2%',top:'3%',height:'38%'},{left:'8%',right:'2%',top:'46%',height:'20%'},{left:'8%',right:'2%',top:'70%',height:'12%'}],xAxis:[{data:c.dates,gridIndex:0,axisLabel:{fontSize:9,color:muted},axisLine:{lineStyle:{color:hairline}}},{data:c.dates,gridIndex:1,axisLabel:{show:false},axisLine:{lineStyle:{color:hairline}},axisTick:{show:false}},{data:c.dates,gridIndex:2,axisLabel:{show:false},axisLine:{lineStyle:{color:hairline}},axisTick:{show:false}}],yAxis:[{gridIndex:0,scale:true,axisLabel:{fontSize:9,color:muted},splitLine:{lineStyle:{color:hairline,type:'dashed'}}},{gridIndex:1,axisLabel:{fontSize:8,color:muted},splitLine:{lineStyle:{color:hairline,type:'dashed'}}},{gridIndex:2,axisLabel:{fontSize:8,color:muted},splitLine:{show:false}}],dataZoom:[{type:'slider',xAxisIndex:[0,1,2],start:0,end:100,height:14,bottom:2,borderColor:hairline,backgroundColor:canvas,fillerColor:'rgba(201,154,46,0.12)',handleStyle:{color:gold},textStyle:{fontSize:8,color:muted}},{type:'inside',xAxisIndex:[0,1,2]}],series:series};

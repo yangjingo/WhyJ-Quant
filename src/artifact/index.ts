@@ -3,3 +3,4 @@ export * from "./src/theme.ts";
 export * from "./src/generator.ts";
 export type { TrajectoryEvent, TrajectoryEventType, TrajectoryDocument, TrajectorySummary, TrajectoryToolPayload, TrajectoryEvidence, TrajectorySourceRef, RedactionInfo } from "./src/types.ts";
 export * from "./src/reference-data.ts";
+export * from "./src/thesis-review.ts";
