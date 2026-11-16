@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, spyOn, test as bunTest } from "bun:test";
 import { appendFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1872,6 +1872,56 @@ test("terminal automatic reports survive detach and restart, preserving fixed ve
   expect(loadArtifactSnapshot(`${report.id}@${report.sha256}`)).toEqual(saved);
   expect((await service.client.reload!({ workspaceId: identity.workspaceId, sessionId: identity.sessionId,
     artifactId: report.id, sha256: report.sha256 })).identity.runId).toBe(firstRun.runId);
+});
+
+test("original report HTTP export authenticates exact bytes without changing a running session", async () => {
+  const settings = readSettings(); settings.artifactGeneration.auto = true; saveSettings(settings);
+  service = createWorkbenchService({ cwd: root, dependencies: () => createDefaultSessionDependencies({ cwd: root }) });
+  host = startWorkbenchServer({ service, port: 0, assetsRoot: join(root, "assets") });
+  await host.ready;
+  const client = service.client, identity = await client.identity();
+  await service.terminal.submit(await requestFor(client, identity, "分析 SPY 风险"));
+  const first = await terminal(client, identity.sessionId), artifact = first.output.artifacts[0]!;
+  const saved = loadArtifactSnapshot(`${artifact.id}@${artifact.sha256}`)!;
+  mode = "hold";
+  const started = new Promise<void>(resolve => { reached = resolve; });
+  const running = await service.terminal.submit(await requestFor(client, identity, "继续分析"));
+  await started;
+  const before = await client.session(identity.sessionId);
+  const input = { workspaceId: identity.workspaceId, sessionId: identity.sessionId, artifactId: artifact.id, sha256: artifact.sha256 };
+  const url = host.server.url.origin;
+  const { token } = await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string };
+  const headers = { "Content-Type": "application/json", "x-workbench-token": token };
+  const send = (value: unknown = input, extra: Record<string, string> = {}) => fetch(url + "/api/workbench/report", { method: "POST", headers: { ...headers, ...extra }, body: JSON.stringify(value) });
+  try {
+    expect((await send(input, { "x-workbench-token": "" })).status).toBe(401);
+    expect((await send(input, { "x-workbench-token": "wrong" })).status).toBe(401);
+    expect((await send(input, { Origin: "https://untrusted.invalid" })).status).toBe(403);
+    expect((await send(input, { "x-host-instance-id": "stale" })).status).toBe(409);
+    expect((await send({ ...input, workspaceId: "wrong" })).status).toBe(409);
+    expect((await send({ ...input, artifactId: "../settings" })).status).toBe(400);
+    expect((await send({ ...input, sha256: "f".repeat(64) })).status).toBe(409);
+    const other = await client.createSession();
+    expect((await send({ ...input, sessionId: other.sessionId })).status).toBe(409);
+    const calls = requests.length, response = await send();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toStartWith("attachment;");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-security-policy")).toContain("sandbox; default-src 'none'");
+    const bytes = Buffer.from(await response.arrayBuffer());
+    expect(bytes).toEqual(Buffer.from(saved.html));
+    expect(response.headers.get("content-length")).toBe(String(bytes.length));
+    expect(response.headers.get("x-report-content-sha256")).toBe(createHash("sha256").update(bytes).digest("hex"));
+    expect(response.headers.get("x-report-revision")).toBe(artifact.sha256);
+    expect((await client.session(identity.sessionId)).revision).toBe(before.revision);
+    expect((await client.session(identity.sessionId)).state).toBe("running");
+    expect(requests.length).toBe(calls);
+    expect(loadArtifactSnapshot(`${artifact.id}@${artifact.sha256}`)).toEqual(saved);
+    const original = await client.readReport!(input);
+    const read = spyOn(client, "readReport").mockResolvedValue({ ...original, html: token });
+    try { expect((await send()).status).toBe(409); } finally { read.mockRestore(); }
+  } finally { await client.cancel({ ...identity, runId: running.runId }); }
 });
 
 test("terminal report restoration owns the original journal, restores its fixed branch and leaves the requesting session untouched", async () => {

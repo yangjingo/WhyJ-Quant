@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>隔离报告视图</title>
+<style>html,body{margin:0;height:100%;background:#10100f}iframe{display:block;width:100%;height:100%;border:0}p{color:#ddd;font:14px sans-serif;padding:16px}</style>
+<script src="./report-shell.js" defer></script>
+</head><body><iframe id="report" title="报告正文" sandbox="allow-scripts" referrerpolicy="no-referrer"></iframe></body>
+</html>
