@@ -76,7 +76,7 @@ code, kbd { font-family: Mono, monospace; }
 .thinking-body p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.8; margin: 0; }
 .thinking-note { display: block; margin-top: 8px; line-height: 1.6; }
 .stream { min-height: 0; flex: 1; overflow: auto; padding: 28px clamp(16px,3vw,40px); scroll-padding-block: 20px; }
-.thread-inner { width: 100%; max-width: 760px; margin-inline: auto; }
+.thread-inner { width: 100%; max-width: 760px; margin-inline: 0; }
 .turn { margin: 0 0 28px; }.turn-user { margin-bottom: 20px; }.turn-assistant { padding-bottom: 24px; border-bottom: 1px solid var(--line); }.turn-assistant:last-child { border-bottom: 0; }
 .question { display: flex; gap: 12px; align-items: baseline; color: var(--cream); }
 .question p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--answer-font-size); }
@@ -117,6 +117,7 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .empty-state { padding: 24px; color: var(--muted); font-size: 14px; line-height: 1.8; }
 .empty-state h2, .empty-state h3 { color: var(--cream); font-size: 21px; line-height: 1.5; font-weight: 500; }
 .research-welcome { max-width: 640px; margin: auto; padding: clamp(24px,5vh,64px) 20px; }
+#stream > .research-welcome { margin-inline: 0; padding-inline: 0; }
 .research-welcome > p { font-size: 15px; }
 .starter-questions { display: grid; gap: 10px; margin-top: 28px; }
 .starter-questions button { display: flex; justify-content: space-between; gap: 16px; text-align: left; border: 1px solid var(--line); padding: 13px 16px; color: var(--text); min-height: 48px; font-size: 14px; line-height: 1.7; }
@@ -170,9 +171,10 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .status-source { flex: 1; }.status-portfolio { max-width: 30%; }
 .app-dialog { color: var(--text); background: var(--bg); border: 1px solid var(--outline); padding: 0; border-radius: 4px; width: min(840px,calc(100vw - 32px)); max-height: calc(100dvh - 32px); }
 .app-dialog[open] { display: flex; flex-direction: column; }.app-dialog::backdrop { background: #000a; }
+.app-dialog.settings-dialog { width: min(1040px, calc(100vw - 32px)); height: min(700px, calc(100dvh - 32px)); }
 .modal-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 16px 8px 24px; border-bottom: 1px solid var(--line); flex: none; }
 .modal-header h2 { margin: 0; font-size: 17px; color: var(--cream); font-weight: 500; }
-.settings-layout { display: grid; grid-template-columns: 168px minmax(0,1fr); min-height: min(420px,60dvh); overflow: hidden; }
+.settings-layout { display: grid; grid-template-columns: 168px minmax(0,1fr); flex: 1; min-height: 0; overflow: hidden; }
 .settings-nav { display: flex; flex-direction: column; overflow: auto; padding: 12px; border-right: 1px solid var(--line); }
 .settings-nav button { text-align: left; font-size: 14px; min-height: 44px; padding: 10px; white-space: nowrap; }
 .settings-nav button[aria-current=page] { color: var(--cream); background: var(--panel); border-left: 2px solid var(--gold); }
@@ -209,6 +211,7 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
   .status { padding-inline: 8px; gap: 6px; font-size: 11px; }.status > button { min-height: 42px; }.status-model { max-width: 44%; }.status-model .ui-icon { display: none; }.status-portfolio { max-width: 26%; }
   .completion-row { flex-direction: column; align-items: flex-start; gap: 3px; }.suggestion-header, .suggestion-footer { padding: 10px; }
   .app-dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }.modal-header { padding: 6px 10px 6px 16px; }.settings-layout { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); min-height: 0; }.settings-nav { flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); padding: 4px 8px; }.settings-nav button { padding-inline: 12px; }.settings-nav button[aria-current=page] { border-left: 0; border-bottom: 2px solid var(--gold); }.settings-main { padding: 20px; }
+  .app-dialog.settings-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); }
   .research-context { padding: 12px 16px; }.research-tabs { padding-inline: 8px; gap: 0; }.research-tabs button { font-size: 13px; padding-inline: 10px; }.research-content { padding: 18px 16px; }.research-footer { padding: 10px 16px; flex-wrap: wrap; gap: 8px; }.research-footer .action { flex: 1; }
   .research-welcome { padding: 24px 8px; }.research-welcome h2 { font-size: 20px; }.starter-questions { margin-top: 20px; }.starter-questions button { padding: 12px; }
 }
@@ -248,3 +251,8 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .overview-heading-actions .text-action { min-height: 44px; white-space: nowrap; }
 
 .overview[hidden] { display: none; }
+
+.settings-group { border-top: 1px solid var(--line); margin: 24px 0; padding-top: 18px; }
+.settings-group h4 { color: var(--cream); font-size: 14px; font-weight: 500; margin: 0 0 8px; }
+.settings-link { color: var(--reading-link); text-decoration: underline; text-underline-offset: 3px; }
+.reading-preview { padding: 16px; border: 1px solid var(--line); background: var(--panel); color: var(--cream); line-height: 1.75; overflow-wrap: anywhere; }

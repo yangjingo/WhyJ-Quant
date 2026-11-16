@@ -3674,7 +3674,7 @@ test("research source routing persists separately from overview and rejects inva
   const { client, identity, submit } = await setup();
   const editable = (value: Awaited<ReturnType<WorkbenchClient["preferences"]>>) => ({ revision: value.revision, model: value.model, source: value.source, portfolio: value.portfolio, thinkingLevel: value.thinkingLevel, researchSource: value.researchSource });
   const before = await client.preferences();
-  expect(before.researchSources?.map(item => item.id)).toEqual(["akshare", "tushare", "llmquant-data", "financial-datasets"]);
+  expect(before.researchSources?.map(item => item.id)).toEqual(["akshare", "tickflow", "tushare", "llmquant-data", "financial-datasets"]);
   expect(JSON.stringify(before)).not.toContain(KEY);
   await client.updatePreferences({ ...editable(before), researchSource: "akshare" });
   const saved = await client.preferences();

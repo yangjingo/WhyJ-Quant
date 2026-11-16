@@ -20,6 +20,20 @@ function settings() {
   return value;
 }
 
+it("TickFlow diagnostics use only the chosen native source and do not certify other capabilities", async () => {
+  const cfg = structuredClone(DEFAULT_SETTINGS); cfg.preferences.source = "tickflow";
+  cfg.env.WHYJ_QUANT_TICKFLOW_API_KEY = "tickflow-test-key";
+  const input = { ...request, source: "tickflow" as const, market: "A" as const, symbol: "600000.SH" };
+  let calls = 0, fallbacks = 0;
+  const adapters = { tickflow: { fetchBars: async () => { calls++; throw new Error("HTTP 403 private upstream detail"); } },
+    akshare: { fetchBars: async () => { fallbacks++; return bars; } } };
+  const denied = await probeDataConnection(cfg, input, { processEnv: {}, adapters });
+  expect(denied.status).toBe("permission-denied"); expect(denied.capability).toBe("daily-bars");
+  expect(calls).toBe(1); expect(fallbacks).toBe(0); expect(JSON.stringify(denied)).not.toContain("private upstream detail");
+  expect(defaultDataProbeRequest(cfg)).toMatchObject({ source: "tickflow", market: "A" });
+  expect(dataSourcesForMarket("Fund")).not.toContain("tickflow");
+});
+
 it("limits the sample to the selected source and uses saved credentials/endpoints before environment values", async () => {
   const seen: Array<{ path: string; key: string | null; symbol: string | null }> = [];
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {

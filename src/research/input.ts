@@ -22,7 +22,7 @@ function publicReference(value: unknown): DatasetRef | undefined {
   const raw = record(value), requested = record(raw?.requested);
   if (!raw || !requested || raw.version !== 1 || raw.kind !== "daily-bars"
     || typeof raw.symbol !== "string" || !/^[A-Z0-9^.\-]{1,24}$/.test(raw.symbol)
-    || !["akshare", "tushare", "llmquant-data", "financial-datasets"].includes(String(raw.source))
+    || !["akshare", "tushare", "tickflow", "llmquant-data", "financial-datasets"].includes(String(raw.source))
     || typeof raw.revision !== "string" || !/^[a-f0-9]{64}$/.test(raw.revision)
     || typeof raw.contentHash !== "string" || !/^[a-f0-9]{64}$/.test(raw.contentHash)
     || !Array.isArray(raw.dates) || !raw.dates.length || !raw.dates.every(date => typeof date === "string" && isDailyDate(date))

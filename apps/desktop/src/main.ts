@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { HostConnection } from "../../../src/app/bootstrap.ts";
+import { desktopAppUserModelId } from "./app-identity.mts";
 
 // Only the local development parent owns this IPC channel; renderer IPC is unchanged.
 if (process.env.WHYJ_DESKTOP_DEV_CONTROL === "1" && process.connected) {
@@ -127,7 +128,7 @@ else {
   app.on("before-quit", event => { if (quitReady) return; event.preventDefault(); if (!quitting) { quitting = true; void finishQuit(); } });
   void app.whenReady().then(async () => {
     mkdirSync(workspace, { recursive: true }); mkdirSync(workspaceRoot, { recursive: true }); process.chdir(workspace);
-    app.setAppUserModelId("io.github.yangjingo.whyj-quant");
+    app.setAppUserModelId(desktopAppUserModelId(app.isPackaged, process.platform));
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
     protocol.handle("app", async request => {

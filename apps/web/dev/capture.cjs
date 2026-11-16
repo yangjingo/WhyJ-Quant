@@ -19,6 +19,29 @@ async (page) => {
     const input = page.getByRole('combobox', { name: '研究问题' });
     await page.getByRole('heading', { name: /示例结论/ }).waitFor();
     await capture('01-desktop');
+    await page.getByRole('button', { name: '界面设置', exact: true }).click();
+    const settings = page.locator('dialog.settings-dialog');
+    await settings.waitFor();
+    const nav = settings.getByRole('navigation', { name: '设置分区' });
+    const sections = ['界面', '会话', '模型', '数据'];
+    check(JSON.stringify(await nav.getByRole('button').allTextContents()) === JSON.stringify(sections), 'Settings section order');
+    for (const [index, section] of sections.entries()) {
+      await nav.getByRole('button', { name: section, exact: true }).click();
+      check(await nav.getByRole('button', { name: section, exact: true }).getAttribute('aria-current') === 'page', 'Settings selected state: ' + section);
+      await capture(`01-settings-${index + 1}`);
+    }
+    await nav.getByRole('button', { name: '会话', exact: true }).click();
+    check(await settings.getByRole('button', { name: '删除当前会话', exact: true }).isDisabled(), 'Demo session does not expose deletion');
+    await nav.getByRole('button', { name: '模型', exact: true }).focus();
+    await page.keyboard.press('ArrowDown');
+    check(await nav.getByRole('button', { name: '数据', exact: true }).evaluate(el => el === document.activeElement), 'Settings keyboard navigation');
+    await page.keyboard.press('Enter');
+    check(await settings.getByLabel('投资组合').isVisible(), 'Portfolio selection retained in data settings');
+    await page.keyboard.press('Escape');
+    check(await page.getByRole('button', { name: '界面设置', exact: true }).evaluate(el => el === document.activeElement), 'Settings returns focus');
+    await page.locator('.status-portfolio').click();
+    check(await settings.getByRole('heading', { name: '观察组', exact: true }).evaluate(el => el === document.activeElement), 'Portfolio shortcut focuses its section');
+    await page.keyboard.press('Escape');
     await input.fill('概览切换时保留草稿');
     await page.getByRole('button', { name: '展开概览', exact: true }).focus();
     await page.keyboard.press('Enter');
@@ -75,6 +98,9 @@ async (page) => {
     check(await input.inputValue() === '', 'New selection must not leak draft');
     await input.fill('草稿 B');
     await capture('04-empty-session');
+    const streamInset = () => page.locator('#stream').evaluate(el => el.getBoundingClientRect().left + parseFloat(getComputedStyle(el).paddingLeft));
+    const welcomeX = await page.locator('#stream > .research-welcome .eyebrow').evaluate(el => el.getBoundingClientRect().left);
+    check(Math.abs(welcomeX - await streamInset()) < 1, 'Welcome aligns to the stream left inset');
     await page.getByRole('button', { name: /回撤结构研究.*300308/ }).click();
     try { await page.waitForFunction(() => document.querySelector('#input')?.value === '草稿 A'); } catch { throw new Error('Draft A restore failed: ' + JSON.stringify({ actual: await input.inputValue(), title: await page.locator('#sessionTitle').innerText() })); }
     check(await input.inputValue() === '草稿 A', 'Draft A must restore');
@@ -87,6 +113,8 @@ async (page) => {
     check(await page.getByRole('button', { name: '停止生成', exact: true }).isVisible(), 'Enter must not cancel a running task');
     check(await input.inputValue() === 'Keep this next question as a draft', 'Running Enter preserves draft');
     await capture('05-thinking');
+    const threadX = await page.locator('#stream > .thread-inner').evaluate(el => el.getBoundingClientRect().left);
+    check(Math.abs(threadX - await streamInset()) < 1, 'Streaming turns align to the same left inset');
     await page.getByRole('button', { name: /回撤结构研究.*300308/ }).click();
     await page.getByRole('button', { name: /结构跟踪.*002048/ }).click();
     await page.getByRole('button', { name: '停止生成', exact: true }).click();
@@ -110,7 +138,7 @@ async (page) => {
     await capture('08-evidence');
     await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
     await page.getByRole('button', { name: '本地合成 · 示例', exact: true }).click();
-    await page.getByRole('button', { name: '数据源', exact: true }).click();
+    await page.getByRole('button', { name: '数据', exact: true }).click();
     await page.getByRole('combobox', { name: '数据源', exact: true }).selectOption('akshare');
     await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
     await page.getByText('尚无行情数据', { exact: true }).waitFor();

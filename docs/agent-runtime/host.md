@@ -149,6 +149,8 @@ React 界面将会话修订及报告摘要随相应操作发送给 Host；版本
 
 `bun run dev:web` 为本地联调入口：首次缺少静态资源时先构建，再启动或复用当前工作区 Host，并在 `127.0.0.1:4176` 启动连接模式的 Vite；`WHYJ_DEV_WEB_PORT` 可指定其他本地端口。开发代理仅转发浏览器所需的 bootstrap、RPC 和事件流，检查本机 Host、来源和跨站请求，不转发终端控制或 Host 停止接口，也不修改生产 Host 的来源策略。Ctrl+C 结束本次 Vite 子进程，保留共享 Host 和其中的研究；端口占用时显示错误并退出，也不停止已有 Host。需要明确停止后端时使用 `bun run host:stop`。此入口不等于 Desktop 联调或安装包验收。
 
+Windows 开发版使用独立的 `io.github.yangjingo.whyj-quant.dev` 任务栏身份，避免已安装版快捷方式的旧图标覆盖窗口提供的品牌图标；打包版保留原有 `io.github.yangjingo.whyj-quant` 身份。开发版 Electron 可执行文件自身仍使用 Electron 的图标，开发窗口与托盘使用仓库品牌资源。
+
 `bun run dev:desktop` 构建共享 Web 与桌面资源后打开现有 Electron 入口。关闭窗口隐藏到托盘；托盘退出或终端 Ctrl+C 都请求桌面正常退出并解除自己的登记，不直接停止复用的 Host。启动器将桌面子进程隔离在独立进程组，仅通过父子进程私有通道发送退出请求；15 秒仍未退出时只终止该桌面进程，Host 按自身租约与所有权规则继续处理。`bun run dev:desktop:smoke` 在 Windows 隔离 Host 和合成 provider 上验证真实终端 Ctrl+C、视图释放和 Host 保留；它不是安装包或目标机器验收。
 
 
