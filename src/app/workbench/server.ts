@@ -162,6 +162,10 @@ export function startWorkbenchServer(options: { port?: number; assetsRoot?: stri
         const contained = relative(assetsRoot, realpathSync(file));
         if (isAbsolute(contained) || contained.startsWith("..")) throw new WorkbenchError("NOT_FOUND", "没有这个页面。", 404);
         if (name === "index.html") return new Response((await readFile(file, "utf8")).replace("</head>", '<meta name="whyj-workbench-host" content="1"></head>'), { headers: { ...headers, "Content-Type": "text/html; charset=utf-8" } });
+        if (name === "assets/report-shell.html") return new Response(await readFile(file), { headers: { ...headers,
+          "Content-Type": "text/html; charset=utf-8",
+          "Content-Security-Policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; frame-src blob:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'",
+        } });
         const types: Record<string, string> = { ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json",
           ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif", ".ico": "image/x-icon", ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf" };
         return new Response(await readFile(file), { headers: { ...headers, "Content-Type": types[extname(file).toLowerCase()] ?? "application/octet-stream" } });
