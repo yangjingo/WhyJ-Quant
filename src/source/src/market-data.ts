@@ -31,6 +31,27 @@ export interface QuoteSubscriptionHandlers { onQuotes(event: QuoteEvent): void; 
 }
 export interface SourceConnection { source: ProviderSource; apiKey?: string; baseUrl?: string; env?: Record<string, string | undefined> }
 
+/** Adapter implementation metadata, not a provider connectivity or entitlement check. */
+export interface MarketDataCapabilities {
+  source: ProviderSource;
+  operations: Record<"klines" | "adjustmentFactors" | "quotes" | "financials" | "quoteSubscription", "implemented" | "not-implemented">;
+  entitlement: "unknown";
+  connectivity: "unknown";
+}
+
+/** Describes the selected-source facade only; legacy provider APIs have separate capabilities. */
+export function getMarketDataCapabilities(source: ProviderSource): MarketDataCapabilities {
+  const supported: Record<ProviderSource, boolean> = {
+    tickflow: true, tushare: false, akshare: false, "llmquant-data": false, "financial-datasets": false,
+  };
+  if (!Object.hasOwn(supported, source)) {
+    throw new Error("Unknown market data source");
+  }
+  const status = supported[source] ? "implemented" : "not-implemented";
+  return { source, operations: { klines: status, adjustmentFactors: status, quotes: status, financials: status, quoteSubscription: status },
+    entitlement: "unknown", connectivity: "unknown" };
+}
+
 /** A selected provider only; this facade never silently falls back or reads a cache. */
 export function createMarketDataSource(connection: SourceConnection): MarketDataSource {
   if (connection.source === "tickflow") return createTickFlowMarketDataAdapter(connection);

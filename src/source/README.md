@@ -88,6 +88,8 @@ between top-level providers.
 
 Import `createMarketDataSource` and the request/result types from `src/source/index.ts`. Runtime can bind local settings with `createConfiguredMarketDataSource`. The facade currently implements the TickFlow slice for SH/SZ/BJ; other providers explicitly report unsupported instead of silently switching source. The established `fetchBars` route remains compatible and retains its own fallback and cache policy.
 
+`getMarketDataCapabilities(source)` describes which of the five selected-provider facade operations are implemented. It performs no I/O and returns independent data with connectivity and entitlement explicitly `unknown`. This is not a connection test or an entitlement, instrument, interval, freshness or completeness guarantee. Other providers' legacy APIs and the `fetchBars` pipeline are separate from this declaration.
+
 | Method | Contract |
 | --- | --- |
 | `fetchKlines({ symbol, interval, adjustment, startTime?, endTime?, count? })` | Daily or minute OHLCV with millisecond timestamps, explicit period and price basis. |

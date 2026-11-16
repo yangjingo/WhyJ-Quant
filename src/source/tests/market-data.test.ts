@@ -1,10 +1,27 @@
 import { afterEach, expect, test } from "bun:test";
-import { createMarketDataSource } from "../index.ts";
+import { createMarketDataSource, getMarketDataCapabilities } from "../index.ts";
 
 const original = globalThis.fetch;
 afterEach(() => { globalThis.fetch = original; });
 const t = Date.parse("2026-11-13T00:00:00+08:00");
 const client = () => createMarketDataSource({ source: "tickflow", apiKey: "fixture", env: {} });
+
+test("capability declarations describe adapter implementation without probing or sharing state", () => {
+  let requests = 0;
+  globalThis.fetch = (async () => { requests++; throw new Error("unexpected network request"); }) as unknown as typeof fetch;
+  const operations = ["klines", "adjustmentFactors", "quotes", "financials", "quoteSubscription"] as const;
+  for (const provider of ["tickflow", "tushare", "akshare", "llmquant-data", "financial-datasets"] as const) {
+    const result = getMarketDataCapabilities(provider);
+    expect(result.source).toBe(provider);
+    expect(result.connectivity).toBe("unknown");
+    expect(result.entitlement).toBe("unknown");
+    for (const operation of operations) expect(result.operations[operation]).toBe(provider === "tickflow" ? "implemented" : "not-implemented");
+    result.operations.klines = "not-implemented";
+  }
+  expect(getMarketDataCapabilities("tickflow").operations.klines).toBe("implemented");
+  expect(() => getMarketDataCapabilities("other" as any)).toThrow("Unknown market data source");
+  expect(requests).toBe(0);
+});
 
 test("neutral facade maps both daily and minute requests and exposes actual provenance", async () => {
   const intervals: string[] = [];
@@ -33,12 +50,16 @@ test("neutral factors and quotes preserve requested identities and source time",
   expect(await source.fetchQuotes({ symbols: ["600000.SH", "000001.SZ"] })).toMatchObject({ source: "tickflow", data: [{ symbol: "600000.SH", timestamp: t, lastPrice: 10 }], missingSymbols: ["000001.SZ"] });
 });
 
-test("unsupported provider fails without attempting network or another provider", async () => {
+test("unsupported providers fail every operation without attempting network or another provider", async () => {
   let requests = 0; globalThis.fetch = (async () => { requests++; return Response.json({}); }) as unknown as typeof fetch;
-  const source = createMarketDataSource({ source: "tushare" });
-  await expect(source.fetchKlines({ symbol: "600000.SH", interval: "1d", adjustment: "forward" })).rejects.toThrow("Source capability not implemented");
-  await expect(source.fetchAdjustmentFactors({ symbols: ["600000.SH"] })).rejects.toThrow("Source capability not implemented");
-  await expect(source.fetchQuotes({ symbols: ["600000.SH"] })).rejects.toThrow("Source capability not implemented");
+  for (const provider of ["tushare", "akshare", "llmquant-data", "financial-datasets"] as const) {
+    const source = createMarketDataSource({ source: provider });
+    await expect(source.fetchKlines({ symbol: "600000.SH", interval: "1d", adjustment: "forward" })).rejects.toThrow("Source capability not implemented");
+    await expect(source.fetchAdjustmentFactors({ symbols: ["600000.SH"] })).rejects.toThrow("Source capability not implemented");
+    await expect(source.fetchQuotes({ symbols: ["600000.SH"] })).rejects.toThrow("Source capability not implemented");
+    await expect(source.fetchFinancials({ symbols: ["600000.SH"], kind: "income" })).rejects.toThrow("Source capability not implemented");
+    await expect(source.subscribeQuotes({ symbols: ["600000.SH"] }, { onQuotes() {}, onError() {} })).rejects.toThrow("Source capability not implemented");
+  }
   expect(requests).toBe(0);
 });
 
