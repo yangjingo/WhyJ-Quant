@@ -1,0 +1,69 @@
+import { randomUUID } from "node:crypto";
+import { collectObservations, type ObservationCollectionRequest, type ObservationCollectionReceipt } from "../../runtime/data/observation-collection.ts";
+import type { ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
+import { WorkbenchError } from "../workbench/errors.ts";
+
+const invalid = () => new WorkbenchError("INPUT_INVALID", "采集参数无效。", 400);
+const notFound = () => new WorkbenchError("OBSERVATION_JOB_NOT_FOUND", "未找到该采集任务。", 404);
+const intervals = ["1m", "5m", "10m", "15m", "30m", "60m"];
+const day = 86_400_000;
+
+/** Reject unknown properties, unbounded requests and credentials before acquiring a job. */
+export function observationJobRequest(value: unknown): ObservationJobRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+  const input = value as Record<string, unknown>;
+  const { dataset, symbol, startTime, endTime, adjustment, interval } = input;
+  const keys = dataset === "factor" ? ["dataset", "symbol", "startTime", "endTime"]
+    : dataset === "daily" ? ["dataset", "symbol", "startTime", "endTime", "adjustment"]
+    : dataset === "minute" ? ["dataset", "symbol", "startTime", "endTime", "adjustment", "interval"] : [];
+  if (!keys.length || Object.keys(input).length !== keys.length || keys.some(key => !Object.hasOwn(input, key))
+    || typeof symbol !== "string" || !/^\d{6}\.(SH|SZ|BJ)$/.test(symbol)
+    || typeof startTime !== "number" || !Number.isSafeInteger(startTime) || startTime <= 0
+    || typeof endTime !== "number" || !Number.isSafeInteger(endTime) || endTime < startTime || endTime > 8_640_000_000_000_000
+    || endTime - startTime > (dataset === "minute" ? 31 : dataset === "daily" ? 366 : 3660) * day
+    || (dataset !== "factor" && adjustment !== "none" && adjustment !== "forward")
+    || (dataset === "minute" && !intervals.includes(interval as string))) throw invalid();
+  return { ...input } as ObservationJobRequest;
+}
+function runtimeRequest(input: ObservationJobRequest): ObservationCollectionRequest {
+  if (input.dataset === "factor") return { dataset: "adjustment_factor", symbol: input.symbol, startTime: input.startTime, endTime: input.endTime };
+  return { dataset: "bars", symbol: input.symbol, startTime: input.startTime, endTime: input.endTime,
+    interval: input.dataset === "daily" ? "1d" : input.interval, adjustment: input.adjustment };
+}
+type Entry = { view: ObservationJobView; controller: AbortController; promise: Promise<void> };
+
+/** Jobs are process-local. Completion reflects the collector's result, even after cancellation was requested. */
+export function createObservationJobs(collect: typeof collectObservations = collectObservations) {
+  const jobs = new Map<string, Entry>();
+  let closing = false;
+  const view = (entry: Entry): ObservationJobView => structuredClone(entry.view);
+  const get = (id: unknown): Entry => {
+    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id)) throw notFound();
+    const entry = jobs.get(id); if (!entry) throw notFound(); return entry;
+  };
+  const start = (raw: unknown): ObservationJobView => {
+    if (closing) throw new WorkbenchError("HOST_STOPPING", "服务正在停止。", 503);
+    const request = observationJobRequest(raw);
+    if ([...jobs.values()].some(entry => entry.view.status === "running")) throw new WorkbenchError("OBSERVATION_BUSY", "已有采集任务运行中。", 409);
+    while (jobs.size >= 20) { const oldest = [...jobs].find(([, entry]) => entry.view.status !== "running"); if (!oldest) throw new WorkbenchError("OBSERVATION_BUSY", "采集任务已满。", 409); jobs.delete(oldest[0]); }
+    const id = randomUUID(), controller = new AbortController();
+    const entry: Entry = { controller, view: { id, request, status: "running", cancelRequested: false, receipt: null, error: null }, promise: Promise.resolve() };
+    jobs.set(id, entry);
+    entry.promise = Promise.resolve().then(() => collect(runtimeRequest(request), { signal: controller.signal })).then((result: ObservationCollectionReceipt) => {
+      entry.view.status = result.status;
+      entry.view.receipt = { source: result.source, endpoint: result.endpoint, observedAt: result.observedAt, rowCount: result.rowCount, ref: result.ref };
+    }, (error: unknown) => {
+      const cancelled = controller.signal.aborted && (error === controller.signal.reason || (error instanceof Error && error.name === "AbortError"));
+      entry.view.status = cancelled ? "cancelled" : "failed";
+      entry.view.error = cancelled ? null : "COLLECTION_FAILED";
+    });
+    return view(entry);
+  };
+  const cancel = (id: unknown): ObservationJobView => {
+    const entry = get(id);
+    if (entry.view.status === "running") { entry.view.cancelRequested = true; entry.controller.abort(); }
+    return view(entry);
+  };
+  const close = async () => { closing = true; for (const entry of jobs.values()) if (entry.view.status === "running") entry.controller.abort(); await Promise.allSettled([...jobs.values()].map(entry => entry.promise)); jobs.clear(); };
+  return { start, read: (id: unknown) => view(get(id)), cancel, close };
+}

@@ -287,6 +287,9 @@ export interface WorkbenchClient {
   saveDataDraft?(input: DataDraftSave): Promise<void>;
   closeDataDraft?(id: string): Promise<void>;
   removeDataCredential?(input: RemoveDataCredential): Promise<{ removed: boolean }>;
+  startObservationJob?(input: ObservationJobRequest): Promise<ObservationJobView>;
+  readObservationJob?(id: string): Promise<ObservationJobView>;
+  cancelObservationJob?(id: string): Promise<ObservationJobView>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
   verifyModelDraft?(id: string): Promise<ModelDraftView>;
@@ -374,4 +377,17 @@ export function isWorkbenchSnapshot(value: unknown): value is SessionSnapshot {
     && value.output.artifacts.every(item => object(item) && string(item.id) && string(item.title) && string(item.sha256) && /^[a-f0-9]{64}$/i.test(item.sha256) && string(item.createdAt) && typeof item.version === "number" && Number.isSafeInteger(item.version) && item.version > 0
       && (item.runId === undefined || string(item.runId) && item.runId.length > 0 && item.runId.length <= 160)
       && (item.kind === undefined || item.kind === "thesis-baseline" || item.kind === "thesis-review" || item.kind === "tsp-observation" || item.kind === "source-check"));
+}
+/** Requests contain no credentials; the Host uses the saved selected source. */
+export type ObservationJobRequest =
+  | { dataset: "daily"; symbol: string; startTime: number; endTime: number; adjustment: "none" | "forward" }
+  | { dataset: "minute"; symbol: string; startTime: number; endTime: number; adjustment: "none" | "forward"; interval: "1m" | "5m" | "10m" | "15m" | "30m" | "60m" }
+  | { dataset: "factor"; symbol: string; startTime: number; endTime: number };
+export interface ObservationJobView {
+  id: string;
+  request: ObservationJobRequest;
+  status: "running" | "archived" | "empty" | "failed" | "cancelled";
+  cancelRequested: boolean;
+  receipt: { source: string; endpoint: string; observedAt: string; rowCount: number; ref: { version: 1; revision: string } | null } | null;
+  error: "COLLECTION_FAILED" | null;
 }

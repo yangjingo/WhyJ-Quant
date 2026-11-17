@@ -27,6 +27,18 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
     case "identity": count(0); return client.identity();
     case "workspaces": count(0); return client.workspaces();
     case "preferences": count(0); return client.preferences();
+    case "startObservationJob": count(1); {
+      if (!client.startObservationJob) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持行情采集。", 503);
+      return client.startObservationJob(args[0] as Parameters<NonNullable<WorkbenchClient["startObservationJob"]>>[0]);
+    }
+    case "readObservationJob": count(1); {
+      if (!client.readObservationJob) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持行情采集。", 503);
+      return client.readObservationJob(requestString(args[0]));
+    }
+    case "cancelObservationJob": count(1); {
+      if (!client.cancelObservationJob) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持行情采集。", 503);
+      return client.cancelObservationJob(requestString(args[0]));
+    }
     case "startDataDraft": count(0); {
       if (!client.startDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
       return client.startDataDraft();
