@@ -80,3 +80,11 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 1. WhyJ-Quant. [Storage 实现与入口](../../src/storage/README.md)、[存储回归](../../src/storage/test). 具体格式与故障边界的依据，不替代目标文件系统验收。
 2. WhyJ-Quant. [数据源](../quant-harness/source-data-providers.md)、[报告](../quant-harness/artifacts-design.md)、[私有执行](../quant-harness/execution.md). 分别维护来源语义、公开投影和账户授权。
+
+## 版本化行情观察归档
+
+Storage 的 `archiveObservations` 接收同一标的、来源、端点、观察时间和数据类型的一批 Source v1 日线、分钟线或复权因子观察；K 线还要求同一周期和复权口径。每批必须非空、时间戳不重复。复权因子跨标的结果须按标的拆批。当前只接受无查询参数的相对端点路径，避免把凭证写入归档。数值、零值、空成交额与未知字段原样保留；不会补齐缺失数据或套用因子。
+
+归档以规范化 JSON 的内容哈希作为不可变版本。`loadObservationArchive` 只能按返回的精确引用读取，并重新校验摘要、结构和身份；缺失或损坏时直接失败。相同内容可重复写入并得到相同引用；修订或不同观察时间形成不同版本。并发提交由文件锁协调，文件原子替换是提交点。记录位于独立的 `.ohquant/data/observation-archives-v1/`，不更改日线缓存或用户组合。
+
+归档只证明本应用保存了什么；它不是 TSP 传输、自动同步、增量进度、水位或覆盖完整性的证明，也不能把抓取时间当成供应商首次发布时间。运行时尚未自动调用该接口，旧研究消费者也不会自动使用它；这部分仍由 [#258](https://github.com/yangjingo/WhyJ-Quant/issues/258) 和 [#264](https://github.com/yangjingo/WhyJ-Quant/issues/264) 跟踪。

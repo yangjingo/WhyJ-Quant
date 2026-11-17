@@ -106,3 +106,5 @@ export type { ArtifactMeta, ArtifactPruneResult } from "./src/artifacts.ts";
 export { listBenchmarkResults, listBenchmarkResultSnapshots, saveBenchmarkResult } from "./src/benchmark-results.ts";
 export type { SavedBenchmarkResult } from "./src/benchmark-results.ts";
 export { insightCacheMtimeMs, loadInsightCache, saveInsightCache } from "./src/insights.ts";
+export { archiveObservations, loadObservationArchive } from "./src/observation-archive.ts";
+export type { ObservationArchiveRef, StoredObservation, StoredBarObservation, StoredFactorObservation } from "../types/observation.ts";
