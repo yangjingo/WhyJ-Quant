@@ -92,3 +92,5 @@ Storage 的 `archiveObservations` 接收同一标的、来源、端点、观察�
 归档只证明本应用保存了什么；它不是 TSP 传输、自动同步、增量进度、水位或覆盖完整性的证明，也不能把抓取时间当成供应商首次发布时间。运行时尚未自动调用该接口，旧研究消费者也不会自动使用它；这部分仍由 [#258](https://github.com/yangjingo/WhyJ-Quant/issues/258) 和 [#264](https://github.com/yangjingo/WhyJ-Quant/issues/264) 跟踪。
 
 显式运行时入口 `collectObservations` 可使用当前配置的数据源采集一个标的的一类日线、分钟线或复权因子，返回空结果或已提交的精确归档引用；`replayObservations` 只按该引用读取，不访问供应商。调用方指定 UTC 毫秒窗口，K 线还指定周期与复权口径。失败或取消不会返回成功引用；已提交的记录不会因后续取消而回滚。调用方负责保留引用；现阶段没有自动调度、增量水位或 TSP 传输，返回成功不代表历史完整或数据已被既有研究消费者使用。
+
+`collectTradingDateObservations` 是显式的交易日日线采集入口：按当前选定来源请求有界上海交易日区间，非空结果保存为版本 2 引用，空结果不写入。`replayTradingDateObservations` 只读取该精确引用，不访问供应商。它不生成时间戳、不使用查询缓存或后备供应商；Host 和设置界面尚未接入此入口，真实权限和历史覆盖仍待验证。
