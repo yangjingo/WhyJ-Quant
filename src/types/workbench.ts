@@ -239,6 +239,19 @@ export interface Preferences {
 
 export type Release = () => void;
 
+/** Host draft views never include stored or submitted credentials or endpoint text. */
+export interface DataDraftView {
+  id: string; version: number;
+  sample: import("./data-readiness.ts").DataProbeRequest;
+  credential: string; endpointConfigured: boolean; checking: boolean; cancelled: boolean; canSave: boolean;
+  result: Pick<import("./data-readiness.ts").DataReadiness, "status" | "rowCount" | "asOfDate" | "observedAt" | "capability"> | null;
+}
+export interface DataDraftEdit {
+  id: string; market?: import("./data-readiness.ts").DataMarket; source?: import("./config.ts").DataSource;
+  symbol?: string; start?: string; end?: string; key?: string | null; endpoint?: string | null;
+}
+export interface DataDraftSave { id: string; version: number }
+
 export interface WorkbenchClient {
   readonly mode: "demo" | "host" | "disconnected";
   session(sessionId: string): Promise<SessionSnapshot>;
@@ -247,6 +260,12 @@ export interface WorkbenchClient {
   references(sessionId: string, query: string): Promise<readonly ReferenceCandidate[]>;
   preferences(): Promise<Preferences>;
   updatePreferences(preferences: Preferences): Promise<void>;
+  startDataDraft?(): Promise<DataDraftView>;
+  editDataDraft?(input: DataDraftEdit): Promise<DataDraftView>;
+  verifyDataDraft?(id: string): Promise<DataDraftView>;
+  cancelDataDraft?(id: string): Promise<DataDraftView>;
+  saveDataDraft?(input: DataDraftSave): Promise<void>;
+  closeDataDraft?(id: string): Promise<void>;
   identity(): Promise<WorkspaceIdentity>;
   workspaces(): Promise<readonly WorkspaceSummary[]>;
   transcript(sessionId: string): Promise<readonly Turn[]>;
