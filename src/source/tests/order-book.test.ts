@@ -1,11 +1,24 @@
 import { afterEach, expect, test } from "bun:test";
 import { createMarketDataSource } from "../index.ts";
+import type { MarketDataCapabilities, MarketDataSource } from "../index.ts";
 
 const original = globalThis.fetch;
 afterEach(() => { globalThis.fetch = original; });
 const source = () => createMarketDataSource({ source: "tickflow", apiKey: "fixture", env: {} });
 const depth = () => ({ symbol: "600000.SH", region: "CN", timestamp: 1762992000000,
   bid_prices: [10, 9.9, 0], bid_volumes: [100, 20, 0], ask_prices: [10.1, 10.2, 0], ask_volumes: [30, 40, 0] });
+
+test("existing public facade and capability implementations remain assignable", () => {
+  const unavailable = async (): Promise<never> => { throw new Error("fixture"); };
+  const legacy: MarketDataSource = { fetchKlines: unavailable, fetchAdjustmentFactors: unavailable,
+    fetchQuotes: unavailable, fetchFinancials: unavailable, subscribeQuotes: unavailable };
+  const capabilities: MarketDataCapabilities = { source: "tickflow", entitlement: "unknown", connectivity: "unknown",
+    operations: { klines: "implemented", adjustmentFactors: "implemented", quotes: "implemented",
+      financials: "implemented", quoteSubscription: "implemented" } };
+  expect(typeof legacy.fetchQuotes).toBe("function");
+  expect(capabilities.operations.quotes).toBe("implemented");
+  expect(typeof source().fetchOrderBook).toBe("function");
+});
 
 test("maps provider depth without caching or interpreting zero levels", async () => {
   let requests = 0;
