@@ -9,7 +9,7 @@ const client = () => createMarketDataSource({ source: "tickflow", apiKey: "fixtu
 test("capability declarations describe adapter implementation without probing or sharing state", () => {
   let requests = 0;
   globalThis.fetch = (async () => { requests++; throw new Error("unexpected network request"); }) as unknown as typeof fetch;
-  const operations = ["klines", "adjustmentFactors", "quotes", "financials", "quoteSubscription"] as const;
+  const operations = ["klines", "adjustmentFactors", "quotes", "orderBook", "financials", "quoteSubscription"] as const;
   for (const provider of ["tickflow", "tushare", "akshare", "llmquant-data", "financial-datasets"] as const) {
     const result = getMarketDataCapabilities(provider);
     expect(result.source).toBe(provider);
@@ -57,6 +57,7 @@ test("unsupported providers fail every operation without attempting network or a
     await expect(source.fetchKlines({ symbol: "600000.SH", interval: "1d", adjustment: "forward" })).rejects.toThrow("Source capability not implemented");
     await expect(source.fetchAdjustmentFactors({ symbols: ["600000.SH"] })).rejects.toThrow("Source capability not implemented");
     await expect(source.fetchQuotes({ symbols: ["600000.SH"] })).rejects.toThrow("Source capability not implemented");
+    await expect(source.fetchOrderBook({ symbol: "600000.SH" })).rejects.toThrow("Source capability not implemented");
     await expect(source.fetchFinancials({ symbols: ["600000.SH"], kind: "income" })).rejects.toThrow("Source capability not implemented");
     await expect(source.subscribeQuotes({ symbols: ["600000.SH"] }, { onQuotes() {}, onError() {} })).rejects.toThrow("Source capability not implemented");
   }

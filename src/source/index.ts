@@ -40,7 +40,7 @@ export { fetchFromFinancialDatasets, fetchFinancialDatasetsSnapshot } from "./sr
 export { fetchFromAKShareGlobal, fetchFromAKShareGlobalDetailed } from "./src/akshare-global-bars.ts";
 export { createMarketDataSource, getMarketDataCapabilities } from "./src/market-data.ts";
 export type { MarketDataCapabilities } from "./src/market-data.ts";
-export type { MarketDataSource, SourceConnection, SourceRequestOptions, KlineInterval, KlineAdjustment, TimeWindow, KlineRequest, FactorRequest, QuoteRequest, Kline, AdjustmentFactor, Quote, ObservationResult, KlineResult, QuoteResult, FinancialKind, FinancialRequest, FinancialRecord, QuoteSubscriptionRequest, QuoteEvent, QuoteSubscription, QuoteSubscriptionHandlers } from "./src/market-data.ts";
+export type { MarketDataSource, SourceConnection, SourceRequestOptions, KlineInterval, KlineAdjustment, TimeWindow, KlineRequest, FactorRequest, QuoteRequest, OrderBookRequest, OrderBookLevel, OrderBook, Kline, AdjustmentFactor, Quote, ObservationResult, KlineResult, QuoteResult, FinancialKind, FinancialRequest, FinancialRecord, QuoteSubscriptionRequest, QuoteEvent, QuoteSubscription, QuoteSubscriptionHandlers } from "./src/market-data.ts";
 export { fetchFromLlmQuant } from "./src/llmquant.ts";
 export { fetchComparisonFx } from "./src/frankfurter.ts";
 export { checkAkshareDependency } from "./src/akshare-dependency.ts";

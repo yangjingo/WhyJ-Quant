@@ -257,3 +257,13 @@ These files import the public entry as a namespace; their individual member use 
 | `TspListColumn` | type | Utility / metadata | — |
 
 These four additive exports identify the pinned display-column inventory; they do not certify a provider capability. See [TSP list catalog](./tsp-list-catalog.md). The earlier 104-export snapshot above remains tied to its stated revision.
+
+## Order book facade types
+
+| Export | Kind | Classification | Static consumers |
+| --- | --- | --- | --- |
+| `OrderBookRequest` | type | Market data facade | — |
+| `OrderBookLevel` | type | Market data facade | — |
+| `OrderBook` | type | Market data facade | — |
+
+These additive types describe the selected-source `fetchOrderBook` operation. They do not change the earlier inventory snapshot or establish entitlement.
