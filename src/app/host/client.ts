@@ -115,6 +115,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     startDataDraft: () => rpc("startDataDraft"), editDataDraft: input => rpc("editDataDraft", [input]),
     verifyDataDraft: id => rpc("verifyDataDraft", [id]), cancelDataDraft: id => rpc("cancelDataDraft", [id]),
     saveDataDraft: input => rpc("saveDataDraft", [input]), closeDataDraft: id => rpc("closeDataDraft", [id]),
+    removeDataCredential: input => rpc("removeDataCredential", [input]),
     submit: value => rpc("submit", [value]), cancel: id => rpc("cancel", [id]),
     continue: value => rpc("continue", [value]), followup: value => rpc("followup", [value]),
     save: value => rpc("save", [value]), reload: value => rpc("reload", [value]),
