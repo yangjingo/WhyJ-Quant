@@ -55,6 +55,34 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
       if (!client.removeDataCredential) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持移除数据源凭据。");
       return client.removeDataCredential(args[0] as Parameters<NonNullable<WorkbenchClient["removeDataCredential"]>>[0]);
     }
+    case "startModelDraft": count(0); {
+      if (!client.startModelDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持模型草稿。");
+      return client.startModelDraft();
+    }
+    case "editModelDraft": count(1); {
+      if (!client.editModelDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持模型草稿。");
+      return client.editModelDraft(args[0] as Parameters<NonNullable<WorkbenchClient["editModelDraft"]>>[0]);
+    }
+    case "verifyModelDraft": count(1); {
+      if (!client.verifyModelDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持模型草稿。");
+      return client.verifyModelDraft(requestString(args[0]));
+    }
+    case "cancelModelDraft": count(1); {
+      if (!client.cancelModelDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持模型草稿。");
+      return client.cancelModelDraft(requestString(args[0]));
+    }
+    case "saveModelDraft": count(1); {
+      if (!client.saveModelDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持模型草稿。");
+      return client.saveModelDraft(args[0] as Parameters<NonNullable<WorkbenchClient["saveModelDraft"]>>[0]);
+    }
+    case "closeModelDraft": count(1); {
+      if (!client.closeModelDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持模型草稿。");
+      return client.closeModelDraft(requestString(args[0]));
+    }
+    case "removeModelCredential": count(1); {
+      if (!client.removeModelCredential) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持移除模型凭据。");
+      return client.removeModelCredential(args[0] as Parameters<NonNullable<WorkbenchClient["removeModelCredential"]>>[0]);
+    }
     case "market": count(0); return client.market();
     case "refreshMarket": count(1); {
       if (typeof args[0] !== "boolean") throw new WorkbenchError("INPUT_INVALID", "重试参数无效。");
