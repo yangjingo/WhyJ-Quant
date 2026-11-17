@@ -17,18 +17,24 @@ if (requestedRoot) {
 process.env.OHQUANT_DIR = root; process.env.NO_PROXY = "127.0.0.1,localhost";
 const keepSettings = process.env.WHYJ_REVIEW_KEEP_SETTINGS === "1";
 if (requestedRoot && existsSync(resolveSettingsPath()) && !keepSettings) throw new Error("Fixture refuses to overwrite existing settings");
-let stage = "idle", advance: (() => void) | undefined, requests = 0, fail = false, legacy = false, sequence = 0, marketRound = 0;
+let stage = "idle", advance: (() => void) | undefined, requests = 0, probes = 0, fail = false, legacy = false, sequence = 0, marketRound = 0;
 const legacyAnswer = "以下为合成展示，不是投资结论。\n\n\n观察摘要\n────────────────────────\n假设 A    2026-10-23    0.00 CNY    —\n假设 B    2026-10-22    80.00 USD   跨窗口，不能直接比较\n\n\n复核边界\n────────────────────────\n原始数据尚未独立复核，不代表实际行情。";
 const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 255, async fetch(request) {
   const url = new URL(request.url);
-  if (url.pathname === "/state") return Response.json({ stage, requests, canAdvance: !!advance });
+  if (url.pathname === "/state") return Response.json({ stage, requests, probes, canAdvance: !!advance });
   if (url.pathname === "/market" && request.method === "POST") { marketRound++; return Response.json({ marketRound }); }
   if (url.pathname === "/advance" && request.method === "POST") {
     const next = advance;
     if (!next) return Response.json({ stage, requests, advanced: false }, { status: 409 });
     advance = undefined; next(); return Response.json({ stage, requests, advanced: true });
   }
-  const payload = await request.json() as { model: string; messages: { role: string; content: unknown }[] }; requests++;
+  const payload = await request.json() as { model: string; messages: { role: string; content: unknown }[] };
+  if (payload.messages.length === 1 && payload.messages[0]?.role === "user" && payload.messages[0]?.content === "Reply with only OK.") {
+    probes++;
+    const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "probe", object: "chat.completion.chunk", created: 0, model: payload.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+    return new Response(chunk({ role: "assistant", content: "OK" }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+  }
+  requests++;
   const index = payload.messages.findLastIndex(message => message.role === "user");
   const returning = payload.messages.slice(index + 1).some(message => message.role === "tool");
   if (!returning) { fail = JSON.stringify(payload.messages[index]?.content).includes("FAIL"); legacy = JSON.stringify(payload.messages[index]?.content).includes("LEGACY"); }

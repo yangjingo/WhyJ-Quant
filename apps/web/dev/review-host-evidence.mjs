@@ -87,8 +87,9 @@ export async function captureHost({ browser, output, root }) {
     if (!(await page.locator('#sessionTitle').innerText()).includes('Compare supplied scenarios')) throw new Error('Auto-name missing');
     await capture('host-03-reloaded-waiting');
     await page.getByRole('button', { name: 'review-fixture', exact: true }).click();
-    const model = page.getByRole('textbox', { name: '模型 ID', exact: true }); await model.fill('busy-model'); await page.getByRole('button', { name: '保存偏好', exact: true }).click();
-    await page.locator('.error-feedback').waitFor(); await capture('host-04-busy-model-rejected'); await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
+    await page.getByText('研究运行中不能保存设置；请先等待或停止研究。').waitFor();
+    if (!(await page.getByRole('button', { name: '保存已验证配置', exact: true }).isDisabled())) throw new Error('A running research session allowed model settings to be saved');
+    await capture('host-04-busy-model-rejected'); await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
     await next(); await state('思考中'); await capture('host-05-thinking');
     await next(); await state('准备调用工具'); await capture('host-06-preparing');
     await next(); await state('正在调用工具'); await capture('host-07-executing');
@@ -128,9 +129,13 @@ export async function captureHost({ browser, output, root }) {
     await input.fill('Retained draft'); await input.press('Enter'); await capture('host-10-follow-up-draft');
     await stop();
     if (await input.inputValue() !== 'Retained draft') throw new Error('Stop lost draft'); await capture('host-11-stopped');
-    await page.getByRole('button', { name: 'review-fixture', exact: true }).click(); await model.fill('review-fixture-next'); await page.getByRole('button', { name: '保存偏好', exact: true }).click();
-    const feedback = page.locator('.operation-feedback'); await feedback.waitFor();
-    if (await feedback.evaluate(element => element.classList.contains('error-feedback'))) throw new Error('Saving model preferences failed: ' + await feedback.innerText());
+    await page.getByRole('button', { name: 'review-fixture', exact: true }).click();
+    await page.getByLabel('模型 ID', { exact: true }).fill('review-fixture-next');
+    await page.getByRole('button', { name: '检查连接', exact: true }).click();
+    await page.getByText('本次连接检查通过').waitFor();
+    if ((await (await fetch(fixture.control + '/state')).json()).probes !== 1) throw new Error('Model verification did not make exactly one controlled probe');
+    await page.getByRole('button', { name: '保存已验证配置', exact: true }).click();
+    await page.getByText('模型配置已保存。关闭后可重新打开设置。').waitFor();
     await capture('host-12-model-saved'); await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
     const beforeReference = (await (await fetch(fixture.control + '/state')).json()).requests;
     await input.fill('Summarize @file:evidence.md'); await input.press('Enter');
