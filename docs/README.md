@@ -41,7 +41,7 @@ Desktop 面向 Windows/macOS，CLI/TUI 面向 Linux 专业用户；Web 是共享
 | 文档 | 责任 |
 | --- | --- |
 | [Quant Harness](./quant-harness/README.md) | 研究范围、证据与完成条件 |
-| [数据源](./quant-harness/source-data-providers.md) | 来源、回退、覆盖与数据版本 |
+| [数据源](./quant-harness/source-data-providers.md) · [接口清单](./quant-harness/source-public-inventory.md) | 来源、回退、覆盖与数据版本 |
 | [量化工具](./quant-harness/quant-tools-design.md) | 计算方法、单位与结果核验 |
 | [Community Tools](./quant-harness/community-tools.md) | Skills 与 MCP 的接入责任 |
 | [组合比较](./quant-harness/portfolio-comparison.md) | 日期、币种与权重的可比性 |

@@ -49,6 +49,8 @@
 
 ## Import rules
 
+The [public entry inventory](../../docs/quant-harness/source-public-inventory.md) records the existing exports and their known in-repository consumers. It is a migration snapshot, not evidence of provider entitlement or external usage.
+
 1. External callers import from `src/source/index.ts`.
 2. Tests may import deep module paths when they are targeting one adapter directly.
 3. Cross-provider policy belongs in `source-providers.ts`, not in individual adapters.
