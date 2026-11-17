@@ -8,6 +8,10 @@ export interface TimeWindow { startTime?: number; endTime?: number }
 export interface KlineRequest extends TimeWindow { symbol: string; interval: KlineInterval; adjustment: KlineAdjustment; count?: number }
 export interface FactorRequest extends TimeWindow { symbols: readonly string[] }
 export interface QuoteRequest { symbols: readonly string[] }
+export interface OrderBookRequest { symbol: string }
+export interface OrderBookLevel { price: number; volume: number }
+/** Levels retain provider order and zero values; their units and empty-level semantics are unknown. */
+export interface OrderBook { symbol: string; timestamp: number; bids: OrderBookLevel[]; asks: OrderBookLevel[] }
 export interface Kline { timestamp: number; open: number; high: number; low: number; close: number; volume: number; amount: number | null }
 export interface AdjustmentFactor { timestamp: number; factor: number }
 export interface Quote { symbol: string; timestamp: number; lastPrice: number; previousClose: number; open: number; high: number; low: number; volume: number; amount: number | null }
@@ -26,6 +30,7 @@ export interface QuoteSubscriptionHandlers { onQuotes(event: QuoteEvent): void; 
   fetchKlines(request: KlineRequest, options?: SourceRequestOptions): Promise<KlineResult>;
   fetchAdjustmentFactors(request: FactorRequest, options?: SourceRequestOptions): Promise<ObservationResult<Record<string, AdjustmentFactor[]>>>;
   fetchQuotes(request: QuoteRequest, options?: SourceRequestOptions): Promise<QuoteResult>;
+  fetchOrderBook(request: OrderBookRequest, options?: SourceRequestOptions): Promise<ObservationResult<OrderBook>>;
   fetchFinancials(request: FinancialRequest, options?: SourceRequestOptions): Promise<ObservationResult<FinancialRecord[]>>;
   subscribeQuotes(request: QuoteSubscriptionRequest, handlers: QuoteSubscriptionHandlers, options?: SourceRequestOptions): Promise<QuoteSubscription>;
 }
@@ -34,7 +39,7 @@ export interface SourceConnection { source: ProviderSource; apiKey?: string; bas
 /** Adapter implementation metadata, not a provider connectivity or entitlement check. */
 export interface MarketDataCapabilities {
   source: ProviderSource;
-  operations: Record<"klines" | "adjustmentFactors" | "quotes" | "financials" | "quoteSubscription", "implemented" | "not-implemented">;
+  operations: Record<"klines" | "adjustmentFactors" | "quotes" | "orderBook" | "financials" | "quoteSubscription", "implemented" | "not-implemented">;
   entitlement: "unknown";
   connectivity: "unknown";
 }
@@ -48,7 +53,7 @@ export function getMarketDataCapabilities(source: ProviderSource): MarketDataCap
     throw new Error("Unknown market data source");
   }
   const status = supported[source] ? "implemented" : "not-implemented";
-  return { source, operations: { klines: status, adjustmentFactors: status, quotes: status, financials: status, quoteSubscription: status },
+  return { source, operations: { klines: status, adjustmentFactors: status, quotes: status, orderBook: status, financials: status, quoteSubscription: status },
     entitlement: "unknown", connectivity: "unknown" };
 }
 
@@ -56,5 +61,5 @@ export function getMarketDataCapabilities(source: ProviderSource): MarketDataCap
 export function createMarketDataSource(connection: SourceConnection): MarketDataSource {
   if (connection.source === "tickflow") return createTickFlowMarketDataAdapter(connection);
   const unsupported = async (): Promise<never> => { throw new Error(`Source capability not implemented: ${connection.source}`); };
-  return { fetchKlines: unsupported, fetchAdjustmentFactors: unsupported, fetchQuotes: unsupported, fetchFinancials: unsupported, subscribeQuotes: unsupported };
+  return { fetchKlines: unsupported, fetchAdjustmentFactors: unsupported, fetchQuotes: unsupported, fetchOrderBook: unsupported, fetchFinancials: unsupported, subscribeQuotes: unsupported };
 }

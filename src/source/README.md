@@ -90,13 +90,14 @@ between top-level providers.
 
 Import `createMarketDataSource` and the request/result types from `src/source/index.ts`. Runtime can bind local settings with `createConfiguredMarketDataSource`. The facade currently implements the TickFlow slice for SH/SZ/BJ; other providers explicitly report unsupported instead of silently switching source. The established `fetchBars` route remains compatible and retains its own fallback and cache policy.
 
-`getMarketDataCapabilities(source)` describes which of the five selected-provider facade operations are implemented. It performs no I/O and returns independent data with connectivity and entitlement explicitly `unknown`. This is not a connection test or an entitlement, instrument, interval, freshness or completeness guarantee. Other providers' legacy APIs and the `fetchBars` pipeline are separate from this declaration.
+`getMarketDataCapabilities(source)` describes which selected-provider facade operations are implemented. It performs no I/O and returns independent data with connectivity and entitlement explicitly `unknown`. This is not a connection test or an entitlement, instrument, interval, freshness or completeness guarantee. Other providers' legacy APIs and the `fetchBars` pipeline are separate from this declaration.
 
 | Method | Contract |
 | --- | --- |
 | `fetchKlines({ symbol, interval, adjustment, startTime?, endTime?, count? })` | Daily or minute OHLCV with millisecond timestamps, explicit period and price basis. |
 | `fetchAdjustmentFactors({ symbols, startTime?, endTime? })` | Dated factors for each requested symbol; no local factor application. |
 | `fetchQuotes({ symbols })` | Quote snapshots with source timestamps and explicit missing symbols. |
+| `fetchOrderBook({ symbol })` | A single ordered bid/ask snapshot with source timestamp; TickFlow provides up to five levels per side. Zero values are retained, and volume units and empty-level semantics remain unknown. |
 | `fetchFinancials({ symbols, kind, startDate?, endDate?, latest? })` | Income, balance sheet, cash flow, metrics or shares; report-period and announcement dates remain distinct. Currency and units are unknown. |
 | `subscribeQuotes({ symbols }, handlers, options?)` | Explicit quote subscription; resolves only after provider acknowledgement, returns `close()` and `closed`, and reports failures without reconnecting. |
 

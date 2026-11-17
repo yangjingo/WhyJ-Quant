@@ -2,6 +2,7 @@ import { validateDateRange } from "../../market/bars.ts";
 import { isAIndexSymbol, normalizeSymbol } from "../../market/symbols.ts";
 import type { Bar, PriceAdjustment } from "../../types/data.ts";
 import { getText } from "./http.ts";
+import type { OrderBook, OrderBookLevel } from "./market-data.ts";
 
 export const DEFAULT_TICKFLOW_BASE_URL = "https://api.tickflow.org";
 export interface TickFlowOptions {
@@ -165,4 +166,26 @@ export async function fetchTickFlowQuotes(inputs: readonly string[], options: Ti
       open: row.open as number, high: row.high as number, low: row.low as number, volume: row.volume as number, amount: row.amount as number | null };
   });
   return { quotes, missingSymbols: symbols.filter(symbol => !seen.has(symbol)) };
+}
+
+/** Preserve each reported level, including zero values, without inferring volume units. */
+export async function fetchTickFlowOrderBook(input: string, options: TickFlowOptions = {}): Promise<OrderBook> {
+  if (typeof input !== "string") throw new Error("Invalid order book request");
+  const symbol = nativeSymbol(input), payload = await request("/v1/depth", { symbol }, options), row = payload.data;
+  if (!record(row) || row.symbol !== symbol || row.region !== "CN") throw new Error("Provider identity mismatch");
+  if (!timestamp(row.timestamp)) throw invalid();
+  const levels = (prices: unknown, volumes: unknown, descending: boolean): OrderBookLevel[] => {
+    if (!Array.isArray(prices) || !Array.isArray(volumes) || prices.length !== volumes.length || prices.length > 5) throw invalid();
+    let previous: number | undefined;
+    return prices.map((price, i) => {
+      const volume = volumes[i];
+      if (!number(price) || price < 0 || !number(volume) || !Number.isSafeInteger(volume) || volume < 0) throw invalid();
+      if (price > 0) {
+        if (previous !== undefined && (descending ? price > previous : price < previous)) throw invalid();
+        previous = price;
+      }
+      return { price, volume };
+    });
+  };
+  return { symbol, timestamp: row.timestamp, bids: levels(row.bid_prices, row.bid_volumes, true), asks: levels(row.ask_prices, row.ask_volumes, false) };
 }

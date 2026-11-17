@@ -1,6 +1,6 @@
 import { fetchTickFlowFinancials } from "./tickflow-financials.ts";
 import { subscribeTickFlowQuotes } from "./tickflow-stream.ts";
-import { fetchTickFlowFactors, fetchTickFlowKlines, fetchTickFlowQuotes } from "./tickflow.ts";
+import { fetchTickFlowFactors, fetchTickFlowKlines, fetchTickFlowQuotes, fetchTickFlowOrderBook } from "./tickflow.ts";
 import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 
 /** Translate the provider-neutral Source contract to the TickFlow REST adapter. */
@@ -28,6 +28,10 @@ export function createTickFlowMarketDataAdapter(connection: SourceConnection): M
     async fetchQuotes(request, control) {
       const result = await fetchTickFlowQuotes(request.symbols, options(control));
       return { ...metadata("/v1/quotes"), data: result.quotes, missingSymbols: result.missingSymbols };
+    },
+    async fetchOrderBook(request, control) {
+      const data = await fetchTickFlowOrderBook(request?.symbol, options(control));
+      return { ...metadata("/v1/depth"), data };
     },
   };
 }
