@@ -54,6 +54,25 @@ describe("tushare adapter", () => {
     expect(bars[0]?.close).toBe(10.5);
   });
 
+  it("rejects absent or invalid daily volume and keeps an observed zero", async () => {
+    const fields = ["ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"];
+    for (const symbol of ["000001.SZ", "000001.SH", "510050.SH"]) {
+      for (const value of [null, "", "not-a-number", -1, true, []]) {
+        globalThis.fetch = (async () => Response.json({ code: 0, data: { fields,
+          items: [[symbol, "20260617", 10, 11, 9, 10.5, 100, 1000], [symbol, "20260618", 10, 11, 9, 10.5, value, 1000]] } })) as unknown as typeof fetch;
+        await expect(fetchFromTushare(symbol)).rejects.toThrow("Tushare daily volume invalid");
+      }
+      globalThis.fetch = (async () => Response.json({ code: 0, data: { fields: fields.filter(field => field !== "vol"),
+        items: [[symbol, "20260618", 10, 11, 9, 10.5, null]] } })) as unknown as typeof fetch;
+      await expect(fetchFromTushare(symbol)).rejects.toThrow("Tushare daily volume invalid");
+      for (const value of [0, "0"]) {
+        globalThis.fetch = (async () => Response.json({ code: 0, data: { fields,
+          items: [[symbol, "20260618", 10, 11, 9, 10.5, value, null]] } })) as unknown as typeof fetch;
+        expect((await fetchFromTushare(symbol))[0]).toMatchObject({ volume: 0, amount: null });
+      }
+    }
+  });
+
   it("maps stock_basic rows into SymbolInfo objects", async () => {
     globalThis.fetch = (async () =>
       new Response(JSON.stringify({
@@ -163,6 +182,23 @@ describe("tushare adapter", () => {
       items: [["20260618", 10, 11, 9, 10.5, 100, 1000]],
     } })) as unknown as typeof fetch;
     await expect(fetchFromTushare("000001.SH")).rejects.toThrow("Tushare response identity mismatch");
+  });
+
+  it("does not save missing-volume data before the existing provider fallback", async () => {
+    globalThis.fetch = (async () => Response.json({ code: 0, data: {
+      fields: ["ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"],
+      items: [["000001.SZ", "20260618", 10, 11, 9, 10.5, null, 1000]],
+    } })) as unknown as typeof fetch;
+    const saved: string[] = [];
+    const result = await fetchBars("000001.SZ", "A", "2026-06-18", "2026-06-18", "tushare", {
+      providers: { tushare: { token: "test-token" }, adapters: { akshare: { fetchBars: async () => [{
+        date: "2026-06-18", open: 10, high: 11, low: 9, close: 10.5, volume: 100, amount: 1000,
+      }] } } },
+      deps: { loadCache: async () => ({ bars: [], fresh: false }),
+        saveBars: async (_symbol, source) => { saved.push(source); }, getPreferredSource: () => "tushare" },
+    });
+    expect(result).toMatchObject({ source: "akshare", origin: "provider", attempts: [{ source: "tushare", status: "error" }, { source: "akshare", status: "success" }] });
+    expect(saved).toEqual(["akshare"]);
   });
 
   it("requests and verifies fund_nav identity", async () => {
