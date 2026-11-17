@@ -60,6 +60,7 @@ try {
   receipt.recovery = await (await import(pathToFileURL(join(web, 'dev/review-recovery-evidence.mjs')).href)).captureRecovery({ browser, output });
   receipt.thesis = await (await import('./review-thesis-evidence.mjs')).captureThesis({ browser, output, root });
   receipt.dataSource = await (await import('./review-data-source-evidence.mjs')).captureDataSource({ browser, output, root });
+  receipt.modelSettings = await (await import('./review-model-settings-evidence.mjs')).captureModelSettings({ browser, output, root });
   receipt.report = await (await import('./review-report-evidence.mjs')).captureReport({ browser, output, root });
   receipt.result = 'passed';
 } catch (error) { receipt.result = 'failed'; receipt.failure = String(error); throw error; }
