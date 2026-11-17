@@ -270,6 +270,18 @@ These four additive exports identify the pinned display-column inventory; they d
 
 These additive types describe the selected-source `fetchOrderBook` operation. They do not change the earlier inventory snapshot or establish entitlement.
 
+## Trading-date K-line facade types
+
+| Export | Kind | Classification | Static consumers |
+| --- | --- | --- | --- |
+| `TradingDateKlineRequest` | type | Market data facade | Source tests |
+| `TradingDateKline` | type | Market data facade | — |
+| `TradingDateKlineResult` | type | Market data facade | — |
+| `TradingDateMarketDataSource` | type | Market data facade | — |
+| `TradingDateMarketDataCapabilities` | type | Market data facade | — |
+
+These additive types represent a session date separately from any provider timestamp; they do not establish complete history or entitlement.
+
 ## Versioned bar and factor observation conversion
 
 | Export | Kind | Classification | Static consumers |
