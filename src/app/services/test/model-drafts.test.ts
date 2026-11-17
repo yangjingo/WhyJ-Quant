@@ -3,6 +3,7 @@ import { createModelDrafts } from "../model-drafts.ts";
 import { DEFAULT_SETTINGS, type OhQuantSettings } from "../../../types/config.ts";
 import type { SettingsPort } from "../../workbench/model.ts";
 import type { ModelProbeResult } from "../../../runtime/models/model-probe.ts";
+import { probeModelConnection } from "../../../runtime/models/model-probe.ts";
 
 const secret = "fixture-model-key-never-return";
 const ready: ModelProbeResult = { status: "ready", ok: true, detail: "provider text must not be returned" };
@@ -138,4 +139,69 @@ test("disposal aborts a pending probe and rejects a later success", async () => 
   const opened = drafts.start(), pending = drafts.verify(opened.id); await begun;
   drafts.dispose(); expect(signal?.aborted).toBe(true); await expect(pending).rejects.toThrow("已关闭或过期");
   release(); await Promise.resolve(); expect(f.writes()).toBe(0);
+});
+
+test("Cloudflare drafts resolve only their own staged identifiers and require an exact verified version", async () => {
+  const f = fixture(); let observed: { key?: string; account?: string; gateway?: string; auth?: string | null } | undefined;
+  const drafts = createModelDrafts(f.port, { beforeSave: f.options.beforeSave, probe: (settings, options) => probeModelConnection(settings, {
+    ...options, processEnv: {}, complete: async (_model, _context, request) => {
+      observed = { key: request?.apiKey, account: request?.env?.CLOUDFLARE_ACCOUNT_ID, gateway: request?.env?.CLOUDFLARE_GATEWAY_ID,
+        auth: request?.headers?.["cf-aig-authorization"] };
+      return { content: [{ type: "text", text: "OK" }], stopReason: "stop" } as never;
+    },
+  }) });
+  const opened = drafts.start();
+  let worker = drafts.edit({ id: opened.id, provider: "cloudflare-workers-ai", key: secret });
+  expect(worker.cloudflare).toEqual({ accountConfigured: false, gatewayConfigured: false });
+  expect((await drafts.verify(opened.id)).status).toBe("missing-credential"); expect(observed).toBeUndefined();
+  worker = drafts.edit({ id: opened.id, cloudflareAccountId: "private-account-123" });
+  expect(worker.cloudflare?.accountConfigured).toBe(true); expect(JSON.stringify(worker)).not.toContain("private-account-123");
+  worker = await drafts.verify(opened.id); expect(worker.canSave).toBe(true);
+  expect(observed as unknown).toEqual({ key: secret, account: "private-account-123", gateway: undefined, auth: undefined });
+  const edited = drafts.edit({ id: opened.id, cloudflareAccountId: "new-account-456" });
+  expect(edited.canSave).toBe(false); expect(() => drafts.save({ id: opened.id, version: worker.version })).toThrow("草稿已变化");
+  worker = await drafts.verify(opened.id); drafts.save({ id: opened.id, version: worker.version });
+  expect(f.read().providers?.["cloudflare-workers-ai"]?.env?.CLOUDFLARE_ACCOUNT_ID).toBe("new-account-456");
+  expect(f.read().providers?.other?.apiKey).toBe("unrelated-fixture-key");
+
+  const second = drafts.start(); observed = undefined;
+  let gateway = drafts.edit({ id: second.id, provider: "cloudflare-ai-gateway", key: secret, cloudflareAccountId: "gateway-account" });
+  expect((await drafts.verify(second.id)).status).toBe("missing-credential"); expect(observed).toBeUndefined();
+  gateway = drafts.edit({ id: second.id, cloudflareGatewayId: "private-gateway" });
+  expect(gateway.cloudflare).toEqual({ accountConfigured: true, gatewayConfigured: true });
+  expect(JSON.stringify(gateway)).not.toContain("private-gateway");
+  gateway = await drafts.verify(second.id); expect(gateway.canSave).toBe(true);
+  expect(observed as unknown).toEqual({ key: undefined, account: "gateway-account", gateway: "private-gateway", auth: `Bearer ${secret}` });
+  const removed = drafts.edit({ id: second.id, cloudflareGatewayId: null }); expect(removed.canSave).toBe(false);
+  expect(removed.cloudflare?.gatewayConfigured).toBe(false); expect((await drafts.verify(second.id)).status).toBe("missing-credential");
+  drafts.dispose();
+});
+
+test("Cloudflare identifier edits reject foreign providers and unsafe inputs without changing a checked draft", async () => {
+  const f = fixture(), drafts = createModelDrafts(f.port, f.options), opened = drafts.start();
+  expect(() => drafts.edit({ id: opened.id, cloudflareAccountId: "account" })).toThrow("参数无效");
+  const cloud = drafts.edit({ id: opened.id, provider: "cloudflare-workers-ai", cloudflareAccountId: "account-123" });
+  for (const value of ["", "a b", "line\nfeed", "x".repeat(129)])
+    expect(() => drafts.edit({ id: opened.id, cloudflareAccountId: value })).toThrow("参数无效");
+  expect(() => drafts.edit({ id: opened.id, cloudflareGatewayId: "gateway" })).toThrow("参数无效");
+  const checked = await drafts.verify(opened.id); expect(checked.version).toBe(cloud.version + 1);
+  f.busy(true); expect(() => drafts.save({ id: opened.id, version: checked.version })).toThrow("busy");
+  f.busy(false); drafts.save({ id: opened.id, version: checked.version });
+  expect(f.read().providers?.["cloudflare-workers-ai"]?.env?.CLOUDFLARE_ACCOUNT_ID).toBe("account-123"); drafts.dispose();
+});
+
+test("clearing a Cloudflare draft identifier restores the existing environment fallback", async () => {
+  const f = fixture(); let account: string | undefined;
+  const drafts = createModelDrafts(f.port, { beforeSave() {}, probe: (settings, options) => probeModelConnection(settings, {
+    ...options, processEnv: { CLOUDFLARE_ACCOUNT_ID: "ambient-account" },
+    complete: async (_model, _context, request) => { account = request?.env?.CLOUDFLARE_ACCOUNT_ID;
+      return { content: [{ type: "text", text: "OK" }], stopReason: "stop" } as never; },
+  }) });
+  const opened = drafts.start();
+  drafts.edit({ id: opened.id, provider: "cloudflare-workers-ai", key: secret, cloudflareAccountId: "saved-account" });
+  expect((await drafts.verify(opened.id)).status).toBe("ready"); expect(account).toBe("saved-account");
+  const cleared = drafts.edit({ id: opened.id, cloudflareAccountId: null }); expect(cleared.cloudflare?.accountConfigured).toBe(false);
+  const checked = await drafts.verify(opened.id); expect(checked.status).toBe("ready"); expect(account).toBe("ambient-account");
+  drafts.save({ id: opened.id, version: checked.version });
+  expect(f.read().providers?.["cloudflare-workers-ai"]?.env?.CLOUDFLARE_ACCOUNT_ID).toBeUndefined(); drafts.dispose();
 });

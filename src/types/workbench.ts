@@ -261,11 +261,13 @@ export interface ModelDraftView {
   models: { id: string; name: string; api: string; reasoning: boolean }[];
   protocols: string[]; thinkingLevels: string[];
   keyConfigured: boolean; oauthSelected: boolean; endpointConfigured: boolean;
+  cloudflare?: { accountConfigured: boolean; gatewayConfigured: boolean };
   checking: boolean; canSave: boolean; status: ModelDraftStatus | null;
 }
 export interface ModelDraftEdit {
   id: string; provider?: string; model?: string; protocol?: import("./config.ts").ModelProtocol | null;
   endpoint?: string | null; key?: string | null; thinkingLevel?: string;
+  cloudflareAccountId?: string | null; cloudflareGatewayId?: string | null;
 }
 export interface ModelDraftSave { id: string; version: number }
 export interface RemoveModelCredential { provider: string; revision: string }
