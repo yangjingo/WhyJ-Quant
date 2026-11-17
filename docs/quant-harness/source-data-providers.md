@@ -10,7 +10,7 @@ Source 负责识别市场与标的、适配响应、安排兼容来源回退，�
 
 这条边界让供应商替换局限在接入层，也使研究者能追问：这次成功来自首选源、备用源，还是旧缓存？如果界面或计算模块各自实现回退，数据口径会随着入口改变，无法解释同一个问题为什么得到不同答案。
 
-目前接入包括 AKShare、Tushare、TickFlow、Financial Datasets 和 LLMQuant Data，各自覆盖范围与可用权限不同。AKShare 内部还可能切换公开端点。逻辑供应商名称不足以描述实际路径，因此响应保留实际端点与尝试状态。港股链中存在 LLMQuant 路由，不等于已经确认该供应商的港股能力。
+目前接入包括 AKShare、Tushare、TickFlow、Financial Datasets 和 LLMQuant Data，各自覆盖范围与可用权限不同。AKShare 内部还可能切换公开端点。逻辑供应商名称不足以描述实际路径，因此响应保留实际端点与尝试状态。港股链中存在 LLMQuant 路由，不等于已经确认该供应商的港股能力。当前公开导出及仓库内调用方见 [Source 接口清单](./source-public-inventory.md)；该快照不覆盖外部调用方，也不代表新接口已支持全部旧能力。
 
 TickFlow 原生 HTTP 适配归 `src/source`，通过[供应商无关接口](../../src/source/README.md#provider-neutral-market-data-facade)提供日线、分钟线、复权因子和行情快照接口，不依赖 TSP 面板、Python 或 MCP。初始范围为沪深京标的；只有日线进入现有 `Bar` 取数链，分钟与快照保留独立时间戳。显式选择 TickFlow 才启用此来源，原有自动回退顺序不变。接口、响应上限及身份/单位证据边界见 [Source 模块](../../src/source/README.md#provider-neutral-market-data-facade)；日线样本成功不能代替其他权限验证。
 
