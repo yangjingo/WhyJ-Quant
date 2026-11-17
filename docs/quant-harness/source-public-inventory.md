@@ -265,5 +265,7 @@ These four additive exports identify the pinned display-column inventory; they d
 | `OrderBookRequest` | type | Market data facade | — |
 | `OrderBookLevel` | type | Market data facade | — |
 | `OrderBook` | type | Market data facade | — |
+| `OrderBookMarketDataCapabilities` | type | Market data facade | — |
+| `OrderBookMarketDataSource` | type | Market data facade | — |
 
 These additive types describe the selected-source `fetchOrderBook` operation. They do not change the earlier inventory snapshot or establish entitlement.

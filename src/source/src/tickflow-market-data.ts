@@ -1,10 +1,10 @@
 import { fetchTickFlowFinancials } from "./tickflow-financials.ts";
 import { subscribeTickFlowQuotes } from "./tickflow-stream.ts";
 import { fetchTickFlowFactors, fetchTickFlowKlines, fetchTickFlowQuotes, fetchTickFlowOrderBook } from "./tickflow.ts";
-import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
+import type { OrderBookMarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 
 /** Translate the provider-neutral Source contract to the TickFlow REST adapter. */
-export function createTickFlowMarketDataAdapter(connection: SourceConnection): MarketDataSource {
+export function createTickFlowMarketDataAdapter(connection: SourceConnection): OrderBookMarketDataSource {
   const options = (request?: SourceRequestOptions) => ({ apiKey: connection.apiKey, baseUrl: connection.baseUrl,
     env: connection.env, signal: request?.signal, timeoutMs: request?.timeoutMs });
   const metadata = (endpoint: string) => ({ source: "tickflow" as const, endpoint, observedAt: new Date().toISOString(), units: "unknown" as const });

@@ -26,26 +26,33 @@ export interface FinancialRecord { symbol: string; periodEnd: string; announceme
 export interface QuoteSubscriptionRequest { symbols: readonly string[] }
 export interface QuoteEvent { source: ProviderSource; observedAt: string; data: Quote[] }
 export interface QuoteSubscription { close(): void; readonly closed: Promise<void> }
-export interface QuoteSubscriptionHandlers { onQuotes(event: QuoteEvent): void; onError(error: Error): void }export interface MarketDataSource {
+export interface QuoteSubscriptionHandlers { onQuotes(event: QuoteEvent): void; onError(error: Error): void }
+export interface MarketDataSource {
   fetchKlines(request: KlineRequest, options?: SourceRequestOptions): Promise<KlineResult>;
   fetchAdjustmentFactors(request: FactorRequest, options?: SourceRequestOptions): Promise<ObservationResult<Record<string, AdjustmentFactor[]>>>;
   fetchQuotes(request: QuoteRequest, options?: SourceRequestOptions): Promise<QuoteResult>;
-  fetchOrderBook(request: OrderBookRequest, options?: SourceRequestOptions): Promise<ObservationResult<OrderBook>>;
   fetchFinancials(request: FinancialRequest, options?: SourceRequestOptions): Promise<ObservationResult<FinancialRecord[]>>;
   subscribeQuotes(request: QuoteSubscriptionRequest, handlers: QuoteSubscriptionHandlers, options?: SourceRequestOptions): Promise<QuoteSubscription>;
+}
+/** Extended facade returned by the factory; existing MarketDataSource implementations remain valid. */
+export interface OrderBookMarketDataSource extends MarketDataSource {
+  fetchOrderBook(request: OrderBookRequest, options?: SourceRequestOptions): Promise<ObservationResult<OrderBook>>;
 }
 export interface SourceConnection { source: ProviderSource; apiKey?: string; baseUrl?: string; env?: Record<string, string | undefined> }
 
 /** Adapter implementation metadata, not a provider connectivity or entitlement check. */
 export interface MarketDataCapabilities {
   source: ProviderSource;
-  operations: Record<"klines" | "adjustmentFactors" | "quotes" | "orderBook" | "financials" | "quoteSubscription", "implemented" | "not-implemented">;
+  operations: Record<"klines" | "adjustmentFactors" | "quotes" | "financials" | "quoteSubscription", "implemented" | "not-implemented">;
   entitlement: "unknown";
   connectivity: "unknown";
 }
+export interface OrderBookMarketDataCapabilities extends MarketDataCapabilities {
+  operations: MarketDataCapabilities["operations"] & Record<"orderBook", "implemented" | "not-implemented">;
+}
 
 /** Describes the selected-source facade only; legacy provider APIs have separate capabilities. */
-export function getMarketDataCapabilities(source: ProviderSource): MarketDataCapabilities {
+export function getMarketDataCapabilities(source: ProviderSource): OrderBookMarketDataCapabilities {
   const supported: Record<ProviderSource, boolean> = {
     tickflow: true, tushare: false, akshare: false, "llmquant-data": false, "financial-datasets": false,
   };
@@ -58,7 +65,7 @@ export function getMarketDataCapabilities(source: ProviderSource): MarketDataCap
 }
 
 /** A selected provider only; this facade never silently falls back or reads a cache. */
-export function createMarketDataSource(connection: SourceConnection): MarketDataSource {
+export function createMarketDataSource(connection: SourceConnection): OrderBookMarketDataSource {
   if (connection.source === "tickflow") return createTickFlowMarketDataAdapter(connection);
   const unsupported = async (): Promise<never> => { throw new Error(`Source capability not implemented: ${connection.source}`); };
   return { fetchKlines: unsupported, fetchAdjustmentFactors: unsupported, fetchQuotes: unsupported, fetchOrderBook: unsupported, fetchFinancials: unsupported, subscribeQuotes: unsupported };
