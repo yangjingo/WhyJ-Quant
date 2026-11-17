@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { collectObservations, type ObservationCollectionRequest, type ObservationCollectionReceipt } from "../../runtime/data/observation-collection.ts";
+import { collectObservations, collectTradingDateObservations, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
+import { isDailyDate } from "../../market/bars.ts";
 import type { ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
@@ -13,6 +14,16 @@ export function observationJobRequest(value: unknown): ObservationJobRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const input = value as Record<string, unknown>;
   const { dataset, symbol, startTime, endTime, adjustment, interval } = input;
+  if (dataset === "daily" && input.timeMode === "trading-date") {
+    const { startDate, endDate } = input;
+    const keys = ["dataset", "timeMode", "symbol", "startDate", "endDate", "adjustment"];
+    if (Object.keys(input).length !== keys.length || keys.some(key => !Object.hasOwn(input, key))
+      || typeof symbol !== "string" || !/^\d{6}\.(SH|SZ|BJ)$/.test(symbol)
+      || typeof startDate !== "string" || typeof endDate !== "string" || !isDailyDate(startDate) || !isDailyDate(endDate)
+      || startDate < "0001-01-01" || endDate > "9998-12-31" || startDate > endDate
+      || Date.parse(endDate) - Date.parse(startDate) > 365 * day || (adjustment !== "none" && adjustment !== "forward")) throw invalid();
+    return { dataset, timeMode: "trading-date", symbol, startDate, endDate, adjustment };
+  }
   const keys = dataset === "factor" ? ["dataset", "symbol", "startTime", "endTime"]
     : dataset === "daily" ? ["dataset", "symbol", "startTime", "endTime", "adjustment"]
     : dataset === "minute" ? ["dataset", "symbol", "startTime", "endTime", "adjustment", "interval"] : [];
@@ -25,15 +36,18 @@ export function observationJobRequest(value: unknown): ObservationJobRequest {
     || (dataset === "minute" && !intervals.includes(interval as string))) throw invalid();
   return { ...input } as ObservationJobRequest;
 }
-function runtimeRequest(input: ObservationJobRequest): ObservationCollectionRequest {
+function runtimeRequest(input: Exclude<ObservationJobRequest, { timeMode: "trading-date" }>): ObservationCollectionRequest {
   if (input.dataset === "factor") return { dataset: "adjustment_factor", symbol: input.symbol, startTime: input.startTime, endTime: input.endTime };
   return { dataset: "bars", symbol: input.symbol, startTime: input.startTime, endTime: input.endTime,
     interval: input.dataset === "daily" ? "1d" : input.interval, adjustment: input.adjustment };
 }
+function isTradingDateRequest(input: ObservationJobRequest): input is Extract<ObservationJobRequest, { timeMode: "trading-date" }> {
+  return "timeMode" in input && input.timeMode === "trading-date";
+}
 type Entry = { view: ObservationJobView; controller: AbortController; promise: Promise<void> };
 
 /** Jobs are process-local. Completion reflects the collector's result, even after cancellation was requested. */
-export function createObservationJobs(collect: typeof collectObservations = collectObservations) {
+export function createObservationJobs(collect: typeof collectObservations = collectObservations, collectDates: typeof collectTradingDateObservations = collectTradingDateObservations) {
   const jobs = new Map<string, Entry>();
   let closing = false;
   const view = (entry: Entry): ObservationJobView => structuredClone(entry.view);
@@ -49,7 +63,10 @@ export function createObservationJobs(collect: typeof collectObservations = coll
     const id = randomUUID(), controller = new AbortController();
     const entry: Entry = { controller, view: { id, request, status: "running", cancelRequested: false, receipt: null, error: null }, promise: Promise.resolve() };
     jobs.set(id, entry);
-    entry.promise = Promise.resolve().then(() => collect(runtimeRequest(request), { signal: controller.signal })).then((result: ObservationCollectionReceipt) => {
+    entry.promise = Promise.resolve().then(async () => isTradingDateRequest(request)
+      ? await collectDates({ timeMode: "trading-date", symbol: request.symbol, assetType: "stock", interval: "1d", adjustment: request.adjustment,
+          startDate: request.startDate, endDate: request.endDate }, { signal: controller.signal })
+      : await collect(runtimeRequest(request), { signal: controller.signal })).then(result => {
       entry.view.status = result.status;
       entry.view.receipt = { source: result.source, endpoint: result.endpoint, observedAt: result.observedAt, rowCount: result.rowCount, ref: result.ref };
     }, (error: unknown) => {
