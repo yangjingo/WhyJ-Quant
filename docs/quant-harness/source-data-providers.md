@@ -81,3 +81,5 @@ PDF 引擎固定为 `unpdf 1.9.1`，符合当前 Node 22 版本范围；通过 B
 1. Financial Datasets. [Understanding Pagination](https://docs.financialdatasets.ai/guides/pagination). 官方分页协议；不构成本仓库真实账号可用性的证明。
 2. Tushare. [A 股日线行情](https://tushare.pro/document/2?doc_id=27). 接口口径与字段说明。
 3. WhyJ-Quant. [Source 模块](../../src/source/README.md). 当前接入与模块职责；真实服务状态仍需当次验证。
+
+运行时可显式调用 `collectObservations`，对当前选中的供应商请求一个标的的一类日线、分钟线或复权因子，并将非空结果写入不可变归档；`replayObservations` 使用返回的精确引用离线读取。空结果不生成归档，错误和取消向调用方报告，不切换其他供应商。该入口当前不由界面或后台调度器自动触发，也不实现 TSP 数据交换。详细提交和重放边界见[存储](../agent-runtime/storage.md#版本化行情观察归档)。
