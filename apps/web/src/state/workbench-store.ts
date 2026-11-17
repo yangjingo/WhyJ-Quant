@@ -257,6 +257,7 @@ export function createWorkbenchStore(client: WorkbenchClient, storage: ViewStora
       try { await client.updatePreferences(preferences); publish({ preferences: await client.preferences() }); if (view.selected) await select(view.selected); await refreshMarket(false); }
       catch (error) { report(error); throw error; }
     },
+    async refreshPreferences() { publish({ preferences: await client.preferences() }); await refreshMarket(false); },
     clearError: () => publish({ error: null }),
   };
 }
