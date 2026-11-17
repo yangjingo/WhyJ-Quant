@@ -288,9 +288,11 @@ These additive types represent a session date separately from any provider times
 | --- | --- | --- | --- |
 | `toBarObservations` | value | Observation conversion | Source tests |
 | `toFactorObservations` | value | Observation conversion | Source tests |
+| `toTradingDateBarObservations` | value | Observation conversion | Source tests |
 | `ObservationEnvelopeBase` | type | Observation contract | — |
 | `BarObservation` | type | Observation contract | — |
 | `FactorObservation` | type | Observation contract | — |
 | `BarOrFactorObservation` | type | Observation contract | — |
+| `TradingDateBarObservation` | type | Observation contract | — |
 
 These additive exports preserve facade provenance and unknowns; they do not implement TSP synchronization. See [Source guide](../../src/source/README.md#versioned-bar-and-factor-observations).
