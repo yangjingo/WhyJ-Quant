@@ -2,7 +2,9 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ObservationArchiveRef, StoredObservation } from "../../types/observation.ts";
+import type { ObservationArchiveRef, StoredObservation, StoredTradingDateBarObservation, TradingDateArchiveRef } from "../../types/observation.ts";
+import { isDailyDate } from "../../market/bars.ts";
+import { isAIndexSymbol } from "../../market/symbols.ts";
 import { resolveDataDir } from "./dirs.ts";
 import { atomicWriteTextAsync, withFileLockAsync } from "./atomic-file.ts";
 
@@ -96,5 +98,81 @@ export async function loadObservationArchive(ref: ObservationArchiveRef, signal?
   try { data = JSON.parse(content); } catch { throw fail(); }
   if (!object(data) || !exactKeys(data, ["version", "records"]) || data.version !== 1 || canonical(data) !== content) throw fail();
   validate(data.records);
+  return data.records;
+}
+
+const datedKeys = ["schemaVersion", "kind", "symbol", "tradeDate", "sourceTimestamp", "requested", "market", "assetType", "calendarTimeZone", "source", "endpoint", "observedAt", "interval", "adjustment", "volumeUnit", "amountUnit", "coverage", "values"];
+const shanghai = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+function shanghaiDate(value: number): string {
+  const parts = Object.fromEntries(shanghai.formatToParts(value).map(p => [p.type, p.value]));
+  return `${parts.year!.padStart(4, "0")}-${parts.month}-${parts.day}`;
+}
+function validateDated(records: unknown): asserts records is StoredTradingDateBarObservation[] {
+  if (!Array.isArray(records) || records.length === 0 || records.length > 366) throw fail();
+  const seen = new Set<string>();
+  let identity: string | undefined;
+  for (const r of records) {
+    if (!object(r) || !exactKeys(r, datedKeys) || r.schemaVersion !== 2 || r.kind !== "trading_date_daily_bar"
+      || typeof r.symbol !== "string" || isAIndexSymbol(r.symbol)
+      || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(r.symbol)
+      || r.market !== "A" || r.assetType !== "stock" || r.calendarTimeZone !== "Asia/Shanghai" || r.interval !== "1d"
+      || r.coverage !== "unknown" || !["none", "forward"].includes(r.adjustment as string)
+      || typeof r.observedAt !== "string" || !instant(r.observedAt) || !object(r.requested)
+      || !exactKeys(r.requested, ["startDate", "endDate"]) || typeof r.requested.startDate !== "string"
+      || typeof r.requested.endDate !== "string" || !isDailyDate(r.requested.startDate) || !isDailyDate(r.requested.endDate)
+      || r.requested.startDate < "0001-01-01" || r.requested.endDate > "9998-12-31" || r.requested.startDate > r.requested.endDate
+      || Date.parse(r.requested.endDate) - Date.parse(r.requested.startDate) > 365 * 86_400_000
+      || typeof r.tradeDate !== "string" || !isDailyDate(r.tradeDate) || r.tradeDate < r.requested.startDate
+      || r.tradeDate > r.requested.endDate || seen.has(r.tradeDate) || !object(r.values)
+      || !exactKeys(r.values, ["open", "high", "low", "close", "volume", "amount"])) throw fail();
+    if (r.source === "tushare") {
+      if (r.endpoint !== "daily" || r.adjustment !== "none" || r.volumeUnit !== "hand" || r.amountUnit !== "CNY-thousand" || r.sourceTimestamp !== null) throw fail();
+    } else if (r.source === "tickflow") {
+      if (r.endpoint !== "/v1/klines" || r.volumeUnit !== "unknown" || r.amountUnit !== "unknown"
+        || typeof r.sourceTimestamp !== "number" || !Number.isSafeInteger(r.sourceTimestamp) || r.sourceTimestamp <= 0
+        || !Number.isFinite(new Date(r.sourceTimestamp).getTime()) || shanghaiDate(r.sourceTimestamp) !== r.tradeDate) throw fail();
+    } else throw fail();
+    const v = r.values;
+    if (!nonnegative(v.open) || v.open === 0 || !nonnegative(v.high) || v.high === 0 || !nonnegative(v.low) || v.low === 0
+      || !nonnegative(v.close) || v.close === 0 || !nonnegative(v.volume) || (v.amount !== null && !nonnegative(v.amount))
+      || v.high < Math.max(v.open, v.low, v.close) || v.low > Math.min(v.open, v.high, v.close)) throw fail();
+    seen.add(r.tradeDate);
+    const current = canonical({ symbol: r.symbol, source: r.source, endpoint: r.endpoint, observedAt: r.observedAt,
+      requested: r.requested, adjustment: r.adjustment, volumeUnit: r.volumeUnit, amountUnit: r.amountUnit });
+    if (identity !== undefined && identity !== current) throw fail();
+    identity = current;
+  }
+}
+const datedDir = () => join(resolveDataDir(), "observation-archives-v2");
+function datedPath(ref: TradingDateArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "revision"]) || ref.version !== 2 || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(datedDir(), `${ref.revision}.json`);
+}
+/** Explicit immutable write; no collection, cache or checkpoint is performed. */
+export async function archiveTradingDateObservations(records: readonly StoredTradingDateBarObservation[], signal?: AbortSignal): Promise<TradingDateArchiveRef> {
+  validateDated(records);
+  const content = canonical({ version: 2, records });
+  const ref: TradingDateArchiveRef = { version: 2, revision: digest(content) };
+  const target = datedPath(ref);
+  await mkdir(datedDir(), { recursive: true });
+  await withFileLockAsync(target, async () => {
+    signal?.throwIfAborted();
+    try {
+      if (await readFile(target, { encoding: "utf8", signal }) !== content) throw new Error("Observation archive is damaged");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await atomicWriteTextAsync(target, content, signal);
+    }
+  }, signal);
+  return ref;
+}
+/** Read only an exact v2 reference and validate both content and identity. */
+export async function loadTradingDateArchive(ref: TradingDateArchiveRef, signal?: AbortSignal): Promise<StoredTradingDateBarObservation[]> {
+  const content = await readFile(datedPath(ref), { encoding: "utf8", signal });
+  if (digest(content) !== ref.revision) throw new Error("Observation archive is damaged");
+  let data: unknown;
+  try { data = JSON.parse(content); } catch { throw fail(); }
+  if (!object(data) || !exactKeys(data, ["version", "records"]) || data.version !== 2 || canonical(data) !== content) throw fail();
+  validateDated(data.records);
   return data.records;
 }
