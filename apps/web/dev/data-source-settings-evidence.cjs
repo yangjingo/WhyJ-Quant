@@ -96,6 +96,7 @@ async ({ page, control, output }) => {
     if (payload.method === 'startObservationJob') {
       starts++;
       if (starts === 1) return route.fulfill({ status: 400, json: { ok: false, error: { code: 'INPUT_INVALID', message: 'synthetic old Host' } } });
+      if (starts === 2) return route.abort('failed');
       assert(JSON.stringify(payload.args[0]) === JSON.stringify({ dataset: 'daily', timeMode: 'trading-date', symbol: '600000.SH', startDate: '2024-01-02', endDate: '2024-01-03', adjustment: 'none' }), 'date request shape');
       job = { id: '12345678-1234-1234-1234-123456789abc', request: payload.args[0], status: 'archived', cancelRequested: false,
         receipt: { source: 'tushare', endpoint: 'daily', observedAt: '2024-01-05T00:00:00Z', rowCount: 1, ref: { version: 2, revision: 'a'.repeat(64) } }, error: null };
@@ -111,17 +112,22 @@ async ({ page, control, output }) => {
   await page.getByText('交易日模式支持 TickFlow 和 Tushare', { exact: false }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: output + '/trading-date-wide.png' });
   await page.getByRole('button', { name: '开始采集' }).click();
-  await page.getByRole('alert').filter({ hasText: '旧版服务可能不支持此模式' }).waitFor();
+  await page.getByRole('alert').filter({ hasText: '当前服务版本不支持此模式' }).waitFor();
   assert(starts === 1, 'old Host rejection must not retry');
-  assert(await page.getByRole('button', { name: '开始采集' }).isDisabled(), 'ambiguous start must block resubmission');
+  assert(await page.getByRole('button', { name: '开始采集' }).isEnabled(), 'definite rejection may be retried explicitly');
+  await page.getByRole('alert').scrollIntoViewIfNeeded(); await page.screenshot({ path: output + '/trading-date-rejected.png' });
+  await page.getByRole('button', { name: '开始采集' }).click();
+  await page.getByRole('alert').filter({ hasText: '无法确认交易日任务是否已启动' }).waitFor();
+  assert(starts === 2 && await page.getByRole('button', { name: '开始采集' }).isDisabled(), 'ambiguous start must block resubmission');
+  await page.getByRole('alert').scrollIntoViewIfNeeded(); await page.screenshot({ path: output + '/trading-date-unknown.png' });
   await page.getByRole('button', { name: '我已核实，允许重新采集' }).click();
   await page.getByRole('button', { name: '开始采集' }).click();
   await page.getByText('归档引用（版本 2）', { exact: false }).waitFor();
-  assert(starts === 2, 'only explicit retries may start a new job');
+  assert(starts === 3, 'only explicit retries may start a new job');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByText('归档引用（版本 2）', { exact: false }).scrollIntoViewIfNeeded();
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'trading-date narrow page overflow');
   await page.screenshot({ path: output + '/trading-date-narrow.png' });
   assert(!pageErrors.length, 'unexpected page errors: ' + pageErrors.join('; '));
-  return { synthetic: true, checks: saved.checks, screenshots: ['source-wide.png', 'source-narrow.png', 'source-old-host.png', 'trading-date-wide.png', 'trading-date-narrow.png'], expectedConflict: true };
+  return { synthetic: true, checks: saved.checks, screenshots: ['source-wide.png', 'source-narrow.png', 'source-old-host.png', 'trading-date-wide.png', 'trading-date-rejected.png', 'trading-date-unknown.png', 'trading-date-narrow.png'], expectedConflict: true };
 }
