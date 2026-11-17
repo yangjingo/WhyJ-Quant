@@ -112,7 +112,7 @@ const reportOpen = !!report && report.sessionId === selected;
     <Footer preferences={view.preferences} mode={client.mode} onOpen={openSettings} />
     <Suspense fallback={<div className="overlay-loading" role="status">正在打开面板…</div>}>
     {dialog && <Settings key={selected} page={dialog} setPage={page => { setFocusPortfolio(false); setFocusVersion(false); setDialog(page); }} onClose={() => setDialog(null)} focusPortfolio={focusPortfolio} focusVersion={focusVersion} preferences={view.preferences}
-      onPreferences={p => store.preferences(p)} client={client} onSourceSaved={() => store.refreshPreferences()} snapshot={snapshot} title={session?.name ?? ""} onRename={title => store.rename(title)}
+      onPreferences={p => store.preferences(p)} client={client} onSettingsSaved={() => store.refreshPreferences()} snapshot={snapshot} title={session?.name ?? ""} onRename={title => store.rename(title)}
       canDelete={!!client.deleteSession} onDelete={() => store.deleteSelected()} clientSettings={clientSettings} onClientSettings={updateClientSettings} settingsSaved={settingsSaved} onStop={() => void store.cancel()} mode={client.mode} />}
     {research && snapshot && <ResearchDialog key={selected} page={research} setPage={setResearch} snapshot={snapshot} title={session?.name ?? "当前研究"} demo={client.mode === "demo"} onClose={() => setResearch(null)}
       canSave={!!client.save} canOpen={!!client.reload} canReview={!!client.review} onSave={() => store.saveReport()} onOpen={artifact => store.openReport(artifact)} onReview={async (artifact, text) => { if (await store.reviewReport(artifact, text)) setResearch(null); }}
