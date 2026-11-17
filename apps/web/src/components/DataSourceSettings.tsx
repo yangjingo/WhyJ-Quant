@@ -20,7 +20,7 @@ const status: Record<NonNullable<DataDraftView["result"]>["status"], string> = {
 };
 
 /** One local form owns one Host draft. Credentials never enter browser storage. */
-export function DataSourceSettings({ client, revision, running, onSaved }: { client: WorkbenchClient; revision?: string; running: boolean; onSaved(): Promise<void> }) {
+export function DataSourceSettings({ client, revision, running, onSaved, onUnsupported }: { client: WorkbenchClient; revision?: string; running: boolean; onSaved(): Promise<void>; onUnsupported(): void }) {
   const [view, setView] = useState<DataDraftView | null>(null);
   const [sample, setSample] = useState<DataDraftView["sample"] | null>(null);
   const [key, setKey] = useState(""); const [keyAction, setKeyAction] = useState<KeyAction>("keep");
@@ -37,7 +37,10 @@ export function DataSourceSettings({ client, revision, running, onSaved }: { cli
     void client.startDataDraft!().then(value => {
       if (!live.current || ticket !== sequence.current) { closeDraft(value.id); return; }
       id.current = value.id; setView(value); setSample(value.sample); setBusy(null);
-    }).catch(() => { if (live.current && ticket === sequence.current) { setBusy(null); setNotice({ error: true, text: "无法打开数据源草稿，请重新连接后重试。" }); } });
+    }).catch(error => { if (live.current && ticket === sequence.current) {
+      if ((error as { code?: unknown } | null)?.code === "METHOD_NOT_FOUND") { onUnsupported(); return; }
+      setBusy(null); setNotice({ error: true, text: "无法打开数据源草稿，请重新连接后重试。" });
+    } });
     return () => { live.current = false; sequence.current++; if (id.current) { closeDraft(id.current); id.current = null; } };
   }, [client]);
   const changed = (next: DataDraftView["sample"]) => { setSample(next); setDirty(true); setNotice(null); };

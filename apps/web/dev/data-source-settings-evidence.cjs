@@ -3,6 +3,33 @@ async ({ page, control, output }) => {
   const setMode = async value => { const response = await fetch(control + '/mode?value=' + value); if (!response.ok) throw new Error('Fixture mode failed'); };
   const pageErrors = []; page.on('pageerror', error => pageErrors.push(String(error)));
   await page.setViewportSize({ width: 1440, height: 900 });
+  const rejectDraft = (status, code) => async route => {
+    const payload = route.request().postDataJSON();
+    if (payload.method === 'startDataDraft') return route.fulfill({ status, json: { ok: false, error: { code, message: 'synthetic failure' } } });
+    return route.continue();
+  };
+  const legacy = rejectDraft(404, 'METHOD_NOT_FOUND');
+  await page.route('**/api/workbench/rpc', legacy);
+  await page.getByRole('button', { name: /研究源/ }).click();
+  await page.getByText('研究工具使用下面的数据源。', { exact: false }).waitFor();
+  assert(await page.getByLabel('研究数据源').count() === 1 && await page.getByLabel('数据市场').count() === 0, 'old Host must retain legacy selector');
+  await page.screenshot({ path: output + '/source-old-host.png' });
+  const waitSource = async expected => {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      if ((await (await fetch(control + '/state')).json()).source === expected && await page.getByLabel('研究数据源').isEnabled()) return;
+      await page.waitForTimeout(100);
+    }
+    throw new Error('Legacy source update did not complete: ' + expected);
+  };
+  await page.getByLabel('研究数据源').selectOption('tickflow'); await waitSource('tickflow');
+  await page.getByLabel('研究数据源').selectOption('llmquant-data'); await waitSource('llmquant-data');
+  await page.getByRole('button', { name: '关闭窗口' }).click(); await page.unroute('**/api/workbench/rpc', legacy);
+  const unavailable = rejectDraft(503, 'HOST_STOPPING');
+  await page.route('**/api/workbench/rpc', unavailable);
+  await page.getByRole('button', { name: /研究源/ }).click();
+  await page.getByRole('alert').filter({ hasText: '无法打开数据源草稿' }).waitFor();
+  assert(await page.getByText('研究工具使用下面的数据源。', { exact: false }).count() === 0, 'connection failure must not silently fall back');
+  await page.getByRole('button', { name: '关闭窗口' }).click(); await page.unroute('**/api/workbench/rpc', unavailable);
   await page.getByRole('button', { name: /研究源/ }).click(); await page.getByLabel('数据市场').waitFor();
   await page.getByLabel('数据市场').focus(); await page.keyboard.press('Tab');
   assert(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')) === '研究数据源', 'keyboard order');
@@ -63,5 +90,5 @@ async ({ page, control, output }) => {
   await page.getByRole('button', { name: '确认移除密钥' }).click();
   await page.getByText('该数据源没有本机保存的密钥。').waitFor();
   assert(!pageErrors.length, 'unexpected page errors: ' + pageErrors.join('; '));
-  return { synthetic: true, checks: saved.checks, screenshots: ['source-wide.png', 'source-narrow.png'], expectedConflict: true };
+  return { synthetic: true, checks: saved.checks, screenshots: ['source-wide.png', 'source-narrow.png', 'source-old-host.png'], expectedConflict: true };
 }

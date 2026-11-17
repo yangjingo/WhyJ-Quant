@@ -38,7 +38,12 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     try { value = await response.json(); } catch { throw new Error("研究服务返回了无效响应。"); }
     if (!response.ok || !object(value) || value.ok !== true || !Object.hasOwn(value, "result")) {
       const message = object(value) && object(value.error) && typeof value.error.message === "string" ? value.error.message.slice(0, 500) : failure;
-      throw new Error(message);
+      const error = new Error(message);
+      // An older Host can share the protocol version without supporting a newer optional RPC.
+      // Preserve only this fixed code so callers can distinguish it from connection failures.
+      if (response.status === 404 && object(value) && object(value.error) && value.error.code === "METHOD_NOT_FOUND")
+        Object.assign(error, { code: "METHOD_NOT_FOUND" });
+      throw error;
     }
     return value.result as T;
   };

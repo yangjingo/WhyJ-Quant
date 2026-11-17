@@ -16,6 +16,8 @@ export function Settings(props: {
   clientSettings: ClientSettings; onClientSettings(value: ClientSettings): void; settingsSaved: boolean; onStop(): void; mode: string;
   client?: WorkbenchClient; onSourceSaved?(): Promise<void>;
 }) {
+  const [legacySource, setLegacySource] = useState(false);
+  useEffect(() => { setLegacySource(false); }, [props.client]);
   const portfolioHeading = useRef<HTMLHeadingElement>(null);
   const versionHeading = useRef<HTMLHeadingElement>(null);
   useEffect(() => { if (props.page === "reading" && props.focusVersion) versionHeading.current?.focus(); }, [props.page, props.focusVersion]);
@@ -51,7 +53,7 @@ export function Settings(props: {
           <p className="supporting">编辑模型 ID 和推理强度后需要保存；不会在打开设置时发送模型请求。</p><label className="field-row">模型 ID<input aria-label="模型 ID" value={model} disabled={pending} onChange={event => { setModel(event.target.value); setFeedback(null); }} placeholder="填写服务提供的模型 ID" /></label>
           {!!props.preferences.availableThinkingLevels?.length && <label className="field-row">推理强度<select aria-label="推理强度" disabled={pending} value={thinking} onChange={event => { setThinking(event.target.value); setFeedback(null); }}>{props.preferences.availableThinkingLevels.map(level => <option key={level} value={level}>{level}</option>)}</select></label>}
           <button className="action primary-action" disabled={pending || !model.trim() || (model === props.preferences.model && thinking === (props.preferences.thinkingLevel ?? "high"))} onClick={() => void savePreferences({ ...props.preferences, model, ...(props.preferences.thinkingLevel ? { thinkingLevel: thinking } : {}) })}>{pending ? "正在保存…" : "保存偏好"}</button></>}
-        {props.page === "source" && <><h3>研究数据源</h3>{props.mode === "host" && props.client?.startDataDraft && props.client.editDataDraft && props.client.verifyDataDraft && props.client.cancelDataDraft && props.client.saveDataDraft && props.client.closeDataDraft && props.onSourceSaved ? <DataSourceSettings client={props.client} revision={props.preferences.revision} running={props.snapshot?.state === "running"} onSaved={props.onSourceSaved} /> : props.mode === "host" && props.preferences.researchSource ? <>
+        {props.page === "source" && <><h3>研究数据源</h3>{!legacySource && props.mode === "host" && props.client?.startDataDraft && props.client.editDataDraft && props.client.verifyDataDraft && props.client.cancelDataDraft && props.client.saveDataDraft && props.client.closeDataDraft && props.onSourceSaved ? <DataSourceSettings client={props.client} revision={props.preferences.revision} running={props.snapshot?.state === "running"} onSaved={props.onSourceSaved} onUnsupported={() => setLegacySource(true)} /> : props.mode === "host" && props.preferences.researchSource ? <>
           <p>研究工具使用下面的数据源。保存只改变默认来源，不代表网络、权限或每个字段均已验证；工具可以按字段回退，并记录实际来源。</p>
           <label className="field-row">研究数据源<select aria-label="研究数据源" disabled={pending || props.snapshot?.state === "running"} value={props.preferences.researchSource} onChange={event => void savePreferences({ ...props.preferences, researchSource: event.target.value as Preferences["researchSource"] })}>
             {props.preferences.researchSources?.map(source => <option key={source.id} value={source.id}>{source.label} · {source.requiresCredential ? source.credentialConfigured ? "凭据已配置，待请求验证" : "需要本机配置凭据" : "公开接口，无需密钥"}</option>)}
