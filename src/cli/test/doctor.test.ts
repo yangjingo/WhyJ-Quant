@@ -380,4 +380,26 @@ describe("doctor", () => {
       ["pending", "pass", "pending"],
     ]);
   });
+  it("uses the shared model probe against a controlled provider without exposing its error", async () => {
+    const secret = "fixture-doctor-model-key"; let calls = 0, fail = false;
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+      calls++; expect(request.headers.get("authorization")).toBe(`Bearer ${secret}`);
+      if (fail) return new Response(`rejected ${secret}`, { status: 401 });
+      const body = await request.json() as { model: string };
+      const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "doctor-fixture", object: "chat.completion.chunk",
+        created: 0, model: body.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+      return new Response(chunk({ role: "assistant", content: "OK" }, null) + chunk({}, "stop") + "data: [DONE]\n\n",
+        { headers: { "content-type": "text/event-stream" } });
+    } });
+    try {
+      const draft = { ...structuredClone(DEFAULT_SETTINGS), provider: "custom", model: "doctor-fixture",
+        providers: { custom: { api: "openai-completions" as const, baseUrl: `${server.url.origin}/v1`, apiKey: secret } } };
+      const passed = await collectDoctor(draft, {}, { phases: ["model"], writeLog: false });
+      expect(passed.phases.find(phase => phase.phase === "model")?.status).toBe("pass");
+      fail = true;
+      const rejected = await collectDoctor(draft, {}, { phases: ["model"], writeLog: false });
+      expect(rejected.phases.find(phase => phase.phase === "model")?.status).toBe("fail");
+      expect(JSON.stringify(rejected)).not.toContain(secret); expect(calls).toBe(2);
+    } finally { server.stop(true); }
+  });
 });

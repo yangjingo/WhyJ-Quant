@@ -7,7 +7,7 @@ import type { DoctorMode, DoctorOverall, DoctorPhase, DoctorResult } from "../ty
 import { resolveOhquantDir, resolveSettingsPath } from "../storage/index.ts";
 import { resolveModelId } from "../agent/src/session.ts";
 import { resolveConfiguredModel, resolveConfiguredAuth } from "../agent/src/model-config.ts";
-import { completeSimple } from "../agent/src/kernel/llm.ts";
+import { probeModelConnection } from "../runtime/models/model-probe.ts";
 import { Compile } from "typebox/compile";
 import { checkAkshareDependency } from "../source/index.ts";
 import * as source from "../source/index.ts";
@@ -693,29 +693,8 @@ async function runProbe(probe: DoctorProbe, ctx: DoctorProbeContext): Promise<Do
 }
 
 async function defaultModelProbe(ctx: DoctorProbeContext): Promise<DoctorProbeResult> {
-  const deadline = AbortSignal.timeout(ctx.timeoutMs);
-  const signal = ctx.signal ? AbortSignal.any([ctx.signal, deadline]) : deadline;
-  const model = resolveConfiguredModel(ctx.settings);
-  const auth = await resolveConfiguredAuth(ctx.settings, model, ctx.processEnv, signal);
-  if (!auth) return { ok: false, detail: "Missing model provider credentials" };
-  const requestModel = auth.auth.baseUrl ? { ...model, baseUrl: auth.auth.baseUrl } : model;
-  try {
-    const response = await completeSimple(requestModel, {
-      messages: [{ role: "user", content: "Reply with only OK.", timestamp: Date.now() }],
-    }, { ...auth.auth, env: auth.env, maxTokens: Math.min(32, model.maxTokens), maxRetries: 0, timeoutMs: ctx.timeoutMs, signal });
-    const text = response.content.filter(part => part.type === "text").map(part => part.text).join("").trim();
-    if (response.stopReason === "error" || response.stopReason === "aborted" || !text) {
-      throw new Error(response.errorMessage || (signal.aborted ? "Model request timed out" : "Model returned no text"));
-    }
-  } catch (error) {
-    // Some Pi providers authenticate entirely through headers (e.g. Cloudflare).
-    const secrets = [auth.auth.apiKey, ctx.settings.providers?.[model.provider]?.apiKey,
-      ...Object.values(auth.auth.headers ?? {}).flatMap(value => value ? [value, value.replace(/^Bearer\s+/i, "")] : [])];
-    let detail = errorMessage(error);
-    for (const secret of secrets) if (secret) detail = detail.split(secret).join("[redacted]");
-    return { ok: false, detail };
-  }
-  return { ok: true, detail: `${model.provider} · ${model.api} · response received` };
+  const checked = await probeModelConnection(ctx.settings, { processEnv: ctx.processEnv, timeoutMs: ctx.timeoutMs, signal: ctx.signal });
+  return { ok: checked.ok, detail: checked.detail };
 }
 
 export function resolveDoctorRequestModel(
