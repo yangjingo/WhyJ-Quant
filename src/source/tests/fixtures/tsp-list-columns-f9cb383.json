@@ -1,0 +1,686 @@
+[
+  {
+    "panel": "watchlist",
+    "key": "symbol",
+    "label": "代码/名称",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "price",
+    "label": "现价",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "pct",
+    "label": "涨跌幅",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "change_amount",
+    "label": "涨跌额",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "amplitude",
+    "label": "振幅",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "open",
+    "label": "今开",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "high",
+    "label": "最高",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "low",
+    "label": "最低",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "prev_close",
+    "label": "昨收",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "limit_up_price",
+    "label": "涨停价",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "limit_down_price",
+    "label": "跌停价",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "turnover",
+    "label": "换手率",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "volume",
+    "label": "成交量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "amount",
+    "label": "成交额",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "float_val",
+    "label": "流通值",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "vol_ratio",
+    "label": "量比",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "annual_vol",
+    "label": "年化波动",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "ma5",
+    "label": "MA5",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "ma10",
+    "label": "MA10",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "ma20",
+    "label": "MA20",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "ma60",
+    "label": "MA60",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "high_60d",
+    "label": "60日高",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "low_60d",
+    "label": "60日低",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "rsi6",
+    "label": "RSI6",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "rsi14",
+    "label": "RSI14",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "rsi24",
+    "label": "RSI24",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "macd_dif",
+    "label": "MACD-DIF",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "macd_dea",
+    "label": "MACD-DEA",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "macd_hist",
+    "label": "MACD柱",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "kdj_k",
+    "label": "KDJ-K",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "kdj_d",
+    "label": "KDJ-D",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "kdj_j",
+    "label": "KDJ-J",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "boll_upper",
+    "label": "布林上轨",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "boll_lower",
+    "label": "布林下轨",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "atr14",
+    "label": "ATR14",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "vol_ma5",
+    "label": "量MA5",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "vol_ma10",
+    "label": "量MA10",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "momentum_5d",
+    "label": "5D 动量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "momentum_10d",
+    "label": "10D 动量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "momentum_20d",
+    "label": "20D 动量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "momentum_30d",
+    "label": "30D 动量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "momentum_60d",
+    "label": "60D 动量",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "limit_ups",
+    "label": "连板",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "limit_downs",
+    "label": "连跌",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "signals",
+    "label": "信号",
+    "defaultVisible": true
+  },
+  {
+    "panel": "watchlist",
+    "key": "candle",
+    "label": "日k",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "intraday",
+    "label": "分时",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "eps",
+    "label": "EPS",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "bps",
+    "label": "BPS",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "roe",
+    "label": "ROE",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "pe_ttm",
+    "label": "PE(TTM)",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "pb",
+    "label": "PB",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "gross_margin",
+    "label": "毛利率",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "net_margin",
+    "label": "净利率",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "revenue_yoy",
+    "label": "营收增速",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "net_income_yoy",
+    "label": "净利增速",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "debt_ratio",
+    "label": "负债率",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "added_at",
+    "label": "加入日期",
+    "defaultVisible": false
+  },
+  {
+    "panel": "watchlist",
+    "key": "pct_since_added",
+    "label": "加入以来",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "symbol",
+    "label": "标的",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "strategies",
+    "label": "策略",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "score",
+    "label": "评分",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "price",
+    "label": "现价",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "pct",
+    "label": "涨跌幅",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "change_amount",
+    "label": "涨跌额",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "amplitude",
+    "label": "振幅",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "turnover",
+    "label": "换手率",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "amount",
+    "label": "成交额",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "float_val",
+    "label": "流通值",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "vol_ratio",
+    "label": "量比",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "annual_vol",
+    "label": "年化波动",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "ma5",
+    "label": "MA5",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "ma10",
+    "label": "MA10",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "ma20",
+    "label": "MA20",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "ma60",
+    "label": "MA60",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "high_60d",
+    "label": "60日高",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "low_60d",
+    "label": "60日低",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "rsi6",
+    "label": "RSI6",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "rsi14",
+    "label": "RSI14",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "rsi24",
+    "label": "RSI24",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "macd_dif",
+    "label": "MACD-DIF",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "macd_dea",
+    "label": "MACD-DEA",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "macd_hist",
+    "label": "MACD柱",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "kdj_k",
+    "label": "KDJ-K",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "kdj_d",
+    "label": "KDJ-D",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "kdj_j",
+    "label": "KDJ-J",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "boll_upper",
+    "label": "布林上轨",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "boll_lower",
+    "label": "布林下轨",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "atr14",
+    "label": "ATR14",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "vol_ma5",
+    "label": "量MA5",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "vol_ma10",
+    "label": "量MA10",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "momentum_5d",
+    "label": "5D 动量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "momentum_10d",
+    "label": "10D 动量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "momentum_20d",
+    "label": "20D 动量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "momentum_30d",
+    "label": "30D 动量",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "momentum_60d",
+    "label": "60D 动量",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "deviate_3d",
+    "label": "3D 偏离",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "deviate_10d",
+    "label": "10D 偏离",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "deviate_30d",
+    "label": "30D 偏离",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "limit_ups",
+    "label": "连板",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "limit_downs",
+    "label": "连跌",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "signals",
+    "label": "信号",
+    "defaultVisible": true
+  },
+  {
+    "panel": "screener",
+    "key": "candle",
+    "label": "日k",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "intraday",
+    "label": "分时",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "eps",
+    "label": "EPS",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "bps",
+    "label": "BPS",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "roe",
+    "label": "ROE",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "pe_ttm",
+    "label": "PE(TTM)",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "pb",
+    "label": "PB",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "gross_margin",
+    "label": "毛利率",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "net_margin",
+    "label": "净利率",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "revenue_yoy",
+    "label": "营收增速",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "net_income_yoy",
+    "label": "净利增速",
+    "defaultVisible": false
+  },
+  {
+    "panel": "screener",
+    "key": "debt_ratio",
+    "label": "负债率",
+    "defaultVisible": false
+  }
+]
