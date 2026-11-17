@@ -90,6 +90,9 @@ export async function fetchFromTushare(symbol: string, start?: string, end?: str
   }
   const rows = await callTushare(endpoint, { ts_code: symbol, ...dateParams }, DAILY_FIELDS, options);
   assertResponseSymbol(rows, symbol);
+  // Bar.volume cannot represent missing data; do not turn an absent value into an observed zero.
+  if (rows.some(row => (typeof row.vol !== "number" && typeof row.vol !== "string") || (typeof row.vol === "string" && !row.vol.trim())
+    || !Number.isFinite(Number(row.vol)) || Number(row.vol) < 0)) throw new Error("Tushare daily volume invalid");
 
   return rows.map((row) => ({
     date: formatDate(String(row.trade_date || "")),
@@ -97,7 +100,7 @@ export async function fetchFromTushare(symbol: string, start?: string, end?: str
     high: Number(row.high || 0),
     low: Number(row.low || 0),
     close: Number(row.close || 0),
-    volume: Number(row.vol || 0),
+    volume: Number(row.vol),
     amount: row.amount == null ? null : Number(row.amount),
   }));
 }
