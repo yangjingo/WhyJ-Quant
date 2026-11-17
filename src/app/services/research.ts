@@ -48,6 +48,7 @@ import { TerminalHudLatency, terminalModelSettingsKey } from "./terminal-hud.ts"
 import type { HudContextUsage } from "../../types/hud.ts";
 import { terminalCommandResources, terminalReadResources } from "./resource-paths.ts";
 import { createDataDrafts } from "./data-drafts.ts";
+import { createObservationJobs } from "./observation-jobs.ts";
 import { createModelDrafts } from "./model-drafts.ts";
 import { removeDataCredential } from "./data-credentials.ts";
 import type { DataSettingsOptions } from "../../runtime/data/data-settings.ts";
@@ -150,6 +151,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     if (operations.size || [...sessions.values()].some(session => !!session.active)) throw new WorkbenchError("RUN_ACTIVE", "请先等待或停止研究，再修改研究设置。", 409);
   };
   const dataDrafts = createDataDrafts(settings, { ...options.dataDraftOptions, beforeSave: assertSettingsMutable, afterSave: () => market.invalidate() });
+  const observationJobs = createObservationJobs();
   const modelDrafts = createModelDrafts(settings, { beforeSave: assertSettingsMutable });
   const storageError = () => new WorkbenchError("SESSION_STORAGE", "会话记录无法安全保存或读取，原文件已保留。请检查存储后重新连接；也可以新建会话。", 409);
   const assertCurrentCheckpoint = (session: Session) => {
@@ -1018,6 +1020,9 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     async references(id, query) { requestString(id); requestString(query, 1000, true); throw new WorkbenchError("UNAVAILABLE", "此本地连接暂未开放文件引用，请直接描述研究问题。"); },
     async preferences() { return publicPreferences(settings.read()); },
     async startDataDraft() { assertOpen(); return dataDrafts.start(); },
+    async startObservationJob(input) { assertOpen(); return observationJobs.start(input); },
+    async readObservationJob(id) { assertOpen(); return observationJobs.read(id); },
+    async cancelObservationJob(id) { assertOpen(); return observationJobs.cancel(id); },
     async editDataDraft(input) { assertOpen(); return dataDrafts.edit(input); },
     async verifyDataDraft(id) { assertOpen(); return dataDrafts.verify(id); },
     async cancelDataDraft(id) { assertOpen(); return dataDrafts.cancel(id); },
@@ -1269,6 +1274,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
       const pending = [...sessions.values()].flatMap(session => session.active
         ? [client.cancel({ workspaceId, sessionId: session.id, runId: session.active.id })] : []);
       return closing = (async () => {
+        await observationJobs.close();
         await Promise.allSettled([...operations.values(), ...pending]);
         await Promise.allSettled([...terminalQueues.values()].map(item => item.receipt));
         await Promise.allSettled([...sessions.values()].map(async session => { clearTimeout(session.timer); await session.writes; }));

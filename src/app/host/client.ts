@@ -108,6 +108,9 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
   };
   return {
     mode: "host",
+    startObservationJob: input => rpc("startObservationJob", [input]),
+    readObservationJob: id => rpc("readObservationJob", [id]),
+    cancelObservationJob: id => rpc("cancelObservationJob", [id]),
     identity: () => rpc("identity"), workspaces: () => rpc("workspaces"), preferences: () => rpc("preferences"),
     market: async () => { const value = await rpc("market"); if (!isMarketSnapshot(value)) throw new Error("行情响应无效。"); return value; },
     refreshMarket: async failedOnly => { const value = await rpc("refreshMarket", [failedOnly]); if (!isMarketSnapshot(value)) throw new Error("行情响应无效。"); return value; },
