@@ -48,6 +48,7 @@ import { TerminalHudLatency, terminalModelSettingsKey } from "./terminal-hud.ts"
 import type { HudContextUsage } from "../../types/hud.ts";
 import { terminalCommandResources, terminalReadResources } from "./resource-paths.ts";
 import { createDataDrafts } from "./data-drafts.ts";
+import { createModelDrafts } from "./model-drafts.ts";
 import { removeDataCredential } from "./data-credentials.ts";
 import type { DataSettingsOptions } from "../../runtime/data/data-settings.ts";
 
@@ -149,6 +150,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     if (operations.size || [...sessions.values()].some(session => !!session.active)) throw new WorkbenchError("RUN_ACTIVE", "请先等待或停止研究，再修改研究设置。", 409);
   };
   const dataDrafts = createDataDrafts(settings, { ...options.dataDraftOptions, beforeSave: assertSettingsMutable, afterSave: () => market.invalidate() });
+  const modelDrafts = createModelDrafts(settings, { beforeSave: assertSettingsMutable });
   const storageError = () => new WorkbenchError("SESSION_STORAGE", "会话记录无法安全保存或读取，原文件已保留。请检查存储后重新连接；也可以新建会话。", 409);
   const assertCurrentCheckpoint = (session: Session) => {
     let revision: string;
@@ -1022,6 +1024,13 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     async saveDataDraft(input) { assertOpen(); dataDrafts.save(input); },
     async closeDataDraft(id) { assertOpen(); dataDrafts.close(id); },
     async removeDataCredential(input) { assertSettingsMutable(); const removed = removeDataCredential(settings, input); if (removed) market.invalidate(); return { removed }; },
+    async startModelDraft() { assertOpen(); return modelDrafts.start(); },
+    async editModelDraft(input) { assertOpen(); return modelDrafts.edit(input); },
+    async verifyModelDraft(id) { assertOpen(); return modelDrafts.verify(id); },
+    async cancelModelDraft(id) { assertOpen(); return modelDrafts.cancel(id); },
+    async saveModelDraft(input) { assertOpen(); modelDrafts.save(input); },
+    async closeModelDraft(id) { assertOpen(); modelDrafts.close(id); },
+    async removeModelCredential(input) { assertOpen(); return { removed: modelDrafts.remove(input) }; },
     async updatePreferences(next: Preferences) {
       assertOpen(); next = preferencesRequest(next); assertSettingsMutable();
       const source = settings.read().preferences.source;
@@ -1253,6 +1262,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
       if (closing) return closing;
       closed = true;
       dataDrafts.dispose();
+      modelDrafts.dispose();
       market.close();
       for (const controller of thesisControllers.values()) controller.abort();
       for (const command of terminalCommands.values()) command.cancel();

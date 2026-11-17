@@ -3297,6 +3297,66 @@ test("authenticated Host checks and saves an isolated TickFlow draft without ret
     expect(JSON.stringify(await service.client.preferences())).not.toContain(secret);
   } finally { provider.stop(true); }
 });
+test("authenticated Host verifies an unsaved model draft and removes a key without another provider request", async () => {
+  const secret = "synthetic-model-draft-key"; let calls = 0;
+  const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+    calls++; expect(request.headers.get("authorization")).toBe(`Bearer ${secret}`);
+    const payload = await request.json() as { model: string };
+    const frame = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "model-draft", object: "chat.completion.chunk", created: 0,
+      model: payload.model, choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+    return new Response(frame({ role: "assistant", content: "OK" }, null) + frame({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+  } });
+  try {
+    service = createWorkbenchService({ cwd: root }); host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets"), service });
+    const url = host.server.url.origin, token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
+    const send = (method: string, args: unknown[], auth = true) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { "x-workbench-token": token } : {}) }, body: JSON.stringify({ method, args }) });
+    expect((await send("startModelDraft", [], false)).status).toBe(401);
+    const start = await (await send("startModelDraft", [])).json() as { result: { id: string } }; const id = start.result.id;
+    const editedResponse = await send("editModelDraft", [{ id, provider: "custom", model: "synthetic-model", protocol: "openai-completions", endpoint: `${provider.url.origin}/v1`, key: secret, thinkingLevel: "off" }]);
+    const edited = await editedResponse.text(); expect(editedResponse.status).toBe(200);
+    expect(edited).not.toContain(secret); expect(edited).not.toContain(provider.url.origin); expect(calls).toBe(0);
+    const verifiedResponse = await send("verifyModelDraft", [id]); const verified = await verifiedResponse.text();
+    expect(verifiedResponse.status).toBe(200); expect(verified).not.toContain(secret); expect(calls).toBe(1);
+    const checked = (JSON.parse(verified) as { result: { version: number; status: string; canSave: boolean } }).result;
+    expect(checked).toMatchObject({ status: "ready", canSave: true });
+    expect(readSettings().providers?.custom?.apiKey).not.toBe(secret);
+    const invalidResponse = await send("editModelDraft", [{ id, extra: secret }]);
+    expect(invalidResponse.status).toBe(400); expect(await invalidResponse.text()).not.toContain(secret);
+    mode = "hold"; const identity = await service.client.identity(), started = new Promise<void>(resolve => { reached = resolve; });
+    const run = await service.client.submit(await requestFor(service.client, identity, "检查运行中的模型设置保护")); await started;
+    expect((await send("saveModelDraft", [{ id, version: checked.version }])).status).toBe(409);
+    await service.client.cancel({ workspaceId: identity.workspaceId, ...run });
+    expect((await send("saveModelDraft", [{ id, version: checked.version }])).status).toBe(200);
+    const saved = readSettings(); expect(saved.providers?.custom?.apiKey).toBe(secret);
+    const removed = await send("removeModelCredential", [{ provider: "custom", revision: saved.revision }]);
+    const body = await removed.text(); expect(removed.status).toBe(200); expect(body).not.toContain(secret);
+    expect(readSettings().providers?.custom?.apiKey).toBeUndefined(); expect(calls).toBe(1);
+  } finally { provider.stop(true); }
+});
+test("authenticated model draft cancellation rejects a late provider success", async () => {
+  const secret = "synthetic-model-cancel-key"; let started!: () => void, release!: () => void;
+  const begun = new Promise<void>(resolve => { started = resolve; });
+  const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch() {
+    started(); await new Promise<void>(resolve => { release = resolve; });
+    const chunk = (delta: unknown, finish_reason: string | null) => `data: ${JSON.stringify({ id: "late-model", object: "chat.completion.chunk", created: 0,
+      model: "synthetic-model", choices: [{ index: 0, delta, finish_reason }] })}\n\n`;
+    return new Response(chunk({ role: "assistant", content: "OK" }, null) + chunk({}, "stop") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+  } });
+  try {
+    service = createWorkbenchService({ cwd: root }); host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets"), service });
+    const url = host.server.url.origin, token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
+    const send = (method: string, args: unknown[]) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", "x-workbench-token": token }, body: JSON.stringify({ method, args }) });
+    const opened = await (await send("startModelDraft", [])).json() as { result: { id: string } }; const id = opened.result.id;
+    await send("editModelDraft", [{ id, provider: "custom", model: "synthetic-model", endpoint: `${provider.url.origin}/v1`, key: secret, thinkingLevel: "off" }]);
+    const pending = send("verifyModelDraft", [id]); await begun;
+    const cancelled = await (await send("cancelModelDraft", [id])).json() as { result: { version: number; status: string; canSave: boolean } };
+    expect(cancelled.result).toMatchObject({ status: "cancelled", canSave: false });
+    const late = await pending; expect(late.status).toBe(200); expect(await late.text()).not.toContain(secret);
+    release(); await Bun.sleep(10);
+    expect((await send("saveModelDraft", [{ id, version: cancelled.result.version }])).status).toBe(409);
+    expect(readSettings().providers?.custom?.apiKey).not.toBe(secret);
+  } finally { release?.(); provider.stop(true); }
+});
 test("SSE clients observe one shared run; cancelling the reader only releases its observation", async () => {
   mode = "hold"; host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets") });
   const url = host.server.url.origin, client = host.service.client;
