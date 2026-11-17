@@ -3246,6 +3246,27 @@ test("loopback API rejects tokens, foreign origins, arbitrary operations and cre
   expect((await fetch(url + "/assets/..%2fsettings.json")).status).toBe(404);
   expect((await fetch(url + "/api/workbench/file?path=settings.json", { headers })).status).toBe(404);
 });
+test("authenticated Host removes a data key without changing the selected source", async () => {
+  const settings = readSettings(); settings.preferences.source = "tickflow";
+  settings.env.WHYJ_QUANT_TICKFLOW_API_KEY = "synthetic-removal-key"; settings.env.WHYJ_QUANT_TUSHARE_TOKEN = "synthetic-other-key"; saveSettings(settings);
+  host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets") });
+  const url = host.server.url.origin, token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
+  const send = (input: unknown, auth = true) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { "x-workbench-token": token } : {}) }, body: JSON.stringify({ method: "removeDataCredential", args: [input] }) });
+  const revision = (await host.service.client.preferences()).revision!;
+  expect((await send({ source: "tickflow", revision }, false)).status).toBe(401);
+  expect((await send({ source: "tickflow", revision: "stale" })).status).toBe(409);
+  expect((await send({ source: "tickflow", revision, extra: true })).status).toBe(400);
+  mode = "hold"; const client = host.service.client, identity = await client.identity(), started = new Promise<void>(resolve => { reached = resolve; });
+  const run = await client.submit(await requestFor(client, identity, "检查运行中的设置保护")); await started;
+  expect((await send({ source: "tickflow", revision })).status).toBe(409);
+  await client.cancel({ workspaceId: identity.workspaceId, ...run });
+  const result = await send({ source: "tickflow", revision }); const body = await result.text();
+  expect(result.status).toBe(200); expect(body).not.toContain("synthetic-removal-key"); expect(JSON.parse(body).result).toEqual({ removed: true });
+  const saved = readSettings(); expect(saved.env.WHYJ_QUANT_TICKFLOW_API_KEY).toBeUndefined();
+  expect(saved.env.WHYJ_QUANT_TUSHARE_TOKEN).toBe("synthetic-other-key"); expect(saved.preferences.source).toBe("tickflow");
+  const second = await send({ source: "tickflow", revision: saved.revision }); expect((await second.json() as { result: unknown }).result).toEqual({ removed: false });
+});
+
 test("authenticated Host checks and saves an isolated TickFlow draft without returning its key", async () => {
   const secret = "synthetic-tickflow-host-key"; let requests = 0;
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
