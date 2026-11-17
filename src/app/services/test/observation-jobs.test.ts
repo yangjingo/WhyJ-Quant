@@ -5,7 +5,7 @@ import type { ObservationCollectionReceipt, TradingDateCollectionReceipt } from 
 const daily = { dataset: "daily", symbol: "600000.SH", startTime: 1_700_000_000_000, endTime: 1_700_000_001_000, adjustment: "none" } as const;
 const receipt: ObservationCollectionReceipt = { status: "archived", source: "tickflow", endpoint: "/v1/klines", observedAt: "2025-01-01T00:00:00Z", rowCount: 1, ref: { version: 1, revision: "a".repeat(64) } };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
-const dated = { dataset: "daily_trading_date", symbol: "600000.SH", startDate: "2024-01-02", endDate: "2024-01-03", adjustment: "none" } as const;
+const dated = { dataset: "daily", timeMode: "trading-date", symbol: "600000.SH", startDate: "2024-01-02", endDate: "2024-01-03", adjustment: "none" } as const;
 const datedReceipt: TradingDateCollectionReceipt = { status: "archived", source: "tushare", endpoint: "daily", observedAt: "2024-01-05T00:00:00Z", rowCount: 1, ref: { version: 2, revision: "b".repeat(64) } };
 
 test("validates the complete bounded request before starting work", () => {

@@ -40,7 +40,7 @@ test("authenticated RPC collects a selected TickFlow observation and preserves i
       const ref = result.receipt?.ref; if (!ref || ref.version !== 1) throw new Error("missing v1 reference");
       expect(await loadObservationArchive(ref)).toMatchObject([{ symbol: "600000.SH", timestamp: stamp, kind: expected }]);
     }
-    const dated = { dataset: "daily_trading_date", symbol: "600000.SH", startDate: "2026-11-12", endDate: "2026-11-12", adjustment: "none" };
+    const dated = { dataset: "daily", timeMode: "trading-date", symbol: "600000.SH", startDate: "2026-11-12", endDate: "2026-11-12", adjustment: "none" };
     expect((await send("startObservationJob", dated, false)).status).toBe(401);
     expect((await send("startObservationJob", { ...dated, key: "secret" })).status).toBe(400);
     const response = await send("startObservationJob", dated); expect(response.status).toBe(200);
@@ -69,7 +69,7 @@ test("authenticated date job uses the selected Tushare provider and preserves nu
   try {
     const url = host.server.url.origin, token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
     const send = (method: string, arg: unknown) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", "x-workbench-token": token }, body: JSON.stringify({ method, args: [arg] }) });
-    const response = await send("startObservationJob", { dataset: "daily_trading_date", symbol: "600000.SH", startDate: "2024-01-02", endDate: "2024-01-02", adjustment: "none" });
+    const response = await send("startObservationJob", { dataset: "daily", timeMode: "trading-date", symbol: "600000.SH", startDate: "2024-01-02", endDate: "2024-01-02", adjustment: "none" });
     expect(response.status).toBe(200); const started = (await response.json() as { result: ObservationJobView }).result; let result = started;
     for (let i = 0; i < 100 && result.status === "running"; i++) {
       await Bun.sleep(20); const reply = await send("readObservationJob", started.id); const text = await reply.text();
