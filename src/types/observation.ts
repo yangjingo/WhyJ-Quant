@@ -30,3 +30,26 @@ export interface StoredFactorObservation extends StoredObservationBase {
 }
 export type StoredObservation = StoredBarObservation | StoredFactorObservation;
 export interface ObservationArchiveRef { version: 1; revision: string }
+
+/** Date-keyed daily observations retain the provider's original timestamp and units. */
+export interface StoredTradingDateBarObservation {
+  schemaVersion: 2;
+  kind: "trading_date_daily_bar";
+  symbol: string;
+  tradeDate: string;
+  sourceTimestamp: number | null;
+  requested: { startDate: string; endDate: string };
+  market: "A";
+  assetType: "stock";
+  calendarTimeZone: "Asia/Shanghai";
+  source: "tushare" | "tickflow";
+  endpoint: string;
+  observedAt: string;
+  interval: "1d";
+  adjustment: "forward" | "none";
+  volumeUnit: "hand" | "unknown";
+  amountUnit: "CNY-thousand" | "unknown";
+  coverage: "unknown";
+  values: { open: number; high: number; low: number; close: number; volume: number; amount: number | null };
+}
+export interface TradingDateArchiveRef { version: 2; revision: string }

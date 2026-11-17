@@ -87,6 +87,8 @@ Storage 的 `archiveObservations` 接收同一标的、来源、端点、观察�
 
 归档以规范化 JSON 的内容哈希作为不可变版本。`loadObservationArchive` 只能按返回的精确引用读取，并重新校验摘要、结构和身份；缺失或损坏时直接失败。相同内容可重复写入并得到相同引用；修订或不同观察时间形成不同版本。并发提交由文件锁协调，文件原子替换是提交点。记录位于独立的 `.ohquant/data/observation-archives-v1/`，不更改日线缓存或用户组合。
 
+交易日键控日线使用独立的 `archiveTradingDateObservations` / `loadTradingDateArchive` 和 v2 引用，保存于 `.ohquant/data/observation-archives-v2/`。归档保留原始交易日、可为空的来源时间戳、请求范围、复权口径和来源单位，校验同一批的身份及上海交易日一致性。v1 引用和文件不变；v1 与 v2 不会相互回退或自动迁移。这只是显式存储接口，不执行采集，也不代表 Runtime、Host、界面或 TSP 同步已经接入。
+
 归档只证明本应用保存了什么；它不是 TSP 传输、自动同步、增量进度、水位或覆盖完整性的证明，也不能把抓取时间当成供应商首次发布时间。运行时尚未自动调用该接口，旧研究消费者也不会自动使用它；这部分仍由 [#258](https://github.com/yangjingo/WhyJ-Quant/issues/258) 和 [#264](https://github.com/yangjingo/WhyJ-Quant/issues/264) 跟踪。
 
 显式运行时入口 `collectObservations` 可使用当前配置的数据源采集一个标的的一类日线、分钟线或复权因子，返回空结果或已提交的精确归档引用；`replayObservations` 只按该引用读取，不访问供应商。调用方指定 UTC 毫秒窗口，K 线还指定周期与复权口径。失败或取消不会返回成功引用；已提交的记录不会因后续取消而回滚。调用方负责保留引用；现阶段没有自动调度、增量水位或 TSP 传输，返回成功不代表历史完整或数据已被既有研究消费者使用。
