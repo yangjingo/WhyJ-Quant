@@ -25,7 +25,7 @@ export function createModelDrafts(port: SettingsPort, options: { beforeSave(): v
   };
   const view = (id: string): ModelDraftView => {
     const item = entry(id), settings = item.settings, provider = settings.provider ?? "custom";
-    const secrets = [...Object.entries(settings.env).filter(([key]) => /key|token|secret|password|authorization|url/i.test(key)).map(([, value]) => value),
+    const secrets = [...Object.entries(settings.env).filter(([key]) => /key|token|secret|password|authorization|url|CLOUDFLARE_(?:ACCOUNT|GATEWAY)_ID/i.test(key)).map(([, value]) => value),
       ...Object.values(settings.providers ?? {}).flatMap(value => [value.apiKey, value.baseUrl, ...Object.values(value.env ?? {}), ...Object.values(value.headers ?? {}),
         ...Object.values(value.models ?? {}).flatMap(model => [model.baseUrl, ...Object.values(model.headers ?? {})])])]
       .filter((value): value is string => typeof value === "string" && value.length > 0).sort((a, b) => b.length - a.length);
@@ -41,7 +41,10 @@ export function createModelDrafts(port: SettingsPort, options: { beforeSave(): v
     try { protocol = resolveConfiguredModel(settings).api; } catch { /* incomplete draft */ }
     return { id, version: item.version, provider: safe(provider), model: safe(settings.model), protocol: protocol === null ? null : safe(protocol), thinkingLevel: safe(settings.thinkingLevel),
       providers, models, protocols, thinkingLevels, keyConfigured: !!config?.apiKey, oauthSelected: !!config?.oauthId,
-      endpointConfigured: !!(config?.models?.[settings.model]?.baseUrl || config?.baseUrl), checking: !!item.controller, canSave: item.checked === item.version && !item.controller,
+      endpointConfigured: !!(config?.models?.[settings.model]?.baseUrl || config?.baseUrl),
+      ...(["cloudflare-workers-ai", "cloudflare-ai-gateway"].includes(provider) ? { cloudflare: {
+        accountConfigured: !!config?.env?.CLOUDFLARE_ACCOUNT_ID, gatewayConfigured: !!config?.env?.CLOUDFLARE_GATEWAY_ID,
+      } } : {}), checking: !!item.controller, canSave: item.checked === item.version && !item.controller,
       status: item.status };
   };
   const start = (): ModelDraftView => {
@@ -60,7 +63,7 @@ export function createModelDrafts(port: SettingsPort, options: { beforeSave(): v
     entries.set(id, { settings, version: 0, checked: null, status: null, controller: null, timer }); return view(id);
   };
   const edit = (input: ModelDraftEdit): ModelDraftView => {
-    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => !["id", "provider", "model", "protocol", "endpoint", "key", "thinkingLevel"].includes(key))) throw invalid();
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).some(key => !["id", "provider", "model", "protocol", "endpoint", "key", "thinkingLevel", "cloudflareAccountId", "cloudflareGatewayId"].includes(key))) throw invalid();
     const item = entry(input.id), next = structuredClone(item.settings);
     for (const key of ["provider", "model", "thinkingLevel"] as const) if (input[key] !== undefined && (typeof input[key] !== "string" || !input[key]!.trim() || input[key]!.length > 160 || /[\x00-\x1f\x7f]/.test(input[key]!))) throw invalid();
     if (input.key !== undefined && input.key !== null && (typeof input.key !== "string" || !input.key.trim() || input.key.length > 4096 || /[\x00-\x1f\x7f]/.test(input.key))) throw invalid();
@@ -80,6 +83,13 @@ export function createModelDrafts(port: SettingsPort, options: { beforeSave(): v
     }
     const provider = next.provider; if (!provider) throw invalid();
     next.providers ??= {}; const config = next.providers[provider] ??= {};
+    for (const [field, envKey] of [["cloudflareAccountId", "CLOUDFLARE_ACCOUNT_ID"], ["cloudflareGatewayId", "CLOUDFLARE_GATEWAY_ID"]] as const) {
+      const value = input[field]; if (value === undefined) continue;
+      if (provider !== "cloudflare-ai-gateway" && (provider !== "cloudflare-workers-ai" || field === "cloudflareGatewayId")) throw invalid();
+      if (value !== null && (typeof value !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(value))) throw invalid();
+      if (value === null) { if (config.env) delete config.env[envKey]; }
+      else { config.env ??= {}; config.env[envKey] = value; }
+    }
     if (typeof input.key === "string" && provider !== "custom" && !modelProviders(next).find(value => value.id === provider)?.canApiKey) throw invalid();
     if (input.model !== undefined) next.model = input.model.trim();
     if (typeof input.key === "string" && [...Object.keys(config.headers ?? {}), ...Object.keys(config.models?.[next.model]?.headers ?? {})]

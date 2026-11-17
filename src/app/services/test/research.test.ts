@@ -3311,6 +3311,13 @@ test("authenticated Host verifies an unsaved model draft and removes a key witho
     const url = host.server.url.origin, token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
     const send = (method: string, args: unknown[], auth = true) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { "x-workbench-token": token } : {}) }, body: JSON.stringify({ method, args }) });
     expect((await send("startModelDraft", [], false)).status).toBe(401);
+    const cloud = await (await send("startModelDraft", [])).json() as { result: { id: string } };
+    const cloudResponse = await send("editModelDraft", [{ id: cloud.result.id, provider: "cloudflare-ai-gateway", key: secret,
+      cloudflareAccountId: "private-account-id", cloudflareGatewayId: "private-gateway-id" }]);
+    const cloudText = await cloudResponse.text(); expect(cloudResponse.status).toBe(200);
+    expect(cloudText).not.toContain(secret); expect(cloudText).not.toContain("private-account-id"); expect(cloudText).not.toContain("private-gateway-id");
+    expect(JSON.parse(cloudText).result.cloudflare).toEqual({ accountConfigured: true, gatewayConfigured: true });
+    await send("closeModelDraft", [cloud.result.id]);
     const start = await (await send("startModelDraft", [])).json() as { result: { id: string } }; const id = start.result.id;
     const editedResponse = await send("editModelDraft", [{ id, provider: "custom", model: "synthetic-model", protocol: "openai-completions", endpoint: `${provider.url.origin}/v1`, key: secret, thinkingLevel: "off" }]);
     const edited = await editedResponse.text(); expect(editedResponse.status).toBe(200);
