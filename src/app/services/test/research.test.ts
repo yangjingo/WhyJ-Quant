@@ -3246,6 +3246,36 @@ test("loopback API rejects tokens, foreign origins, arbitrary operations and cre
   expect((await fetch(url + "/assets/..%2fsettings.json")).status).toBe(404);
   expect((await fetch(url + "/api/workbench/file?path=settings.json", { headers })).status).toBe(404);
 });
+test("authenticated Host checks and saves an isolated TickFlow draft without returning its key", async () => {
+  const secret = "synthetic-tickflow-host-key"; let requests = 0;
+  const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    requests++; expect(request.headers.get("x-api-key")).toBe(secret);
+    return Response.json({ data: { timestamp: [Date.parse("2026-01-02T00:00:00+08:00")], open: [10], high: [11], low: [9], close: [10], volume: [100], amount: [null] } });
+  } });
+  try {
+    service = createWorkbenchService({ dataDraftOptions: { processEnv: {} } });
+    host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets"), service });
+    const url = host.server.url.origin, token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
+    const send = (method: string, args: unknown[], auth = true) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", ...(auth ? { "x-workbench-token": token } : {}) }, body: JSON.stringify({ method, args }) });
+    expect((await send("startDataDraft", [], false)).status).toBe(401);
+    const start = await (await send("startDataDraft", [])).json() as { result: { id: string } }; const id = start.result.id;
+    const editedResponse = await send("editDataDraft", [{ id, market: "A", source: "tickflow", key: secret, endpoint: provider.url.origin, start: "2026-01-01", end: "2026-01-03" }]);
+    const edited = await editedResponse.text(); expect(editedResponse.status).toBe(200); expect(edited).not.toContain(secret);
+    const version = (JSON.parse(edited) as { result: { version: number } }).result.version;
+    expect(readSettings().env.WHYJ_QUANT_TICKFLOW_API_KEY).toBeUndefined();
+    const verifiedResponse = await send("verifyDataDraft", [id]); const verified = await verifiedResponse.text();
+    expect(verifiedResponse.status).toBe(200); expect(verified).toContain('"status":"ready"'); expect(verified).not.toContain(secret);
+    expect(requests).toBe(1);
+    expect((await send("editDataDraft", [{ id, extra: secret }])).status).toBe(400);
+    mode = "hold"; const identity = await service.client.identity(), started = new Promise<void>(resolve => { reached = resolve; });
+    const run = await service.client.submit(await requestFor(service.client, identity, "检查运行中的设置保护")); await started;
+    expect((await send("saveDataDraft", [{ id, version }])).status).toBe(409);
+    await service.client.cancel({ workspaceId: identity.workspaceId, ...run });
+    expect((await send("saveDataDraft", [{ id, version }])).status).toBe(200);
+    expect(readSettings().env.WHYJ_QUANT_TICKFLOW_API_KEY).toBe(secret);
+    expect(JSON.stringify(await service.client.preferences())).not.toContain(secret);
+  } finally { provider.stop(true); }
+});
 test("SSE clients observe one shared run; cancelling the reader only releases its observation", async () => {
   mode = "hold"; host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets") });
   const url = host.server.url.origin, client = host.service.client;
