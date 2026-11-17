@@ -246,3 +246,14 @@ These files import the public entry as a namespace; their individual member use 
 - `src/runtime/test/research-task-matrix.test.ts`
 - `src/runtime/test/tool-probe.test.ts`
 - `src/tools/test/fund-dca-tools.test.ts`
+
+## Pinned TSP list metadata
+
+| Export | Kind | Classification | Static consumers |
+| --- | --- | --- | --- |
+| `TSP_LIST_CATALOG_REVISION` | value | Utility / metadata | catalog test |
+| `TSP_LIST_CATALOG_VERSION` | value | Utility / metadata | catalog test |
+| `TSP_LIST_COLUMNS` | value | Utility / metadata | catalog test |
+| `TspListColumn` | type | Utility / metadata | — |
+
+These four additive exports identify the pinned display-column inventory; they do not certify a provider capability. See [TSP list catalog](./tsp-list-catalog.md). The earlier 104-export snapshot above remains tied to its stated revision.
