@@ -253,6 +253,23 @@ export interface DataDraftEdit {
 export interface DataDraftSave { id: string; version: number }
 export interface RemoveDataCredential { source: import("./config.ts").DataSource; revision: string }
 
+export type ModelDraftStatus = "ready" | "missing-credential" | "auth-failed" | "permission-denied" | "timeout" | "cancelled"
+  | "invalid-config" | "unsupported" | "empty-response" | "unavailable";
+export interface ModelDraftView {
+  id: string; version: number; provider: string; model: string; protocol: string | null; thinkingLevel: string;
+  providers: { id: string; name: string; canApiKey: boolean }[];
+  models: { id: string; name: string; api: string; reasoning: boolean }[];
+  protocols: string[]; thinkingLevels: string[];
+  keyConfigured: boolean; oauthSelected: boolean; endpointConfigured: boolean;
+  checking: boolean; canSave: boolean; status: ModelDraftStatus | null;
+}
+export interface ModelDraftEdit {
+  id: string; provider?: string; model?: string; protocol?: import("./config.ts").ModelProtocol | null;
+  endpoint?: string | null; key?: string | null; thinkingLevel?: string;
+}
+export interface ModelDraftSave { id: string; version: number }
+export interface RemoveModelCredential { provider: string; revision: string }
+
 export interface WorkbenchClient {
   readonly mode: "demo" | "host" | "disconnected";
   session(sessionId: string): Promise<SessionSnapshot>;
@@ -268,6 +285,13 @@ export interface WorkbenchClient {
   saveDataDraft?(input: DataDraftSave): Promise<void>;
   closeDataDraft?(id: string): Promise<void>;
   removeDataCredential?(input: RemoveDataCredential): Promise<{ removed: boolean }>;
+  startModelDraft?(): Promise<ModelDraftView>;
+  editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
+  verifyModelDraft?(id: string): Promise<ModelDraftView>;
+  cancelModelDraft?(id: string): Promise<ModelDraftView>;
+  saveModelDraft?(input: ModelDraftSave): Promise<void>;
+  closeModelDraft?(id: string): Promise<void>;
+  removeModelCredential?(input: RemoveModelCredential): Promise<{ removed: boolean }>;
   identity(): Promise<WorkspaceIdentity>;
   workspaces(): Promise<readonly WorkspaceSummary[]>;
   transcript(sessionId: string): Promise<readonly Turn[]>;
