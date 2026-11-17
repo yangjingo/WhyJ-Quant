@@ -381,6 +381,7 @@ export function isWorkbenchSnapshot(value: unknown): value is SessionSnapshot {
 /** Requests contain no credentials; the Host uses the saved selected source. */
 export type ObservationJobRequest =
   | { dataset: "daily"; symbol: string; startTime: number; endTime: number; adjustment: "none" | "forward" }
+  | { dataset: "daily"; timeMode: "trading-date"; symbol: string; startDate: string; endDate: string; adjustment: "none" | "forward" }
   | { dataset: "minute"; symbol: string; startTime: number; endTime: number; adjustment: "none" | "forward"; interval: "1m" | "5m" | "10m" | "15m" | "30m" | "60m" }
   | { dataset: "factor"; symbol: string; startTime: number; endTime: number };
 export interface ObservationJobView {
@@ -388,6 +389,6 @@ export interface ObservationJobView {
   request: ObservationJobRequest;
   status: "running" | "archived" | "empty" | "failed" | "cancelled";
   cancelRequested: boolean;
-  receipt: { source: string; endpoint: string; observedAt: string; rowCount: number; ref: { version: 1; revision: string } | null } | null;
+  receipt: { source: string; endpoint: string; observedAt: string; rowCount: number; ref: { version: 1; revision: string } | { version: 2; revision: string } | null } | null;
   error: "COLLECTION_FAILED" | null;
 }
