@@ -269,3 +269,16 @@ These four additive exports identify the pinned display-column inventory; they d
 | `OrderBookMarketDataSource` | type | Market data facade | — |
 
 These additive types describe the selected-source `fetchOrderBook` operation. They do not change the earlier inventory snapshot or establish entitlement.
+
+## Versioned bar and factor observation conversion
+
+| Export | Kind | Classification | Static consumers |
+| --- | --- | --- | --- |
+| `toBarObservations` | value | Observation conversion | Source tests |
+| `toFactorObservations` | value | Observation conversion | Source tests |
+| `ObservationEnvelopeBase` | type | Observation contract | — |
+| `BarObservation` | type | Observation contract | — |
+| `FactorObservation` | type | Observation contract | — |
+| `BarOrFactorObservation` | type | Observation contract | — |
+
+These additive exports preserve facade provenance and unknowns; they do not implement TSP synchronization. See [Source guide](../../src/source/README.md#versioned-bar-and-factor-observations).
