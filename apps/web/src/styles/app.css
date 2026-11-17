@@ -298,3 +298,5 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .thesis-tsp label, .thesis-sources label { margin-block: 10px; }
 .thesis-tsp .thesis-check, .thesis-sources .thesis-check { display: flex; align-items: center; gap: 8px; }
 .thesis-tsp .thesis-check input, .thesis-sources .thesis-check input { width: auto; min-width: auto; }
+.observation-collection { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 20px; }
+.observation-ref code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; color: var(--cream); }
