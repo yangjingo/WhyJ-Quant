@@ -251,6 +251,7 @@ export interface DataDraftEdit {
   symbol?: string; start?: string; end?: string; key?: string | null; endpoint?: string | null;
 }
 export interface DataDraftSave { id: string; version: number }
+export interface RemoveDataCredential { source: import("./config.ts").DataSource; revision: string }
 
 export interface WorkbenchClient {
   readonly mode: "demo" | "host" | "disconnected";
@@ -266,6 +267,7 @@ export interface WorkbenchClient {
   cancelDataDraft?(id: string): Promise<DataDraftView>;
   saveDataDraft?(input: DataDraftSave): Promise<void>;
   closeDataDraft?(id: string): Promise<void>;
+  removeDataCredential?(input: RemoveDataCredential): Promise<{ removed: boolean }>;
   identity(): Promise<WorkspaceIdentity>;
   workspaces(): Promise<readonly WorkspaceSummary[]>;
   transcript(sessionId: string): Promise<readonly Turn[]>;

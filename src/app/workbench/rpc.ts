@@ -51,6 +51,10 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
       if (!client.closeDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
       return client.closeDataDraft(requestString(args[0]));
     }
+    case "removeDataCredential": count(1); {
+      if (!client.removeDataCredential) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持移除数据源凭据。");
+      return client.removeDataCredential(args[0] as Parameters<NonNullable<WorkbenchClient["removeDataCredential"]>>[0]);
+    }
     case "market": count(0); return client.market();
     case "refreshMarket": count(1); {
       if (typeof args[0] !== "boolean") throw new WorkbenchError("INPUT_INVALID", "重试参数无效。");

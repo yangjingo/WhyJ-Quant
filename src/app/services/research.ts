@@ -48,6 +48,7 @@ import { TerminalHudLatency, terminalModelSettingsKey } from "./terminal-hud.ts"
 import type { HudContextUsage } from "../../types/hud.ts";
 import { terminalCommandResources, terminalReadResources } from "./resource-paths.ts";
 import { createDataDrafts } from "./data-drafts.ts";
+import { removeDataCredential } from "./data-credentials.ts";
 import type { DataSettingsOptions } from "../../runtime/data/data-settings.ts";
 
 interface Running {
@@ -143,10 +144,11 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
   const market = createMarketOverview(value => {
     for (const listener of listeners) { try { listener({ type: "market", identity: { workspaceId, sessionId: initial.id, runId: null }, snapshot: value }); } catch { listeners.delete(listener); } }
   }, options.overview, () => settings.read().preferences.marketColorScheme);
-  const dataDrafts = createDataDrafts(settings, { ...options.dataDraftOptions, beforeSave() {
+  const assertSettingsMutable = () => {
     assertOpen();
     if (operations.size || [...sessions.values()].some(session => !!session.active)) throw new WorkbenchError("RUN_ACTIVE", "请先等待或停止研究，再修改研究设置。", 409);
-  }, afterSave: () => market.invalidate() });
+  };
+  const dataDrafts = createDataDrafts(settings, { ...options.dataDraftOptions, beforeSave: assertSettingsMutable, afterSave: () => market.invalidate() });
   const storageError = () => new WorkbenchError("SESSION_STORAGE", "会话记录无法安全保存或读取，原文件已保留。请检查存储后重新连接；也可以新建会话。", 409);
   const assertCurrentCheckpoint = (session: Session) => {
     let revision: string;
@@ -1019,9 +1021,9 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     async cancelDataDraft(id) { assertOpen(); return dataDrafts.cancel(id); },
     async saveDataDraft(input) { assertOpen(); dataDrafts.save(input); },
     async closeDataDraft(id) { assertOpen(); dataDrafts.close(id); },
+    async removeDataCredential(input) { assertSettingsMutable(); const removed = removeDataCredential(settings, input); if (removed) market.invalidate(); return { removed }; },
     async updatePreferences(next: Preferences) {
-      assertOpen(); next = preferencesRequest(next);
-      if (operations.size || [...sessions.values()].some(session => !!session.active)) throw new WorkbenchError("RUN_ACTIVE", "请先等待或停止研究，再修改研究设置。", 409);
+      assertOpen(); next = preferencesRequest(next); assertSettingsMutable();
       const source = settings.read().preferences.source;
       updateModel(settings, next);
       if (settings.read().preferences.source !== source) market.invalidate();
