@@ -81,5 +81,7 @@ export { DEFAULT_TUSHARE_BASE_URL, fetchFromTushare, fetchTushareSnapshot, searc
 export { fetchResearchBars } from "./src/source-providers.ts";
 export { fetchWorkspacePrices, validateWorkspaceScope } from "./src/workspace-prices.ts";
 export type { WorkspacePrices } from "./src/workspace-prices.ts";
+export { toBarObservations, toFactorObservations } from "./src/observation-envelope.ts";
+export type { ObservationEnvelopeBase, BarObservation, FactorObservation, BarOrFactorObservation } from "./src/observation-envelope.ts";
 export { TSP_LIST_CATALOG_REVISION, TSP_LIST_CATALOG_VERSION, TSP_LIST_COLUMNS } from "./src/tsp-list-catalog.ts";
 export type { TspListColumn } from "./src/tsp-list-catalog.ts";
