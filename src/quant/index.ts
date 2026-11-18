@@ -22,6 +22,8 @@ export { computeTspIndicators, computeTspDailyIndicators, TSP_INDICATOR_FORMULA_
 export type { TspIndicatorBar, TspIndicatorRow, TspDailyIndicatorRow } from "./tsp-indicators.ts";
 export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "./tsp-research-factors.ts";
 export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId, TspResearchFinancialReport } from "./tsp-research-factors.ts";
+export { computeTspPriceLevels, TSP_PRICE_LEVEL_FORMULA_VERSION } from "./tsp-price-levels.ts";
+export type { TspPriceLevel, TspPriceLevelBar } from "./tsp-price-levels.ts";
 export { calculatePositionScenarios } from "./position-scenarios.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";
