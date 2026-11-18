@@ -39,6 +39,10 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
       if (!client.cancelObservationJob) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持行情采集。", 503);
       return client.cancelObservationJob(requestString(args[0]));
     }
+    case "readObservationIndicators": count(1); {
+      if (!client.readObservationIndicators) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持指标预览。", 404);
+      return client.readObservationIndicators(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationIndicators"]>>[0]);
+    }
     case "startDataDraft": count(0); {
       if (!client.startDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
       return client.startDataDraft();

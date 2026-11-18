@@ -48,7 +48,7 @@ import { TerminalHudLatency, terminalModelSettingsKey } from "./terminal-hud.ts"
 import type { HudContextUsage } from "../../types/hud.ts";
 import { terminalCommandResources, terminalReadResources } from "./resource-paths.ts";
 import { createDataDrafts } from "./data-drafts.ts";
-import { createObservationJobs } from "./observation-jobs.ts";
+import { createObservationJobs, readObservationIndicators } from "./observation-jobs.ts";
 import { createModelDrafts } from "./model-drafts.ts";
 import { removeDataCredential } from "./data-credentials.ts";
 import type { DataSettingsOptions } from "../../runtime/data/data-settings.ts";
@@ -1023,6 +1023,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     async startObservationJob(input) { assertOpen(); return observationJobs.start(input); },
     async readObservationJob(id) { assertOpen(); return observationJobs.read(id); },
     async cancelObservationJob(id) { assertOpen(); return observationJobs.cancel(id); },
+    async readObservationIndicators(ref) { assertOpen(); return readObservationIndicators(ref); },
     async editDataDraft(input) { assertOpen(); return dataDrafts.edit(input); },
     async verifyDataDraft(id) { assertOpen(); return dataDrafts.verify(id); },
     async cancelDataDraft(id) { assertOpen(); return dataDrafts.cancel(id); },

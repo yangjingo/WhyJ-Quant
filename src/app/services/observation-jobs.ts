@@ -1,13 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { collectObservations, collectTradingDateObservations, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
+import { collectObservations, collectTradingDateObservations, deriveTspArchiveIndicators, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { isDailyDate } from "../../market/bars.ts";
-import type { ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
+import type { ObservationIndicatorPreview, ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
 const invalid = () => new WorkbenchError("INPUT_INVALID", "采集参数无效。", 400);
 const notFound = () => new WorkbenchError("OBSERVATION_JOB_NOT_FOUND", "未找到该采集任务。", 404);
 const intervals = ["1m", "5m", "10m", "15m", "30m", "60m"];
 const day = 86_400_000;
+
+export async function readObservationIndicators(value: unknown): Promise<ObservationIndicatorPreview> {
+  const invalidReference = () => new WorkbenchError("INPUT_INVALID", "日线归档引用无效。", 400);
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidReference();
+  const ref = value as Record<string, unknown>;
+  if (Object.keys(ref).length !== 2 || !Object.hasOwn(ref, "version") || !Object.hasOwn(ref, "revision")
+    || ref.version !== 2 || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw invalidReference();
+  try {
+    return await deriveTspArchiveIndicators({ version: 2, revision: ref.revision });
+  } catch {
+    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的日线归档。请核对归档引用后重试。", 404);
+  }
+}
 
 /** Reject unknown properties, unbounded requests and credentials before acquiring a job. */
 export function observationJobRequest(value: unknown): ObservationJobRequest {

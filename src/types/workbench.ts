@@ -1,4 +1,5 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
+import type { StoredTradingDateBarObservation, TradingDateArchiveRef } from "./observation.ts";
 /**
  * The workbench's view of the Host.
  *
@@ -290,6 +291,7 @@ export interface WorkbenchClient {
   startObservationJob?(input: ObservationJobRequest): Promise<ObservationJobView>;
   readObservationJob?(id: string): Promise<ObservationJobView>;
   cancelObservationJob?(id: string): Promise<ObservationJobView>;
+  readObservationIndicators?(ref: TradingDateArchiveRef): Promise<ObservationIndicatorPreview>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
   verifyModelDraft?(id: string): Promise<ModelDraftView>;
@@ -391,4 +393,16 @@ export interface ObservationJobView {
   cancelRequested: boolean;
   receipt: { source: string; endpoint: string; observedAt: string; rowCount: number; ref: { version: 1; revision: string } | { version: 2; revision: string } | null } | null;
   error: "COLLECTION_FAILED" | null;
+}
+
+export interface ObservationIndicatorPreview {
+  archiveRef: TradingDateArchiveRef;
+  formula: { version: number; revision: string };
+  input: Pick<StoredTradingDateBarObservation,
+    "symbol" | "source" | "endpoint" | "observedAt" | "calendarTimeZone" | "adjustment" | "requested" | "coverage"> & {
+      firstTradeDate: string;
+      lastTradeDate: string;
+      finality: "unknown";
+    };
+  rows: { date: string; rsi6: number; rsi14: number; rsi24: number; atr14: number }[];
 }
