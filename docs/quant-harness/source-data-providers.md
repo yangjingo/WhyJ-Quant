@@ -42,6 +42,20 @@ Source 可通过 `getMarketDataCapabilities` 查询当前选定供应商在统�
 
 这条入口复用供应商适配，按单次调用截止时间读取，不跨供应商回退，不读写普通缓存或归档。普通研究和浏览继续由 `fetchBars` 执行缓存、回退与固定版本策略。精确要求 TickFlow 未复权日线时，可使用现有交易日 K 线模式。
 
+### 证券、净值和指数资料
+
+统一接口的 `reference` 能力逐项声明支持的市场。证券查询、净值和指数有自己的字段和时间语义，共享选定供应商、实际端点、取得时间和未知覆盖状态。
+
+| 操作 | 已接入来源 | 例子 |
+| --- | --- | --- |
+| `searchInstruments` | Tushare A 股 `stock_basic` | `keyword` 作为名称查询，`ts_code` 的后缀标识沪深京，`list_date` 转为上市日期。 |
+| `fetchFundNav` | AKShare `fund_open_fund_info_em` 或内置东财净值路由、Tushare `fund_nav` | `270042.OF` 归一为一只开放式基金，按净值日保留单位净值。累计净值与调整后净值分别保留，缺失值为空。 |
+| `fetchIndexMetadata` | AKShare `index_stock_info` | 指数代码、名称、发布日期。 |
+| `fetchIndexConstituents` | AKShare 中证、Sina 等现有成分端点 | 保留实际返回的端点、成分代码、纳入日期和权重。空日期不说明成分何时生效。 |
+| `fetchIndexQuotes` | AKShare 内置 Sina 指数快照或 `stock_zh_index_spot_em` | 以六位指数代码选择快照，保留端点和已有行情时间。缺失成交量、前收或时间分别为空。 |
+
+Tushare 的开放式基金请求把 `270042.OF` 发给 `fund_nav`，将 `unit_nav` 与 `adj_nav` 放在各自字段中。若要求 Tushare 返回指数快照，则明确拒绝。当前实时性、历史覆盖、存活偏差和真实账号权限仍需要独立证据。既有基金详表与原始 AKShare 探针继续通过兼容入口访问。
+
 ## 研究查询的失败与降级
 
 浏览界面需要尽量给出有用结果；连接诊断需要回答指定源是否可用。这两个目标决定了不同的失败策略：普通研究允许在兼容来源中回退，凭证检查则只能检查所选源。否则，备用源成功会掩盖首选源鉴权失败，保存配置的绿灯就失去意义。

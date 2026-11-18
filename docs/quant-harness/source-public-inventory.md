@@ -307,3 +307,18 @@ These additive exports preserve facade provenance and unknowns; they do not impl
 | `DailyBarsResult` | type | Selected daily series with provenance | — |
 
 The factory adds `fetchDailyBars` for existing daily adapters. The [provider guide](./source-data-providers.md#现有日线适配统一入口) records the mapping and compatibility boundary.
+
+## Canonical market reference operations
+
+| Export | Kind | Classification | Static consumers |
+| --- | --- | --- | --- |
+| `UnifiedMarketDataCapabilities` | type | Factory capability contract | — |
+| `UnifiedMarketDataSource` | type | Factory facade | — |
+| `MarketReferenceCapabilities` | type | Per-provider reference capabilities | — |
+| `MarketReferenceResult` | type | Reference observation with provenance | — |
+| `MarketReferenceSource` | type | Reference facade operations | — |
+| `InstrumentReference` | type | Instrument identity | — |
+| `FundNavObservation` | type | Fund NAV observation | — |
+| `IndexReference` | type | Published index metadata | — |
+| `IndexMemberReference` | type | Current index membership observation | — |
+| `IndexQuoteObservation` | type | Index spot observation | — |

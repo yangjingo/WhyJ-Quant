@@ -1,4 +1,5 @@
 import { createTickFlowMarketDataAdapter } from "./tickflow-market-data.ts";
+import { createMarketReferenceSource, referenceCapabilities, type MarketReferenceCapabilities, type MarketReferenceSource } from "./market-reference.ts";
 import { fetchTradingDateKlines } from "./trading-date-klines.ts";
 import { fetchSelectedDailyBars, selectedDailyBarMarkets } from "./source-providers.ts";
 import type { ProviderSource } from "./source-contracts.ts";
@@ -68,6 +69,7 @@ export interface TradingDateMarketDataSource extends OrderBookMarketDataSource {
 export interface DailyBarsMarketDataSource extends TradingDateMarketDataSource {
   fetchDailyBars(request: DailyBarsRequest, options?: SourceRequestOptions): Promise<DailyBarsResult>;
 }
+export interface UnifiedMarketDataSource extends DailyBarsMarketDataSource, MarketReferenceSource {}
 export interface SourceConnection { source: ProviderSource; apiKey?: string; baseUrl?: string; env?: Record<string, string | undefined> }
 
 /** Adapter implementation metadata, not a provider connectivity or entitlement check. */
@@ -87,9 +89,12 @@ export interface TradingDateMarketDataCapabilities extends OrderBookMarketDataCa
 export interface DailyBarsMarketDataCapabilities extends TradingDateMarketDataCapabilities {
   dailyBars: { status: "implemented"; markets: Market[] };
 }
+export interface UnifiedMarketDataCapabilities extends DailyBarsMarketDataCapabilities {
+  reference: MarketReferenceCapabilities;
+}
 
 /** Describes the selected-source facade only; legacy provider APIs have separate capabilities. */
-export function getMarketDataCapabilities(source: ProviderSource): DailyBarsMarketDataCapabilities {
+export function getMarketDataCapabilities(source: ProviderSource): UnifiedMarketDataCapabilities {
   const supported: Record<ProviderSource, boolean> = {
     tickflow: true, tushare: false, akshare: false, "llmquant-data": false, "financial-datasets": false,
   };
@@ -99,6 +104,7 @@ export function getMarketDataCapabilities(source: ProviderSource): DailyBarsMark
   const status = supported[source] ? "implemented" : "not-implemented";
   return { source, operations: { klines: status, adjustmentFactors: status, quotes: status, orderBook: status, financials: status, quoteSubscription: status },
     dailyBars: { status: "implemented", markets: selectedDailyBarMarkets(source) },
+    reference: referenceCapabilities(source),
     dailyByTradingDate: source === "tickflow" || source === "tushare"
       ? { status: "implemented", markets: ["A"], assetTypes: ["stock"], adjustments: source === "tickflow" ? ["none", "forward"] : ["none"], maxCalendarDays: 366, timeZone: "Asia/Shanghai" }
       : { status: "not-implemented" },
@@ -106,7 +112,7 @@ export function getMarketDataCapabilities(source: ProviderSource): DailyBarsMark
 }
 
 /** A selected provider only; this facade never silently falls back or reads a cache. */
-export function createMarketDataSource(connection: SourceConnection): DailyBarsMarketDataSource {
+export function createMarketDataSource(connection: SourceConnection): UnifiedMarketDataSource {
   const datedConnection = { ...connection, env: connection.env ? { ...connection.env } : undefined };
   const unsupported = async (): Promise<never> => { throw new Error(`Source capability not implemented: ${connection.source}`); };
   const base: OrderBookMarketDataSource = connection.source === "tickflow" ? createTickFlowMarketDataAdapter(connection)
@@ -120,5 +126,8 @@ export function createMarketDataSource(connection: SourceConnection): DailyBarsM
     }
     return base.fetchKlines(request, options);
   }
-  return { ...base, fetchKlines, fetchDailyBars: (request, options) => fetchSelectedDailyBars(request, datedConnection, options) };
+  return {
+    ...base, ...createMarketReferenceSource(datedConnection),
+    fetchKlines, fetchDailyBars: (request, options) => fetchSelectedDailyBars(request, datedConnection, options),
+  };
 }
