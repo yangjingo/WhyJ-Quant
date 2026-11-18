@@ -2333,6 +2333,9 @@ test("terminal capability shares run identity but cannot be selected or replayed
   expect(JSON.stringify(requests[before]!.messages)).toContain(input.text);
 });
 
+// Composite scenarios span more than one terminal poll window and checkpoint operation.
+const clarificationFixtureTimeoutMs = 15_000;
+
 test("explicit clarification survives restart without replay and an HTTP answer creates a new run", async () => {
   scriptedCalls = [() => [{ name: "ask_user", args: { question: `请补充研究范围？${KEY}` } }]];
   const { client, identity } = await setup();
@@ -2349,6 +2352,7 @@ test("explicit clarification survives restart without replay and an HTTP answer 
   const next = { workspaceId: identity.workspaceId, sessionId: identity.sessionId, requestId: randomUUID(), expectedRevision: waiting.revision!, previousRunId: asked.runId };
   await expect(client.continue!(next)).rejects.toMatchObject({ code: "CONTINUE_UNAVAILABLE" });
   await expect(client.save!({ workspaceId: identity.workspaceId, ...asked, expectedRevision: waiting.revision!, expectedArtifactRevision: null })).rejects.toMatchObject({ code: "SAVE_UNAVAILABLE" });
+  phase("restart");
   await service!.close(); service = createWorkbenchService({ cwd: root });
   expect(await service.client.session(identity.sessionId)).toEqual(waiting); expect(requests).toHaveLength(1);
   host = startWorkbenchServer({ service, port: 0, assetsRoot: join(root, "assets") });
@@ -2364,6 +2368,7 @@ test("explicit clarification survives restart without replay and an HTTP answer 
   expect(await service.client.session(identity.sessionId)).toEqual(waiting);
   expect(requests).toHaveLength(1);
   expect((await remote("followup", { ...next, expectedRevision: 0, text: "过期回答" })).status).toBe(409);
+  phase("http-followup");
   const input = { ...next, text: "只讨论固定样本，不获取新数据。" };
   const response = await remote("followup", input); expect(response.status).toBe(200);
   const result = (await response.json() as { result: { sessionId: string; runId: string } }).result;
@@ -2375,7 +2380,7 @@ test("explicit clarification survives restart without replay and an HTTP answer 
   expect(JSON.stringify(requests.at(-1)?.messages)).toContain("请补充研究范围");
   expect(JSON.stringify(requests.at(-1)?.messages)).toContain(input.text);
   expect(requests).toHaveLength(2);
-});
+}, clarificationFixtureTimeoutMs);
 
 test("clarification stops later tools in the same batch without bypassing the existing host policy", async () => {
   let calculations = 0; const policyCalls: string[] = [];
@@ -2439,13 +2444,14 @@ for (const allowed of [false, true]) test(`clarification respects declared task 
     } }];
   }, () => [{ name: "ask_user", args: { question: "请确认研究范围。" } }]];
   const { client, identity, submit } = await setup(); await submit("研究 AAPL，范围固定在 2026-01-01 到 2026-02-09。");
+  phase("task-capability-run");
   const state = await terminal(client, identity.sessionId);
   const activeTools = (requests[2]?.tools as Array<{ function: { name: string } }>).map(tool => tool.function.name);
   expect(activeTools.includes("ask_user")).toBe(allowed);
   expect(state.state).toBe(allowed ? "needs_input" : "settled");
   expect(state.turns[1]?.activity?.find(item => item.name === "ask_user")?.state).toBe(allowed ? "completed" : "failed");
   if (allowed) expect(requests).toHaveLength(3);
-});
+}, clarificationFixtureTimeoutMs);
 
 test("workspace identity resolves filesystem aliases independently of the entry cwd", async () => {
   const data = join(root, "private-root"), alias = join(root, "alias");
