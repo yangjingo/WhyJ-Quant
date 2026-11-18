@@ -13,6 +13,7 @@ import { fetchFromLlmQuant } from "./llmquant.ts";
 import { fetchFromTushareDetailed, searchTushareSymbols } from "./tushare.ts";
 import type { Bar, Market, PriceAdjustment, SymbolInfo } from "../../types/data.ts";
 import type { DailyBarDataset } from "../../types/research-data.ts";
+import type { DailyBarsRequest, DailyBarsResult, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 import type {
   BarProviderAdapter,
   DataSource,
@@ -21,6 +22,60 @@ import type {
   PullBarsResult,
   SourceProviderOptions,
 } from "./source-contracts.ts";
+
+const dailyBarMarkets: Record<ProviderSource, readonly Market[]> = {
+  akshare: ["A", "US", "HK"],
+  tushare: ["A"],
+  tickflow: ["A"],
+  "llmquant-data": ["US"],
+  "financial-datasets": ["US"],
+};
+
+export function selectedDailyBarMarkets(source: ProviderSource): Market[] {
+  return [...dailyBarMarkets[source]];
+}
+
+export async function fetchSelectedDailyBars(
+  request: DailyBarsRequest, connection: SourceConnection, options: SourceRequestOptions = {},
+): Promise<DailyBarsResult> {
+  options.signal?.throwIfAborted();
+  if (!request || typeof request.symbol !== "string") throw new Error("Invalid daily bars request");
+  const { source, apiKey, baseUrl, env } = connection;
+  const { market, start, end, adjustment: requestedBasis } = request;
+  if (!Object.hasOwn(dailyBarMarkets, source) || !dailyBarMarkets[source].includes(market))
+    throw new Error("Source capability not implemented for this daily bars market");
+  if (requestedBasis !== undefined && !isPriceAdjustment(requestedBasis)) throw new Error("Invalid daily price basis");
+  validateDateRange(start, end);
+  const symbol = normalizeSymbol(request.symbol, market);
+  const connectionOptions = { apiKey, baseUrl, env };
+  const providerOptions = {
+    tushare: { token: apiKey, baseUrl, env }, tickflow: connectionOptions,
+    llmquant: connectionOptions, financialDatasets: connectionOptions,
+  };
+  const budget = new ProviderBudget(options.signal, options.timeoutMs);
+  try {
+    const adapter = createProviderAdapters(providerOptions, budget)[source];
+    const response = await budget.run(() => adapter.fetchBars({ symbol, market, start, end, signal: budget.signal })).catch(error => {
+      options.signal?.throwIfAborted();
+      throw new Error(providerErrorMessage(error));
+    });
+    if (budget.exhausted) throw new Error("Provider request timed out");
+    const adjustment = Array.isArray(response) ? "provider-unspecified" : response.adjustment ?? "provider-unspecified";
+    if (requestedBasis !== undefined && requestedBasis !== adjustment) throw new Error("Source returned an incompatible daily price basis");
+    const endpoint = source === "tickflow" ? "/v1/klines"
+      : source === "llmquant-data" ? "/api/equity/historical"
+      : source === "financial-datasets" ? "/prices/"
+      : !Array.isArray(response) && isSafeProviderEndpoint(response.endpoint) ? response.endpoint : null;
+    const tushareStockDaily = source === "tushare" && endpoint === "daily";
+    return {
+      symbol, market, requested: { start: start ?? null, end: end ?? null },
+      data: normalizeBarSeries(Array.isArray(response) ? response : response.bars, start, end),
+      adjustment, source, endpoint, observedAt: new Date().toISOString(), coverage: "unknown",
+      volumeUnit: tushareStockDaily ? "hand" : "unknown",
+      amountUnit: tushareStockDaily ? "CNY-thousand" : "unknown",
+    };
+  } finally { budget.close(); }
+}
 
 /** Direct research pull, without cache fallback or inferred finality/adjustment claims. */
 export async function fetchResearchBars(

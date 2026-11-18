@@ -296,3 +296,14 @@ These additive types represent a session date separately from any provider times
 | `TradingDateBarObservation` | type | Observation contract | — |
 
 These additive exports preserve facade provenance and unknowns; they do not implement TSP synchronization. See [Source guide](../../src/source/README.md#versioned-bar-and-factor-observations).
+
+## Selected daily series
+
+| Export | Kind | Classification | Static consumers |
+| --- | --- | --- | --- |
+| `DailyBarsMarketDataCapabilities` | type | Selected daily capability | — |
+| `DailyBarsMarketDataSource` | type | Extended Source facade | — |
+| `DailyBarsRequest` | type | Selected daily request | — |
+| `DailyBarsResult` | type | Selected daily series with provenance | — |
+
+The factory adds `fetchDailyBars` for existing daily adapters. The [provider guide](./source-data-providers.md#现有日线适配统一入口) records the mapping and compatibility boundary.

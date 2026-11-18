@@ -1,6 +1,8 @@
 import { createTickFlowMarketDataAdapter } from "./tickflow-market-data.ts";
 import { fetchTradingDateKlines } from "./trading-date-klines.ts";
+import { fetchSelectedDailyBars, selectedDailyBarMarkets } from "./source-providers.ts";
 import type { ProviderSource } from "./source-contracts.ts";
+import type { Bar, Market, PriceAdjustment } from "../../types/data.ts";
 
 /** Timestamps are UTC milliseconds; callers must specify the requested price basis. */
 export type KlineInterval = "1d" | "1m" | "5m" | "10m" | "15m" | "30m" | "60m";
@@ -11,6 +13,21 @@ export interface KlineRequest extends TimeWindow { symbol: string; interval: Kli
 export interface TradingDateKlineRequest { timeMode: "trading-date"; symbol: string; assetType: "stock"; interval: "1d"; adjustment: KlineAdjustment; startDate: string; endDate: string }
 export interface TradingDateKline { tradeDate: string; sourceTimestamp: number | null; open: number; high: number; low: number; close: number; volume: number; amount: number | null }
 export interface TradingDateKlineResult { timeMode: "trading-date"; symbol: string; market: "A"; assetType: "stock"; calendarTimeZone: "Asia/Shanghai"; requested: { startDate: string; endDate: string }; interval: "1d"; adjustment: KlineAdjustment; source: ProviderSource; endpoint: string; observedAt: string; coverage: "unknown"; volumeUnit: "hand" | "unknown"; amountUnit: "CNY-thousand" | "unknown"; data: TradingDateKline[] }
+/** Date bounds are inclusive. Omit adjustment to accept the adapter's existing daily price basis. */
+export interface DailyBarsRequest { symbol: string; market: Market; start?: string; end?: string; adjustment?: PriceAdjustment }
+export interface DailyBarsResult {
+  symbol: string;
+  market: Market;
+  requested: { start: string | null; end: string | null };
+  data: Bar[];
+  adjustment: PriceAdjustment;
+  source: ProviderSource;
+  endpoint: string | null;
+  observedAt: string;
+  coverage: "unknown";
+  volumeUnit: "hand" | "unknown";
+  amountUnit: "CNY-thousand" | "unknown";
+}
 export interface FactorRequest extends TimeWindow { symbols: readonly string[] }
 export interface QuoteRequest { symbols: readonly string[] }
 export interface OrderBookRequest { symbol: string }
@@ -48,6 +65,9 @@ export interface TradingDateMarketDataSource extends OrderBookMarketDataSource {
   fetchKlines(request: TradingDateKlineRequest, options?: SourceRequestOptions): Promise<TradingDateKlineResult>;
   fetchKlines(request: KlineRequest, options?: SourceRequestOptions): Promise<KlineResult>;
 }
+export interface DailyBarsMarketDataSource extends TradingDateMarketDataSource {
+  fetchDailyBars(request: DailyBarsRequest, options?: SourceRequestOptions): Promise<DailyBarsResult>;
+}
 export interface SourceConnection { source: ProviderSource; apiKey?: string; baseUrl?: string; env?: Record<string, string | undefined> }
 
 /** Adapter implementation metadata, not a provider connectivity or entitlement check. */
@@ -64,9 +84,12 @@ export interface TradingDateMarketDataCapabilities extends OrderBookMarketDataCa
   dailyByTradingDate: { status: "implemented"; markets: ["A"]; assetTypes: ["stock"]; adjustments: KlineAdjustment[]; maxCalendarDays: 366; timeZone: "Asia/Shanghai" }
     | { status: "not-implemented" };
 }
+export interface DailyBarsMarketDataCapabilities extends TradingDateMarketDataCapabilities {
+  dailyBars: { status: "implemented"; markets: Market[] };
+}
 
 /** Describes the selected-source facade only; legacy provider APIs have separate capabilities. */
-export function getMarketDataCapabilities(source: ProviderSource): TradingDateMarketDataCapabilities {
+export function getMarketDataCapabilities(source: ProviderSource): DailyBarsMarketDataCapabilities {
   const supported: Record<ProviderSource, boolean> = {
     tickflow: true, tushare: false, akshare: false, "llmquant-data": false, "financial-datasets": false,
   };
@@ -75,6 +98,7 @@ export function getMarketDataCapabilities(source: ProviderSource): TradingDateMa
   }
   const status = supported[source] ? "implemented" : "not-implemented";
   return { source, operations: { klines: status, adjustmentFactors: status, quotes: status, orderBook: status, financials: status, quoteSubscription: status },
+    dailyBars: { status: "implemented", markets: selectedDailyBarMarkets(source) },
     dailyByTradingDate: source === "tickflow" || source === "tushare"
       ? { status: "implemented", markets: ["A"], assetTypes: ["stock"], adjustments: source === "tickflow" ? ["none", "forward"] : ["none"], maxCalendarDays: 366, timeZone: "Asia/Shanghai" }
       : { status: "not-implemented" },
@@ -82,7 +106,7 @@ export function getMarketDataCapabilities(source: ProviderSource): TradingDateMa
 }
 
 /** A selected provider only; this facade never silently falls back or reads a cache. */
-export function createMarketDataSource(connection: SourceConnection): TradingDateMarketDataSource {
+export function createMarketDataSource(connection: SourceConnection): DailyBarsMarketDataSource {
   const datedConnection = { ...connection, env: connection.env ? { ...connection.env } : undefined };
   const unsupported = async (): Promise<never> => { throw new Error(`Source capability not implemented: ${connection.source}`); };
   const base: OrderBookMarketDataSource = connection.source === "tickflow" ? createTickFlowMarketDataAdapter(connection)
@@ -96,5 +120,5 @@ export function createMarketDataSource(connection: SourceConnection): TradingDat
     }
     return base.fetchKlines(request, options);
   }
-  return { ...base, fetchKlines };
+  return { ...base, fetchKlines, fetchDailyBars: (request, options) => fetchSelectedDailyBars(request, datedConnection, options) };
 }

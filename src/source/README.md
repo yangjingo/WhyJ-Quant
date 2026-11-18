@@ -88,6 +88,8 @@ between top-level providers.
 
 ## Provider-neutral market data facade
 
+`fetchDailyBars` on the factory result maps the existing daily adapters to a date-keyed series with the actual endpoint and price basis. Its selected-provider market mapping, units and compatibility boundaries are in the [provider guide](../../docs/quant-harness/source-data-providers.md#现有日线适配统一入口).
+
 Import `createMarketDataSource` and the request/result types from `src/source/index.ts`. Runtime can bind local settings with `createConfiguredMarketDataSource`. The timestamp-mode facade implements the TickFlow slice for SH/SZ/BJ; the explicit trading-date daily mode additionally supports Tushare. Unsupported combinations fail instead of silently switching source. The established `fetchBars` route remains compatible and retains its own fallback and cache policy.
 
 `getMarketDataCapabilities(source)` describes which selected-provider facade operations are implemented. It performs no I/O and returns independent data with connectivity and entitlement explicitly `unknown`. This is not a connection test or an entitlement, instrument, interval, freshness or completeness guarantee. Other providers' legacy APIs and the `fetchBars` pipeline are separate from this declaration.
