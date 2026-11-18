@@ -62,6 +62,7 @@ Tushare 的开放式基金请求把 `270042.OF` 发给 `fund_nav`，将 `unit_na
 | --- | --- |
 | `fetchPriceSnapshot` | Financial Datasets US `/prices/snapshot` 返回 `price`、`day_change`、`day_change_percent`、`time_milliseconds`，并核对 `ticker`。TickFlow A 股复用 `/v1/quotes`，在前收可用时计算日变动和百分比。两者都将供应商时间与应用取得时间分开。 |
 | `fetchDailyValuation` | Tushare A 股股票 `daily_basic` 按 `ts_code` 和指定 `trade_date` 请求。PE、PE TTM、PB、总市值和流通市值分别保留，市场价值使用万元人民币原单位，空值保留。 |
+| `fetchDailyTradingLimits` | Tushare `stk_limit` 按单个 A 股标的及最多 366 个自然日请求，保留按交易日排序的昨收及生效涨跌停价（人民币），返回实际端点、取得时间和未知覆盖。空价格保留为 `null`。信号容差由上层公式应用。 |
 | `fetchTradingCalendar` | AKShare `tool_trade_date_hist_sina` 提供沪深日历日期，再按指定区间过滤。日历行只说明交易日，不证明某条行情已经收盘，也不保证区间完整。 |
 | `fetchInstrumentUniverse` | AKShare 上交所 `stock_info_sh_name_code` 与深交所 `stock_info_sz_name_code` 各自返回主板名单的取得时间、端点和行数。这是当前主板名单，覆盖和历史成员状态未知。 |
 | `fetchFundProfile`、`fetchFundPurchaseTerms`、`fetchFundPerformance` | AKShare 基金简介、申购状态和业绩分析只投影可核对字段，保留成功端点。申购表的 `手续费=0.13` 或 `0.13%` 均返回百分比数值 `0.13`，实际费率表仍由专用工具核对。 |
