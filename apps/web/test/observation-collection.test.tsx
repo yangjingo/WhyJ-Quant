@@ -21,7 +21,8 @@ test("reports unsupported host without exposing collection controls", () => {
   expect(html).toContain("当前连接不支持行情采集"); expect(html).not.toContain("开始采集");
 });
 test("offers both explicit daily modes when the Host exposes collection", () => {
-  const client = { startObservationJob() {}, readObservationJob() {}, cancelObservationJob() {} } as unknown as WorkbenchClient;
+  const client = { startObservationJob() {}, readObservationJob() {}, cancelObservationJob() {}, readObservationIndicators() {} } as unknown as WorkbenchClient;
   const html = renderToStaticMarkup(<ObservationCollection client={client} />);
   expect(html).toContain("日 K（按时间）"); expect(html).toContain("日 K（按交易日）");
+  expect(html).not.toContain("预览 TSP 指标");
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ObservationJobRequest, ObservationJobView, WorkbenchClient } from "../client/contract";
+import type { ObservationIndicatorPreview, ObservationJobRequest, ObservationJobView, WorkbenchClient } from "../client/contract";
 
 type Dataset = "daily" | "daily-date" | "minute" | "factor";
 type Interval = "1m" | "5m" | "10m" | "15m" | "30m" | "60m";
@@ -42,6 +42,58 @@ function saveId(id: string | null) { try { if (id) sessionStorage.setItem(sessio
 function readPending(): boolean { try { return sessionStorage.getItem(pendingKey) === "1"; } catch { return false; } }
 function savePending(value: boolean) { try { if (value) sessionStorage.setItem(pendingKey, "1"); else sessionStorage.removeItem(pendingKey); } catch { /* session state is optional */ } }
 
+type PreviewState =
+  | { status: "idle" | "loading" | "unsupported" | "failed" }
+  | { status: "ready"; result: ObservationIndicatorPreview };
+const indicatorLabels = { rsi6: "RSI 6", rsi14: "RSI 14", rsi24: "RSI 24", atr14: "ATR 14" } as const;
+const indicatorKeys = Object.keys(indicatorLabels) as (keyof typeof indicatorLabels)[];
+
+function ObservationIndicators({ read, archiveRef }: {
+  read: WorkbenchClient["readObservationIndicators"];
+  archiveRef: ObservationIndicatorPreview["archiveRef"];
+}) {
+  const [preview, setPreview] = useState<PreviewState>({ status: read ? "idle" : "unsupported" });
+  const resultRegion = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (preview.status === "ready") resultRegion.current?.focus();
+  }, [preview.status]);
+  const load = async () => {
+    if (!read || preview.status === "loading") return;
+    setPreview({ status: "loading" });
+    try {
+      const result = await read(archiveRef);
+      const latest = result.rows.at(-1);
+      if (result.archiveRef.version !== archiveRef.version || result.archiveRef.revision !== archiveRef.revision
+        || !latest || !indicatorKeys.every(key => Number.isFinite(latest[key]))) throw new Error("Invalid indicator preview");
+      setPreview({ status: "ready", result });
+    } catch (error) {
+      const code = (error as { code?: string } | null)?.code;
+      setPreview({ status: code === "METHOD_NOT_FOUND" || code === "UNAVAILABLE" ? "unsupported" : "failed" });
+    }
+  };
+  if (preview.status === "ready") {
+    const { input, formula, rows } = preview.result;
+    const latest = rows.at(-1)!;
+    return <section className="observation-indicators" ref={resultRegion} tabIndex={-1} aria-label="TSP 指标预览">
+      <p><strong>TSP 指标预览</strong> · {latest.date}</p>
+      <dl className="observation-indicator-values">
+        {indicatorKeys.map(key => <div key={key}><dt>{indicatorLabels[key]}</dt><dd>{latest[key].toFixed(2)}</dd></div>)}
+      </dl>
+      <p className="supporting">{input.source} · {input.adjustment === "none" ? "未复权" : "前复权"} · {input.firstTradeDate} 至 {input.lastTradeDate} · {rows.length} 条</p>
+      <p className="supporting observation-ref">公式 v{formula.version} · TSP 修订 <code>{formula.revision}</code></p>
+      <p className="supporting">指标从归档首日开始计算。历史覆盖和 K 线最终状态未知。</p>
+    </section>;
+  }
+  if (preview.status === "unsupported") return <p role="status" className="supporting">当前服务版本不支持 TSP 指标预览。</p>;
+  return <div className="observation-indicators">
+    {preview.status === "failed" && <p role="alert" className="operation-feedback error-feedback">无法读取指标预览，请核对日线归档后重试。</p>}
+    <button type="button" className="action" disabled={preview.status === "loading"} onClick={() => void load()}>
+      {preview.status === "loading" ? "正在读取指标…" : preview.status === "failed" ? "重试指标预览" : "预览 TSP 指标"}
+    </button>
+    {preview.status === "loading" && <p role="status" className="supporting">正在计算已归档日线。</p>}
+  </div>;
+}
+
 export function ObservationCollection({ client }: { client: WorkbenchClient }) {
   const today = todayShanghai();
   const [fields, setFields] = useState<CollectionFields>({ dataset: "daily", symbol: "000001.SZ", start: today, end: today, adjustment: "none", interval: "1m" });
@@ -76,6 +128,7 @@ export function ObservationCollection({ client }: { client: WorkbenchClient }) {
     void poll(); return () => { alive = false; clearTimeout(timer); };
   }, [client, jobId, supported, refresh]);
   const running = job?.status === "running" || (!!jobId && !job);
+  const previewRef = !busy && job?.id === jobId && job?.status === "archived" && job.receipt?.ref?.version === 2 ? job.receipt.ref : null;
   const request = observationRequest(fields);
   const start = async () => {
     if (!request || !client.startObservationJob || busy || running || unknownStart) return;
@@ -126,6 +179,7 @@ export function ObservationCollection({ client }: { client: WorkbenchClient }) {
         <p>{job.request.symbol} · {({ daily: "日 K", minute: "分钟 K", factor: "复权因子" } as const)[job.request.dataset]}{job.receipt && ` · ${job.receipt.source} · ${job.receipt.rowCount} 条 · 获取时间 ${job.receipt.observedAt}`}</p>
         {job.receipt?.ref && <p className="supporting observation-ref">归档引用（版本 {job.receipt.ref.version}）：<code>{job.receipt.ref.revision}</code></p>}
         <p className="supporting">状态仅保留在当前服务进程；关闭此面板不会取消任务。</p></div>}
+      {previewRef && <ObservationIndicators key={`${jobId}:${previewRef.revision}`} archiveRef={previewRef} read={client.readObservationIndicators} />}
       {problem && <p className="operation-feedback error-feedback" role="alert">{problem}</p>}
     </>}
   </div>;
