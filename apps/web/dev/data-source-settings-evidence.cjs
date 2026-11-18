@@ -91,6 +91,10 @@ async ({ page, control, output }) => {
   await page.getByText('该数据源没有本机保存的密钥。').waitFor();
   // Synthetic RPC replies exercise the new panel mode without provider calls or credentials.
   let starts = 0, previews = 0, job, releasePreview;
+  const fullFields = ['prev_close', 'change_pct', 'change_amount', 'amplitude', 'ma5', 'ma10', 'ma20', 'ma30', 'ma60',
+    'ema5', 'ema10', 'ema20', 'ema30', 'ema60', 'macd_dif', 'macd_dea', 'macd_hist', 'boll_upper', 'boll_lower',
+    'kdj_k', 'kdj_d', 'kdj_j', 'atr_14', 'vol_ma5', 'vol_ma10', 'vol_ratio_5d', 'high_60d', 'low_60d',
+    'momentum_5d', 'momentum_10d', 'momentum_20d', 'momentum_30d', 'momentum_60d', 'annual_vol_20d', 'rsi_6', 'rsi_14', 'rsi_24'];
   await page.route('**/api/workbench/rpc', async route => {
     const payload = route.request().postDataJSON();
     if (payload.method === 'startObservationJob') {
@@ -109,12 +113,17 @@ async ({ page, control, output }) => {
       const [archiveRef] = payload.args;
       assert(JSON.stringify(archiveRef) === JSON.stringify(job.receipt.ref), 'preview must use the exact active archive');
       if (previews === 1) return route.fulfill({ status: 404, json: { ok: false, error: { code: 'OBSERVATION_ARCHIVE_UNAVAILABLE', message: 'synthetic missing archive' } } });
-      if (previews === 4) return route.fulfill({ status: 404, json: { ok: false, error: { code: 'METHOD_NOT_FOUND', message: 'synthetic older Host' } } });
+      if (previews === 5) return route.fulfill({ status: 404, json: { ok: false, error: { code: 'METHOD_NOT_FOUND', message: 'synthetic older Host' } } });
       if (previews === 3) await new Promise(resolve => { releasePreview = resolve; });
+      const date = '2024-01-02', revision = 'f9cb383c5918c6a88a412f3ce43d59fe81b94ccc';
+      const values = Object.assign(Object.fromEntries(fullFields.map(field => [field, null])),
+        { prev_close: 11.28, change_pct: 0, change_amount: 0, amplitude: 0.0125, ma5: 10.82, ema5: 10.88, atr_14: 3 });
       return route.fulfill({ status: 200, json: { ok: true, result: { archiveRef,
-        formula: { version: 1, revision: 'f9cb383c5918c6a88a412f3ce43d59fe81b94ccc' },
+        formula: { version: 1, revision },
         input: { source: 'tushare', adjustment: 'none', firstTradeDate: '2024-01-02', lastTradeDate: '2024-01-02' },
-        rows: [{ date: '2024-01-02', rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }] } } });
+        rows: [{ date, rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }],
+        ...(previews === 2 ? { daily: { producer: 'whyj', formula: { id: 'tsp_daily_ohlcv', version: 1, revision },
+          fields: fullFields, rows: [{ date, values }] } } : {}) } } });
     }
     return route.continue();
   });
@@ -142,8 +151,8 @@ async ({ page, control, output }) => {
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'trading-date narrow page overflow');
   await page.screenshot({ path: output + '/trading-date-narrow.png' });
 
-  const previewAction = page.getByRole('button', { name: '预览 TSP 指标' });
-  const preview = page.getByRole('region', { name: 'TSP 指标预览' });
+  const previewAction = page.getByRole('button', { name: '预览日线指标' });
+  const preview = page.getByRole('region', { name: '日线指标预览' });
   assert(previews === 0, 'archiving must not automatically request a preview');
   await previewAction.click();
   const retry = page.getByRole('button', { name: '重试指标预览' });
@@ -153,9 +162,15 @@ async ({ page, control, output }) => {
   await retry.click();
   await preview.waitFor();
   assert(await preview.evaluate(element => document.activeElement === element), 'focus did not follow the preview action');
-  assert((await preview.locator('dd').allTextContents()).join(',') === '0.00,0.00,0.00,3.00', 'latest four indicator values');
+  assert(await preview.locator('dd').count() === 37, 'all 37 daily fields must be accessible');
+  assert(await preview.getByText('0%', { exact: true }).isVisible(), 'numeric zero must remain visible');
+  assert((await preview.innerText()).includes('WhyJ 计算') && (await preview.innerText()).includes('数据源 tushare'), 'show provenance');
   assert((await preview.innerText()).includes('历史覆盖和 K 线最终状态未知'), 'show evidence limits');
   assert(starts === 3 && previews === 2, 'preview retries must not recollect');
+  const averages = preview.locator('summary').filter({ hasText: /^均线$/ });
+  await averages.focus(); await page.keyboard.press('Enter');
+  assert(await preview.getByText('MA 20', { exact: true }).isVisible(), 'keyboard did not expand moving averages');
+  assert(await preview.locator('details[open]').getByText('暂无', { exact: true }).count() > 0, 'warm-up null must remain unavailable');
   await preview.scrollIntoViewIfNeeded();
   assert(await page.locator('.settings-main').evaluate(element => element.scrollWidth <= element.clientWidth), 'indicator preview narrow overflow');
   await page.screenshot({ path: output + '/indicator-narrow.png' });
@@ -183,8 +198,14 @@ async ({ page, control, output }) => {
   assert(await previewAction.count() === 0, 'empty archive offered a preview');
   await start.click();
   await previewAction.click();
-  await page.getByText('当前服务版本不支持 TSP 指标预览。').waitFor();
-  assert(await start.isEnabled() && starts === 7 && previews === 4, 'older Host preview broke collection');
+  await preview.waitFor();
+  assert((await preview.locator('dd').allTextContents()).join(',') === '0.00,0.00,0.00,3.00', 'older Host latest four indicator values');
+  await preview.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: output + '/indicator-old-host.png' });
+  await start.click();
+  await previewAction.click();
+  await page.getByText('当前服务版本不支持日线指标预览。').waitFor();
+  assert(await start.isEnabled() && starts === 8 && previews === 5, 'older Host preview broke collection');
   assert(!pageErrors.length, 'unexpected page errors: ' + pageErrors.join('; '));
-  return { synthetic: true, checks: saved.checks, screenshots: ['source-wide.png', 'source-narrow.png', 'source-old-host.png', 'trading-date-wide.png', 'trading-date-rejected.png', 'trading-date-unknown.png', 'trading-date-narrow.png', 'indicator-unavailable.png', 'indicator-narrow.png', 'indicator-wide.png'], expectedConflict: true };
+  return { synthetic: true, checks: saved.checks, screenshots: ['source-wide.png', 'source-narrow.png', 'source-old-host.png', 'trading-date-wide.png', 'trading-date-rejected.png', 'trading-date-unknown.png', 'trading-date-narrow.png', 'indicator-unavailable.png', 'indicator-narrow.png', 'indicator-wide.png', 'indicator-old-host.png'], expectedConflict: true };
 }

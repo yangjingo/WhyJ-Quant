@@ -161,4 +161,4 @@ HTTP 使用 `POST /api/workbench/report`，JSON body 为 `ArtifactRequest`，沿
 
 Runtime 的 `deriveTspArchiveIndicators` 接受精确的 v2 日线归档引用，按交易日排序并用最早一行初始化 TSP 口径的 RSI6/14/24 和 ATR14。结果绑定归档修订、公式版本与 TSP 源码修订，并保留来源、采集时间、复权方式、请求区间和实际首末交易日。计算逐行使用归档已有数据，缺失日期保持为空缺；更换输入窗口可能改变重叠日期的结果。覆盖率和 K 线最终状态仍为未知，结果用于预览。缺失、损坏、取消或无效版本直接失败。此内部入口只读本地归档，由后续 Host 和界面接入。公式细节见 [TSP 列目录](../quant-harness/tsp-list-catalog.md)。
 
-`readObservationIndicators` 是可选的认证 RPC。它接收 v2 日线归档的版本和摘要，返回指标序列、公式身份及输入来源。`daily` 返回 WhyJ 生产的 37 个日线字段，包含单独的公式身份与按日取值；预热不足的值为 `null`。`input.source` 标识所归档输入的供应商，`daily.producer` 标识执行计算的 WhyJ。旧版 Host 可能仅返回兼容的 RSI6/14/24 和 ATR14 序列，或返回 `METHOD_NOT_FOUND`。归档在 Host 重启后仍可按同一引用回放。无效引用返回参数错误，缺失和损坏共用固定的不可用诊断。调用只读本机归档。Desktop/Web 当前界面显示原有四项。
+`readObservationIndicators` 是可选的认证 RPC。它接收 v2 日线归档的版本和摘要，返回指标序列、公式身份及输入来源。`daily` 返回 WhyJ 生产的 37 个日线字段，包含单独的公式身份与按日取值；预热不足的值为 `null`。`input.source` 标识所归档输入的供应商，`daily.producer` 标识执行计算的 WhyJ。Desktop/Web 按类别查看归档最新日的各项指标，并分别展示供应商、公式、预热空值与数值零。旧版 Host 若只返回 RSI6/14/24 和 ATR14，界面使用对应的四项预览；缺少整个方法则显示版本提示。归档在 Host 重启后仍可按同一引用回放。无效引用返回参数错误，缺失和损坏共用固定的不可用诊断。调用只读本机归档。

@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ObservationCollection, observationRequest, type CollectionFields } from "../src/components/ObservationCollection";
-import type { WorkbenchClient } from "../src/client/contract";
+import { ObservationCollection, ObservationIndicatorResult, observationRequest, type CollectionFields } from "../src/components/ObservationCollection";
+import type { ObservationIndicatorPreview, WorkbenchClient } from "../src/client/contract";
+import { TSP_DAILY_INDICATOR_FIELDS } from "../../../src/source/src/tsp-list-catalog.ts";
 
 const base: CollectionFields = { dataset: "daily", symbol: "600000.SH", start: "2026-11-12", end: "2026-11-12", adjustment: "none", interval: "1m" };
 test("uses Shanghai days and builds exact Host requests", () => {
@@ -24,5 +25,31 @@ test("offers both explicit daily modes when the Host exposes collection", () => 
   const client = { startObservationJob() {}, readObservationJob() {}, cancelObservationJob() {}, readObservationIndicators() {} } as unknown as WorkbenchClient;
   const html = renderToStaticMarkup(<ObservationCollection client={client} />);
   expect(html).toContain("日 K（按时间）"); expect(html).toContain("日 K（按交易日）");
-  expect(html).not.toContain("预览 TSP 指标");
+  expect(html).not.toContain("预览日线指标");
+});
+
+test("renders all daily fields with provenance, percentages, and distinct missing and zero values", () => {
+  const date = "2026-11-12", revision = "f".repeat(40);
+  const legacy: ObservationIndicatorPreview = {
+    archiveRef: { version: 2, revision: "a".repeat(64) }, formula: { version: 1, revision },
+    input: { symbol: "600000.SH", source: "tickflow", endpoint: "/v1/klines", observedAt: "2026-11-13T00:00:00.000Z",
+      calendarTimeZone: "Asia/Shanghai", adjustment: "forward", requested: { startDate: date, endDate: date },
+      coverage: "unknown", firstTradeDate: date, lastTradeDate: date, finality: "unknown" },
+    rows: [{ date, rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }],
+  };
+  const values = Object.fromEntries(TSP_DAILY_INDICATOR_FIELDS.map(key => [key, 0 as number | null]));
+  values.ma5 = null;
+  values.change_pct = 0.0125;
+  const current: ObservationIndicatorPreview = { ...legacy, daily: { producer: "whyj",
+    formula: { id: "tsp_daily_ohlcv", version: 1, revision }, fields: TSP_DAILY_INDICATOR_FIELDS, rows: [{ date, values }] } };
+  const html = renderToStaticMarkup(<ObservationIndicatorResult result={current} />);
+  expect(html.match(/<dt>/g)).toHaveLength(37);
+  expect(html).toContain("<dt>MA 5</dt><dd>暂无</dd>");
+  expect(html).toContain("<dt>RSI 14</dt><dd>0</dd>");
+  expect(html).toContain("<dt>涨跌幅</dt><dd>1.25%</dd>");
+  expect(html).toContain("数据源 tickflow");
+  expect(html).toContain("WhyJ 计算");
+  const old = renderToStaticMarkup(<ObservationIndicatorResult result={legacy} />);
+  expect(old.match(/<dt>/g)).toHaveLength(4);
+  expect(old).toContain("<dt>ATR 14</dt><dd>3.00</dd>");
 });
