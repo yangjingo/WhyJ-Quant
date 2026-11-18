@@ -127,6 +127,17 @@ test("derives pinned indicators from the entire dated batch without refetching o
         { date: "2024-01-02", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 },
         { date: endDate, rsi6: 0, rsi14: 0, rsi24: 0, atr14: expect.closeTo(43 / 14, 12) },
       ]);
+      expect(original.daily).toMatchObject({
+        producer: "whyj", formula: { id: "tsp_daily_ohlcv", version: 1, revision: "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" },
+        rows: [
+          { date: "2024-01-02", values: { prev_close: null, ma5: null, ema5: 11, rsi_14: 0, atr_14: 3 } },
+          { date: endDate, values: { prev_close: 11, ma5: null, ema5: expect.closeTo(32 / 3, 12), vol_ratio_5d: null } },
+        ],
+      });
+      expect(original.daily.fields).toHaveLength(37);
+      for (const row of original.daily.rows) {
+        expect(Object.keys(row.values).sort()).toEqual([...original.daily.fields].sort());
+      }
       expect(await replayTradingDateObservations(receipt.ref)).toEqual(records);
     }
     expect(fetchMock).toHaveBeenCalledTimes(2);

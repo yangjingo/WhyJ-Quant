@@ -405,4 +405,11 @@ export interface ObservationIndicatorPreview {
       finality: "unknown";
     };
   rows: { date: string; rsi6: number; rsi14: number; rsi24: number; atr14: number }[];
+  /** Full WhyJ calculation for this archive. Older Hosts may return only the four-field series. */
+  daily?: {
+    producer: "whyj";
+    formula: { id: "tsp_daily_ohlcv"; version: number; revision: string };
+    fields: readonly string[];
+    rows: { date: string; values: Record<string, number | null> }[];
+  };
 }

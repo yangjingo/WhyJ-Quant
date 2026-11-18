@@ -63,7 +63,10 @@ test("authenticated RPC collects a selected TickFlow observation and preserves i
     expect(await preview.json()).toMatchObject({ result: { archiveRef: ref,
       formula: { version: 1, revision: "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" },
       input: { source: "tickflow", adjustment: "none", finality: "unknown" },
-      rows: [{ date: "2026-11-12", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }] } });
+      rows: [{ date: "2026-11-12", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }],
+      daily: { producer: "whyj", fields: expect.arrayContaining(["ma5", "macd_hist", "atr_14"]),
+        formula: { id: "tsp_daily_ohlcv", version: 1, revision: "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" },
+        rows: [{ date: "2026-11-12", values: { ma5: null, macd_hist: 0, atr_14: 3 } }] } } });
     const missing = await send("readObservationIndicators", { ...ref, revision: "a".repeat(64) });
     expect(missing.status).toBe(404);
     const unavailable: unknown = await missing.json();
@@ -106,7 +109,8 @@ test("an archive collected from Tushare still provides an indicator preview afte
     const preview = await (await client(host.server.url.origin))("readObservationIndicators", ref);
     expect(preview.status).toBe(200);
     expect(await preview.json()).toMatchObject({ result: { archiveRef: ref, input: { source: "tushare", adjustment: "none" },
-      rows: [{ date: "2024-01-02", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }] } });
+      rows: [{ date: "2024-01-02", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }],
+      daily: { producer: "whyj", rows: [{ date: "2024-01-02", values: { ma20: null, ema20: 11 } }] } } });
     expect(calls).toBe(1);
   } finally { await host.close(); await provider.stop(true); if (previous === undefined) delete process.env.OHQUANT_DIR; else process.env.OHQUANT_DIR = previous; rmSync(root, { recursive: true, force: true }); }
 });

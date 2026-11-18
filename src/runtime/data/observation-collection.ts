@@ -1,6 +1,6 @@
 /** Explicit selected-source collection and immutable replay. No scheduler or TSP transport. */
-import { computeTspIndicators, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../../quant/index.ts";
-import { toBarObservations, toFactorObservations, toTradingDateBarObservations, type KlineAdjustment, type KlineInterval, type SourceRequestOptions, type TradingDateKlineRequest } from "../../source/index.ts";
+import { computeTspDailyIndicators, TSP_DAILY_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../../quant/index.ts";
+import { toBarObservations, toFactorObservations, toTradingDateBarObservations, TSP_DAILY_INDICATOR_FIELDS, type KlineAdjustment, type KlineInterval, type SourceRequestOptions, type TradingDateKlineRequest } from "../../source/index.ts";
 import { archiveObservations, loadObservationArchive, archiveTradingDateObservations, loadTradingDateArchive, type ObservationArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
 
@@ -65,7 +65,7 @@ export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, sig
   signal?.throwIfAborted();
   records.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
   const first = records[0]!; // Storage validates that the batch is nonempty and homogeneous.
-  const rows = computeTspIndicators(records.map(({ tradeDate, values }) => ({ date: tradeDate, ...values })));
+  const daily = computeTspDailyIndicators(records.map(({ tradeDate, values }) => ({ date: tradeDate, ...values })));
 
   return {
     archiveRef,
@@ -83,6 +83,12 @@ export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, sig
       coverage: first.coverage,
       finality: "unknown" as const,
     },
-    rows,
+    rows: daily.map(row => ({ date: row.date, rsi6: row.rsi_6, rsi14: row.rsi_14, rsi24: row.rsi_24, atr14: row.atr_14 })),
+    daily: {
+      producer: "whyj" as const,
+      formula: { id: "tsp_daily_ohlcv" as const, version: TSP_DAILY_INDICATOR_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
+      fields: TSP_DAILY_INDICATOR_FIELDS,
+      rows: daily.map(({ date, ...values }) => ({ date, values })),
+    },
   };
 }
