@@ -20,6 +20,8 @@ export { selectCompletedBars } from "./research-data.ts";
 export { analyzePriceVolume, atr, closeLocationEfficiency, medianTradedAmount, precedingVolumeRatio, relativeStrength } from "./price-volume.ts";
 export { computeTspIndicators, computeTspDailyIndicators, TSP_INDICATOR_FORMULA_VERSION, TSP_DAILY_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
 export type { TspIndicatorBar, TspIndicatorRow, TspDailyIndicatorRow } from "./tsp-indicators.ts";
+export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "./tsp-research-factors.ts";
+export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId, TspResearchFinancialReport } from "./tsp-research-factors.ts";
 export { calculatePositionScenarios } from "./position-scenarios.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";
