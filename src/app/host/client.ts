@@ -43,6 +43,14 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
       // Preserve only this fixed code so callers can distinguish it from connection failures.
       if (response.status === 404 && object(value) && object(value.error) && value.error.code === "METHOD_NOT_FOUND")
         Object.assign(error, { code: "METHOD_NOT_FOUND" });
+      // These specific job rejections are decided before a start is accepted, or identify a missing job.
+      // Other errors remain ambiguous: the Host may have accepted a request before the connection failed.
+      if (object(value) && value.ok === false && object(value.error) && typeof value.error.message === "string") {
+        const code = value.error.code;
+        if ((method === "startObservationJob" && ((response.status === 400 && code === "INPUT_INVALID") || (response.status === 409 && code === "OBSERVATION_BUSY")))
+          || ((method === "readObservationJob" || method === "cancelObservationJob") && response.status === 404 && code === "OBSERVATION_JOB_NOT_FOUND"))
+          Object.assign(error, { code });
+      }
       throw error;
     }
     return value.result as T;
