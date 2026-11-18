@@ -863,6 +863,14 @@
                 "enum": [
                   "1d"
                 ]
+              },
+              "adjustment": {
+                "enum": [
+                  "raw",
+                  "forward",
+                  "backward",
+                  "unknown"
+                ]
               }
             }
           },
@@ -916,6 +924,14 @@
               },
               "range": {
                 "$ref": "#/$defs/rangeInstant"
+              },
+              "adjustment": {
+                "enum": [
+                  "raw",
+                  "forward",
+                  "backward",
+                  "unknown"
+                ]
               }
             }
           },

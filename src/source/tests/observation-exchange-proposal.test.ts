@@ -81,6 +81,7 @@ test("rejects malformed and contradictory examples without pretending the schema
     changed(0, x => { x.response.actualSource = "tushare"; }),
     changed(0, x => { x.response.endpoint = "/v1/klines?token=secret"; }),
     changed(0, x => { x.request.apiKey = "secret"; }),
+    changed(0, x => { x.request.adjustment = null; x.response.records = []; }),
     changed(0, x => { x.response.records.push(structuredClone(x.response.records[0])); }),
     changed(0, x => { x.request.dataset = "minute_bar"; x.request.interval = "1m"; }),
     changed(1, x => { x.response.records[0].timestamp = x.request.range.end; }),
