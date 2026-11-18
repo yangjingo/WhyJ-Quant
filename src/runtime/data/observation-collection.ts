@@ -1,4 +1,5 @@
 /** Explicit selected-source collection and immutable replay. No scheduler or TSP transport. */
+import { computeTspIndicators, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../../quant/index.ts";
 import { toBarObservations, toFactorObservations, toTradingDateBarObservations, type KlineAdjustment, type KlineInterval, type SourceRequestOptions, type TradingDateKlineRequest } from "../../source/index.ts";
 import { archiveObservations, loadObservationArchive, archiveTradingDateObservations, loadTradingDateArchive, type ObservationArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
@@ -56,3 +57,32 @@ export async function collectTradingDateObservations(request: TradingDateKlineRe
 
 /** Read only the requested immutable v2 revision; no provider request or fallback. */
 export const replayTradingDateObservations = loadTradingDateArchive;
+
+/** Calculate a preview over one immutable daily archive, seeded by its earliest bar. */
+export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, signal?: AbortSignal) {
+  const archiveRef = { ...ref };
+  const records = await replayTradingDateObservations(archiveRef, signal);
+  signal?.throwIfAborted();
+  records.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  const first = records[0]!; // Storage validates that the batch is nonempty and homogeneous.
+  const rows = computeTspIndicators(records.map(({ tradeDate, values }) => ({ date: tradeDate, ...values })));
+
+  return {
+    archiveRef,
+    formula: { version: TSP_INDICATOR_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
+    input: {
+      symbol: first.symbol,
+      source: first.source,
+      endpoint: first.endpoint,
+      observedAt: first.observedAt,
+      calendarTimeZone: first.calendarTimeZone,
+      adjustment: first.adjustment,
+      requested: first.requested,
+      firstTradeDate: first.tradeDate,
+      lastTradeDate: records.at(-1)!.tradeDate,
+      coverage: first.coverage,
+      finality: "unknown" as const,
+    },
+    rows,
+  };
+}

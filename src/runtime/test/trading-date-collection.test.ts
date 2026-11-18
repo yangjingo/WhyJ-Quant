@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadSettings, saveSettings } from "../../storage/index.ts";
 import * as storage from "../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../types/config.ts";
-import { collectTradingDateObservations, replayTradingDateObservations } from "../data/observation-collection.ts";
+import { collectTradingDateObservations, deriveTspArchiveIndicators, replayTradingDateObservations } from "../data/observation-collection.ts";
 import type { TradingDateKlineRequest } from "../../source/index.ts";
 
 let root: string; let previous: string | undefined;
@@ -95,6 +95,58 @@ test("captures the requested dates and signal before asynchronous settings looku
     expect((await replayTradingDateObservations(receipt.ref))[0]!.requested.startDate).toBe("2024-01-02");
     const cancelled = collectTradingDateObservations(request(), options); second.abort();
     await expect(cancelled).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  } finally { fetchMock.mockRestore(); }
+});
+
+test("derives pinned indicators from the entire dated batch without refetching or filling gaps", async () => {
+  select("tickflow");
+  const fetchMock = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected provider request"));
+  try {
+    for (const adjustment of ["none", "forward"] as const) {
+      const endDate = "2024-01-04";
+      fetchMock.mockResolvedValueOnce(Response.json({ data: {
+        timestamp: [timestamp, Date.parse("2024-01-03T16:00:00Z")],
+        open: [10, 11], high: [12, 12], low: [9, 8], close: [11, 10], volume: [100, 150], amount: [null, null],
+      } }));
+      const receipt = await collectTradingDateObservations({ ...request(), adjustment, endDate });
+      if (receipt.status !== "archived") throw new Error("missing archive");
+      const records = await replayTradingDateObservations(receipt.ref);
+      // Storage also accepts a homogeneous batch whose incoming order differs from trading-date order.
+      const reversedRef = await storage.archiveTradingDateObservations(records.toReversed());
+      const original = await deriveTspArchiveIndicators(receipt.ref);
+      const reversed = await deriveTspArchiveIndicators(reversedRef);
+
+      expect(reversed).toEqual({ ...original, archiveRef: reversedRef });
+      expect(original).toMatchObject({ archiveRef: receipt.ref,
+        formula: { version: 1, revision: "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" },
+        input: { symbol: "600000.SH", source: "tickflow", endpoint: "/v1/klines", observedAt: receipt.observedAt,
+          adjustment, calendarTimeZone: "Asia/Shanghai", requested: { startDate: "2024-01-02", endDate },
+          firstTradeDate: "2024-01-02", lastTradeDate: endDate, coverage: "unknown", finality: "unknown" } });
+      expect(original.rows).toEqual([
+        { date: "2024-01-02", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 },
+        { date: endDate, rsi6: 0, rsi14: 0, rsi24: 0, atr14: expect.closeTo(43 / 14, 12) },
+      ]);
+      expect(await replayTradingDateObservations(receipt.ref)).toEqual(records);
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  } finally { fetchMock.mockRestore(); }
+});
+
+test("indicator replay rejects invalid, missing, damaged, and cancelled archives", async () => {
+  select("tushare");
+  const fetchMock = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected provider request"));
+  try {
+    fetchMock.mockResolvedValueOnce(Response.json(tushare));
+    const receipt = await collectTradingDateObservations(request());
+    if (receipt.status !== "archived") throw new Error("missing archive");
+    const controller = new AbortController();
+    controller.abort();
+    await expect(deriveTspArchiveIndicators(receipt.ref, controller.signal)).rejects.toThrow();
+    await expect(deriveTspArchiveIndicators({ ...receipt.ref, version: 1 } as never)).rejects.toThrow("Invalid observation archive");
+    await expect(deriveTspArchiveIndicators({ version: 2, revision: "a".repeat(64) })).rejects.toThrow();
+    writeFileSync(join(root, "data", "observation-archives-v2", `${receipt.ref.revision}.json`), "{}");
+    await expect(deriveTspArchiveIndicators(receipt.ref)).rejects.toThrow("damaged");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   } finally { fetchMock.mockRestore(); }
 });
