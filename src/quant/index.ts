@@ -24,6 +24,8 @@ export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "
 export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId, TspResearchFinancialReport } from "./tsp-research-factors.ts";
 export { computeTspPriceLevels, TSP_PRICE_LEVEL_FORMULA_VERSION } from "./tsp-price-levels.ts";
 export type { TspPriceLevel, TspPriceLevelBar } from "./tsp-price-levels.ts";
+export { computeTspDailyIndicatorsAndSignals, computeTspDailySignals, TSP_DAILY_SIGNAL_FIELDS, TSP_DAILY_SIGNAL_FORMULA_VERSION } from "./tsp-daily-signals.ts";
+export type { TspDailySignalBar, TspDailySignalId, TspDailySignalRow } from "./tsp-daily-signals.ts";
 export { calculatePositionScenarios } from "./position-scenarios.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";

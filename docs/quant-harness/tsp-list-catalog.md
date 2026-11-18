@@ -32,6 +32,12 @@ bun run src/cli/dev/tsp-daily-indicator-smoke.ts 600000.SH 2026-07-01 2026-11-17
 
 The probe requests forward-adjusted A-share daily bars, archives and replays the response, then emits JSON with source endpoint, returned dates, archive and formula identity, per-field availability and direct renderer mappings. Coverage and finality remain unknown. The other list keys include raw observations, fundamentals, exchange-specific signals, strategy output and user state. They require their own source or computation evidence under #258.
 
+## Daily signals
+
+`computeTspDailySignals` reproduces the pinned 20 daily seeds from WhyJ's indicator series. Moving-average and MACD crossings compare the current bar with the preceding bar, and the Bollinger threshold rules check the current bar. The 60-day high and low use the trailing close extrema including the current bar. The volume surge threshold is a 5-day volume ratio of at least two. Each rule returns `true`, `false`, or `null` for missing inputs or an incomplete warm-up. [TSP seed definitions](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/signal_seeds.py)
+
+Limit-up, limit-down, broken-limit-up and limit-down recovery consume separately supplied raw prices and effective daily limit thresholds. Their availability is independent of the technical rules. A caller can provide raw OHLC from the same date and symbol along with the verified threshold; an adjusted bar alone does not identify it. The result describes historical rule state, with alert delivery and intraday tracking managed separately.
+
 ## Built-in research factors
 
 Quant's `computeTspResearchFactors` evaluates the 77 registered TSP built-in research factor keys for one symbol. It reuses the daily calculation for the 17 overlapping technical fields. Results use WhyJ calculations and the pinned TSP scoring definitions. The existing WhyJ factor names and their formulas retain their own conventions. [TSP registry](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/factors/registry.py#L95) · [TSP scoring expressions](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/scoring.py#L88)
