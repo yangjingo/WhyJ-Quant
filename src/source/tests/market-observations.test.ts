@@ -90,6 +90,38 @@ test("daily valuation dispatches the exact date and preserves nulls and native m
   } finally { http.mockRestore(); }
 });
 
+test("dated trading limits preserve actual nullable provider thresholds and never fall back", async () => {
+  const fields = ["trade_date", "ts_code", "pre_close", "up_limit", "down_limit"];
+  const input = { symbol: "600000.SH", market: "A", start: "2026-11-12", end: "2026-11-13" } as const;
+  const http = spyOn(globalThis, "fetch");
+  const response = (items: unknown[]) => Response.json({ code: 0, data: { fields, items } });
+  try {
+    const source = createMarketDataSource({ source: "tushare", apiKey, env });
+    http.mockResolvedValueOnce(response([["20261113", "600000.SH", 10, 11, 9], ["20261112", "600000.SH", null, null, null]]));
+    const result = await source.fetchDailyTradingLimits(input);
+    expect(JSON.parse(String(http.mock.calls[0]?.[1]?.body))).toMatchObject({ api_name: "stk_limit",
+      params: { ts_code: "600000.SH", start_date: "20261112", end_date: "20261113" } });
+    expect(http.mock.calls[0]?.[1]?.redirect).toBe("error");
+    expect(result).toMatchObject({ source: "tushare", endpoint: "stk_limit", coverage: "unknown", data: [
+      { symbol: "600000.SH", tradeDate: "2026-11-12", previousClose: null, limitUp: null, limitDown: null, priceUnit: "CNY" },
+      { symbol: "600000.SH", tradeDate: "2026-11-13", previousClose: 10, limitUp: 11, limitDown: 9, priceUnit: "CNY" },
+    ] });
+    expect(getMarketDataCapabilities("tushare").observations.fetchDailyTradingLimits).toEqual({ status: "implemented", markets: ["A"] });
+    http.mockResolvedValueOnce(response([]));
+    expect((await source.fetchDailyTradingLimits(input)).data).toEqual([]);
+    const valid = ["20261113", "600000.SH", 10, 11, 9];
+    for (const rows of [[valid, valid], [["20261111", "600000.SH", 10, 11, 9]], [["20261113", "000001.SZ", 10, 11, 9]],
+      [["20261113", "600000.SH", 10, 9, 11]], [valid.slice(0, 4)]]) {
+      http.mockResolvedValueOnce(response(rows));
+      await expect(source.fetchDailyTradingLimits(input)).rejects.toThrow();
+    }
+    const other = createMarketDataSource({ source: "tickflow", apiKey, env });
+    await expect(other.fetchDailyTradingLimits(input)).rejects.toMatchObject({ code: "unsupported" });
+    await expect(source.fetchDailyTradingLimits({ ...input, start: "2020-01-01" })).rejects.toThrow("too large");
+    expect(http).toHaveBeenCalledTimes(7);
+  } finally { http.mockRestore(); }
+});
+
 test("calendar and main-board universe expose independent endpoints with explicit scope", async () => {
   const script = spyOn(python, "runPython").mockImplementation(async (_script, args) => {
     const first = args?.[0];
