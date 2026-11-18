@@ -52,11 +52,31 @@ test("authenticated RPC collects a selected TickFlow observation and preserves i
     expect(result).toMatchObject({ status: "archived", receipt: { rowCount: 1, source: "tickflow" } });
     const ref = result.receipt?.ref; if (!ref || ref.version !== 2) throw new Error("missing v2 reference");
     expect(await loadTradingDateArchive(ref)).toMatchObject([{ symbol: "600000.SH", tradeDate: "2026-11-12", sourceTimestamp: stamp }]);
+    expect((await send("readObservationIndicators", ref, false)).status).toBe(401);
+    for (const invalid of [{ ...ref, version: 1 }, { ...ref, revision: "../private" }, { ...ref, path: "private" }, null]) {
+      const reply = await send("readObservationIndicators", invalid);
+      expect(reply.status).toBe(400);
+      expect(await reply.json()).toMatchObject({ error: { code: "INPUT_INVALID" } });
+    }
+    const preview = await send("readObservationIndicators", ref);
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({ result: { archiveRef: ref,
+      formula: { version: 1, revision: "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" },
+      input: { source: "tickflow", adjustment: "none", finality: "unknown" },
+      rows: [{ date: "2026-11-12", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }] } });
+    const missing = await send("readObservationIndicators", { ...ref, revision: "a".repeat(64) });
+    expect(missing.status).toBe(404);
+    const unavailable: unknown = await missing.json();
+    expect(unavailable).toMatchObject({ error: { code: "OBSERVATION_ARCHIVE_UNAVAILABLE" } });
+    writeFileSync(join(root, "data", "observation-archives-v2", `${ref.revision}.json`), "private damaged body");
+    const damaged = await send("readObservationIndicators", ref);
+    expect(damaged.status).toBe(404);
+    expect(await damaged.json()).toEqual(unavailable);
     expect(calls).toBe(4);
   } finally { await host.close(); await provider.stop(true); if (previous === undefined) delete process.env.OHQUANT_DIR; else process.env.OHQUANT_DIR = previous; rmSync(root, { recursive: true, force: true }); }
 });
 
-test("authenticated date job uses the selected Tushare provider and preserves null source time", async () => {
+test("an archive collected from Tushare still provides an indicator preview after a Host restart", async () => {
   const root = mkdtempSync(join(tmpdir(), "whyj-host-dated-"));
   const previous = process.env.OHQUANT_DIR; process.env.OHQUANT_DIR = root; let calls = 0;
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
@@ -65,10 +85,13 @@ test("authenticated date job uses the selected Tushare provider and preserves nu
   } });
   mkdirSync(join(root, "assets")); writeFileSync(join(root, "assets", "index.html"), "<html><head></head></html>");
   saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tushare" }, env: { WHYJ_QUANT_TUSHARE_TOKEN: "synthetic-key", TUSHARE_BASE_URL: provider.url.origin } });
-  const host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets") });
+  let host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets") });
   try {
-    const url = host.server.url.origin, token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
-    const send = (method: string, arg: unknown) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", "x-workbench-token": token }, body: JSON.stringify({ method, args: [arg] }) });
+    const client = async (url: string) => {
+      const token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
+      return (method: string, arg: unknown) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", "x-workbench-token": token }, body: JSON.stringify({ method, args: [arg] }) });
+    };
+    const send = await client(host.server.url.origin);
     const response = await send("startObservationJob", { dataset: "daily", timeMode: "trading-date", symbol: "600000.SH", startDate: "2024-01-02", endDate: "2024-01-02", adjustment: "none" });
     expect(response.status).toBe(200); const started = (await response.json() as { result: ObservationJobView }).result; let result = started;
     for (let i = 0; i < 100 && result.status === "running"; i++) {
@@ -78,6 +101,12 @@ test("authenticated date job uses the selected Tushare provider and preserves nu
     expect(result).toMatchObject({ status: "archived", receipt: { source: "tushare", rowCount: 1 } });
     const ref = result.receipt?.ref; if (!ref || ref.version !== 2) throw new Error("missing v2 reference");
     expect(await loadTradingDateArchive(ref)).toMatchObject([{ tradeDate: "2024-01-02", sourceTimestamp: null, volumeUnit: "hand" }]);
+    await host.close();
+    host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets") });
+    const preview = await (await client(host.server.url.origin))("readObservationIndicators", ref);
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({ result: { archiveRef: ref, input: { source: "tushare", adjustment: "none" },
+      rows: [{ date: "2024-01-02", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }] } });
     expect(calls).toBe(1);
   } finally { await host.close(); await provider.stop(true); if (previous === undefined) delete process.env.OHQUANT_DIR; else process.env.OHQUANT_DIR = previous; rmSync(root, { recursive: true, force: true }); }
 });

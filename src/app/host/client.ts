@@ -28,7 +28,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     const capability = await token();
     try { const body = JSON.stringify({ method, args });
       response = await request(new URL("/api/workbench/rpc", baseUrl), { method: "POST", credentials: "omit", cache: "no-store", redirect: "error",
-      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources"].includes(method) ? { signal: AbortSignal.timeout(method === "collectThesisSources" ? 45_000 : 30_000) } : {}),
+      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources", "readObservationIndicators"].includes(method) ? { signal: AbortSignal.timeout(method === "collectThesisSources" ? 45_000 : 30_000) } : {}),
       headers: { "Content-Type": "application/json", "x-workbench-token": capability,
         ...(options.connection ? { "x-host-instance-id": options.connection.instanceId } : {}) },
       ...(options.connection ? terminalRequestConnection(body) : {}), body }); }
@@ -119,6 +119,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     startObservationJob: input => rpc("startObservationJob", [input]),
     readObservationJob: id => rpc("readObservationJob", [id]),
     cancelObservationJob: id => rpc("cancelObservationJob", [id]),
+    readObservationIndicators: ref => rpc("readObservationIndicators", [ref]),
     identity: () => rpc("identity"), workspaces: () => rpc("workspaces"), preferences: () => rpc("preferences"),
     market: async () => { const value = await rpc("market"); if (!isMarketSnapshot(value)) throw new Error("行情响应无效。"); return value; },
     refreshMarket: async failedOnly => { const value = await rpc("refreshMarket", [failedOnly]); if (!isMarketSnapshot(value)) throw new Error("行情响应无效。"); return value; },

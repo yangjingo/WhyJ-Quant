@@ -6,6 +6,8 @@ test("an unsupported optional RPC retains its fixed code without masking other f
   const client = (status: number, code: string) => createHostClient({ baseUrl: "http://127.0.0.1:1", connection,
     fetch: async () => Response.json({ ok: false, error: { code, message: "fixture failure" } }, { status }) });
   await expect(client(404, "METHOD_NOT_FOUND").startDataDraft!()).rejects.toMatchObject({ code: "METHOD_NOT_FOUND", message: "fixture failure" });
+  await expect(client(404, "METHOD_NOT_FOUND").readObservationIndicators!({ version: 2, revision: "a".repeat(64) }))
+    .rejects.toMatchObject({ code: "METHOD_NOT_FOUND" });
   const other = await client(503, "HOST_STOPPING").startDataDraft!().catch(error => error);
   expect(other.message).toBe("fixture failure"); expect(other.code).toBeUndefined();
 });
