@@ -18,8 +18,8 @@ export { synthesizeEqualWeightNav, groupRiskFromNav, totalReturn } from "./group
 export type { GroupComparisonResult, GroupNav, NavPoint } from "./group-comparison.ts";
 export { selectCompletedBars } from "./research-data.ts";
 export { analyzePriceVolume, atr, closeLocationEfficiency, medianTradedAmount, precedingVolumeRatio, relativeStrength } from "./price-volume.ts";
-export { computeTspIndicators, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
-export type { TspIndicatorBar, TspIndicatorRow } from "./tsp-indicators.ts";
+export { computeTspIndicators, computeTspDailyIndicators, TSP_INDICATOR_FORMULA_VERSION, TSP_DAILY_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
+export type { TspIndicatorBar, TspIndicatorRow, TspDailyIndicatorRow } from "./tsp-indicators.ts";
 export { calculatePositionScenarios } from "./position-scenarios.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";

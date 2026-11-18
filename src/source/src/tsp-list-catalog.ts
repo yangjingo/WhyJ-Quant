@@ -1,6 +1,17 @@
 /** Pinned UI inventory, not a provider capability or observation schema. */
 export const TSP_LIST_CATALOG_VERSION = 1 as const;
 export const TSP_LIST_CATALOG_REVISION = "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" as const;
+
+/** Fields produced from completed day bars, using the pinned TSP full-series formula path. */
+export const TSP_DAILY_INDICATOR_FIELDS = [
+  "prev_close", "change_pct", "change_amount", "amplitude",
+  "ma5", "ma10", "ma20", "ma30", "ma60", "ema5", "ema10", "ema20", "ema30", "ema60",
+  "macd_dif", "macd_dea", "macd_hist", "boll_upper", "boll_lower", "kdj_k", "kdj_d", "kdj_j", "atr_14",
+  "vol_ma5", "vol_ma10", "vol_ratio_5d", "high_60d", "low_60d",
+  "momentum_5d", "momentum_10d", "momentum_20d", "momentum_30d", "momentum_60d",
+  "annual_vol_20d", "rsi_6", "rsi_14", "rsi_24",
+] as const;
+
 export interface TspListColumn {
   readonly panel: "watchlist" | "screener";
   readonly key: string;

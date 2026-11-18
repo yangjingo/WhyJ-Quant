@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { computeTspIndicators, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../index.ts";
-import type { TspIndicatorBar } from "../index.ts";
+import { computeTspDailyIndicators, computeTspIndicators, TSP_DAILY_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../index.ts";
+import type { TspDailyIndicatorRow, TspIndicatorBar } from "../index.ts";
+import { TSP_DAILY_INDICATOR_FIELDS } from "../../source/index.ts";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/tsp-indicators.json", import.meta.url), "utf8")) as {
   revision: string; polars: string;
@@ -33,5 +34,32 @@ test("rejects invalid or unordered inputs without emitting partial rows", () => 
     [a!, { ...b!, close: NaN }], [a!, { ...b!, high: 1 }], [a!, { ...b!, volume: -1 }],
     [a!, { ...b!, low: null }]]) {
     expect(() => computeTspIndicators(rows as TspIndicatorBar[])).toThrow("Invalid TSP indicator bars");
+  }
+});
+
+const dailyFixture = JSON.parse(readFileSync(new URL("./fixtures/tsp-daily-indicators.json", import.meta.url), "utf8")) as {
+  revision: string; polars: string;
+  fields: Exclude<keyof TspDailyIndicatorRow, "date">[];
+  cases: { name: string; bars: TspIndicatorBar[]; expected: (number | null)[][] }[];
+};
+
+test("matches pinned TSP daily fields, their warm-up, and null behavior for every fixture row", () => {
+  expect(TSP_INDICATOR_REVISION).toBe(dailyFixture.revision);
+  expect(TSP_DAILY_INDICATOR_FORMULA_VERSION).toBe(1);
+  expect([...TSP_DAILY_INDICATOR_FIELDS].sort()).toEqual(dailyFixture.fields);
+  expect(computeTspDailyIndicators([])).toEqual([]);
+  for (const { name, bars, expected } of dailyFixture.cases) {
+    const actual = computeTspDailyIndicators(bars);
+    expect(actual).toHaveLength(expected.length);
+    actual.forEach((row, index) => {
+      expect(row.date).toBe(bars[index]!.date);
+      expect(Object.keys(row).filter(key => key !== "date").sort()).toEqual(dailyFixture.fields);
+      dailyFixture.fields.forEach((field, fieldIndex) => {
+        const value = expected[index]![fieldIndex];
+        const context = `${name} row ${index} field ${field}`;
+        if (value === null) expect(row[field], context).toBeNull();
+        else expect(row[field], context).toBeCloseTo(value!, 9);
+      });
+    });
   }
 });

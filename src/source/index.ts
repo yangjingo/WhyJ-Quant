@@ -90,5 +90,5 @@ export { fetchWorkspacePrices, validateWorkspaceScope } from "./src/workspace-pr
 export type { WorkspacePrices } from "./src/workspace-prices.ts";
 export { toBarObservations, toFactorObservations, toTradingDateBarObservations } from "./src/observation-envelope.ts";
 export type { ObservationEnvelopeBase, BarObservation, FactorObservation, BarOrFactorObservation, TradingDateBarObservation } from "./src/observation-envelope.ts";
-export { TSP_LIST_CATALOG_REVISION, TSP_LIST_CATALOG_VERSION, TSP_LIST_COLUMNS } from "./src/tsp-list-catalog.ts";
+export { TSP_DAILY_INDICATOR_FIELDS, TSP_LIST_CATALOG_REVISION, TSP_LIST_CATALOG_VERSION, TSP_LIST_COLUMNS } from "./src/tsp-list-catalog.ts";
 export type { TspListColumn } from "./src/tsp-list-catalog.ts";
