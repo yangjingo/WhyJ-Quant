@@ -158,11 +158,15 @@ export async function fetchAkshareAIndexSpot(
   symbol: string | string[] = "沪深重要指数",
   signal?: AbortSignal,
 ): Promise<AkshareIndexQuote[]> {
+  return (await fetchAkshareAIndexSpotDetailed(symbol, signal)).data;
+}
+
+export async function fetchAkshareAIndexSpotDetailed(symbol: string | string[], signal?: AbortSignal) {
   signal?.throwIfAborted();
   const categories = Array.isArray(symbol) ? symbol : [symbol];
   const fallbackQuotes = await fetchSinaAIndexSpotQuotes(categories, signal).catch(() => { signal?.throwIfAborted(); return []; });
   signal?.throwIfAborted();
-  if (fallbackQuotes.length > 0) return fallbackQuotes;
+  if (fallbackQuotes.length > 0) return { data: fallbackQuotes, endpoint: "sina:index-spot" };
 
   const byKey = new Map<string, AkshareIndexQuote>();
   for (const category of categories) {
@@ -171,7 +175,7 @@ export async function fetchAkshareAIndexSpot(
       byKey.set(`${quote.code}:${quote.name}`, quote);
     }
   }
-  return [...byKey.values()];
+  return { data: [...byKey.values()], endpoint: "stock_zh_index_spot_em" };
 }
 
 export async function buildAkshareArtifactReferenceLine(
