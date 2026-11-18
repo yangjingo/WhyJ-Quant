@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ObservationArchiveRef, StoredObservation, StoredTradingDateBarObservation, TradingDateArchiveRef } from "../../types/observation.ts";
+import type { ObservationArchiveRef, StoredDailyTradingLimitBatch, StoredObservation, StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol } from "../../market/symbols.ts";
 import { resolveDataDir } from "./dirs.ts";
@@ -33,6 +33,29 @@ const canonical = (v: unknown): string => {
 };
 const digest = (v: string) => createHash("sha256").update(v).digest("hex");
 const archiveDir = () => join(resolveDataDir(), "observation-archives-v1");
+
+async function writeFixedArchive(dir: string, target: string, content: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  await mkdir(dir, { recursive: true });
+  await withFileLockAsync(target, async () => {
+    signal?.throwIfAborted();
+    try {
+      if (await readFile(target, { encoding: "utf8", signal }) !== content) throw new Error("Observation archive is damaged");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await atomicWriteTextAsync(target, content, signal);
+    }
+  }, signal);
+}
+
+async function readFixedArchive(target: string, revision: string, signal?: AbortSignal): Promise<unknown> {
+  const content = await readFile(target, { encoding: "utf8", signal });
+  if (digest(content) !== revision) throw new Error("Observation archive is damaged");
+  let data: unknown;
+  try { data = JSON.parse(content); } catch { throw fail(); }
+  if (canonical(data) !== content) throw fail();
+  return data;
+}
 
 function validate(records: unknown): asserts records is StoredObservation[] {
   if (!Array.isArray(records) || !records.length) throw fail();
@@ -153,26 +176,64 @@ export async function archiveTradingDateObservations(records: readonly StoredTra
   validateDated(records);
   const content = canonical({ version: 2, records });
   const ref: TradingDateArchiveRef = { version: 2, revision: digest(content) };
-  const target = datedPath(ref);
-  await mkdir(datedDir(), { recursive: true });
-  await withFileLockAsync(target, async () => {
-    signal?.throwIfAborted();
-    try {
-      if (await readFile(target, { encoding: "utf8", signal }) !== content) throw new Error("Observation archive is damaged");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      await atomicWriteTextAsync(target, content, signal);
-    }
-  }, signal);
+  await writeFixedArchive(datedDir(), datedPath(ref), content, signal);
   return ref;
 }
 /** Read only an exact v2 reference and validate both content and identity. */
 export async function loadTradingDateArchive(ref: TradingDateArchiveRef, signal?: AbortSignal): Promise<StoredTradingDateBarObservation[]> {
-  const content = await readFile(datedPath(ref), { encoding: "utf8", signal });
-  if (digest(content) !== ref.revision) throw new Error("Observation archive is damaged");
-  let data: unknown;
-  try { data = JSON.parse(content); } catch { throw fail(); }
-  if (!object(data) || !exactKeys(data, ["version", "records"]) || data.version !== 2 || canonical(data) !== content) throw fail();
+  const data = await readFixedArchive(datedPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "records"]) || data.version !== 2) throw fail();
   validateDated(data.records);
   return data.records;
+}
+
+const limitArchiveKind = "daily-trading-limits";
+const limitDir = () => join(resolveDataDir(), "trading-limit-archives-v1");
+const limitBatchKeys = ["symbol", "market", "source", "endpoint", "observedAt", "coverage", "priceUnit", "requested", "rows"];
+const limitRowKeys = ["tradeDate", "previousClose", "limitUp", "limitDown"];
+
+function limitPath(ref: TradingLimitArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 ||
+    ref.kind !== limitArchiveKind || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(limitDir(), `${ref.revision}.json`);
+}
+
+const positiveOrNull = (value: unknown) => value === null || (nonnegative(value) && value > 0);
+
+function validateTradingLimits(batch: unknown): asserts batch is StoredDailyTradingLimitBatch {
+  if (!object(batch) || !exactKeys(batch, limitBatchKeys) || batch.market !== "A" ||
+    typeof batch.symbol !== "string" || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(batch.symbol) ||
+    batch.source !== "tushare" || batch.endpoint !== "stk_limit" || batch.coverage !== "unknown" || batch.priceUnit !== "CNY" ||
+    typeof batch.observedAt !== "string" || !instant(batch.observedAt) ||
+    !object(batch.requested) || !exactKeys(batch.requested, ["startDate", "endDate"]) ||
+    !Array.isArray(batch.rows) || batch.rows.length === 0 || batch.rows.length > 366) throw fail();
+  const { startDate, endDate } = batch.requested;
+  if (typeof startDate !== "string" || typeof endDate !== "string" ||
+    !isDailyDate(startDate) || !isDailyDate(endDate) || startDate < "0001-01-01" || endDate > "9998-12-31" ||
+    startDate > endDate || Date.parse(endDate) - Date.parse(startDate) > 365 * 86_400_000) throw fail();
+  let previous = "";
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, limitRowKeys) || typeof row.tradeDate !== "string" ||
+      !isDailyDate(row.tradeDate) || row.tradeDate < startDate || row.tradeDate > endDate || row.tradeDate <= previous ||
+      ![row.previousClose, row.limitUp, row.limitDown].every(positiveOrNull) ||
+      (typeof row.limitUp === "number" && typeof row.limitDown === "number" && row.limitUp < row.limitDown)) throw fail();
+    previous = row.tradeDate;
+  }
+}
+
+/** Store one selected provider response without calculating formula thresholds. */
+export async function archiveDailyTradingLimits(batch: StoredDailyTradingLimitBatch, signal?: AbortSignal): Promise<TradingLimitArchiveRef> {
+  validateTradingLimits(batch);
+  const content = canonical({ version: 1, kind: limitArchiveKind, batch });
+  const ref: TradingLimitArchiveRef = { version: 1, kind: limitArchiveKind, revision: digest(content) };
+  await writeFixedArchive(limitDir(), limitPath(ref), content, signal);
+  return ref;
+}
+
+/** Read only the supplied reference. */
+export async function loadDailyTradingLimitArchive(ref: TradingLimitArchiveRef, signal?: AbortSignal): Promise<StoredDailyTradingLimitBatch> {
+  const data = await readFixedArchive(limitPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== limitArchiveKind) throw fail();
+  validateTradingLimits(data.batch);
+  return data.batch;
 }
