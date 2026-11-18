@@ -90,19 +90,32 @@ async ({ page, control, output }) => {
   await page.getByRole('button', { name: '确认移除密钥' }).click();
   await page.getByText('该数据源没有本机保存的密钥。').waitFor();
   // Synthetic RPC replies exercise the new panel mode without provider calls or credentials.
-  let starts = 0, job;
+  let starts = 0, previews = 0, job, releasePreview;
   await page.route('**/api/workbench/rpc', async route => {
     const payload = route.request().postDataJSON();
     if (payload.method === 'startObservationJob') {
       starts++;
       if (starts === 1) return route.fulfill({ status: 400, json: { ok: false, error: { code: 'INPUT_INVALID', message: 'synthetic old Host' } } });
       if (starts === 2) return route.abort('failed');
-      assert(JSON.stringify(payload.args[0]) === JSON.stringify({ dataset: 'daily', timeMode: 'trading-date', symbol: '600000.SH', startDate: '2024-01-02', endDate: '2024-01-03', adjustment: 'none' }), 'date request shape');
-      job = { id: '12345678-1234-1234-1234-123456789abc', request: payload.args[0], status: 'archived', cancelRequested: false,
-        receipt: { source: 'tushare', endpoint: 'daily', observedAt: '2024-01-05T00:00:00Z', rowCount: 1, ref: { version: 2, revision: 'a'.repeat(64) } }, error: null };
+      if (starts !== 5) assert(JSON.stringify(payload.args[0]) === JSON.stringify({ dataset: 'daily', timeMode: 'trading-date', symbol: '600000.SH', startDate: '2024-01-02', endDate: '2024-01-03', adjustment: 'none' }), 'date request shape');
+      const ref = starts === 6 ? null : { version: starts === 5 ? 1 : 2, revision: String(starts).repeat(64) };
+      job = { id: '12345678-1234-1234-1234-123456789ab' + starts, request: payload.args[0], status: ref ? 'archived' : 'empty', cancelRequested: false,
+        receipt: { source: 'tushare', endpoint: 'daily', observedAt: '2024-01-05T00:00:00Z', rowCount: ref ? 1 : 0, ref }, error: null };
       return route.fulfill({ status: 200, json: { ok: true, result: job } });
     }
     if (payload.method === 'readObservationJob' && job) return route.fulfill({ status: 200, json: { ok: true, result: job } });
+    if (payload.method === 'readObservationIndicators') {
+      previews++;
+      const [archiveRef] = payload.args;
+      assert(JSON.stringify(archiveRef) === JSON.stringify(job.receipt.ref), 'preview must use the exact active archive');
+      if (previews === 1) return route.fulfill({ status: 404, json: { ok: false, error: { code: 'OBSERVATION_ARCHIVE_UNAVAILABLE', message: 'synthetic missing archive' } } });
+      if (previews === 4) return route.fulfill({ status: 404, json: { ok: false, error: { code: 'METHOD_NOT_FOUND', message: 'synthetic older Host' } } });
+      if (previews === 3) await new Promise(resolve => { releasePreview = resolve; });
+      return route.fulfill({ status: 200, json: { ok: true, result: { archiveRef,
+        formula: { version: 1, revision: 'f9cb383c5918c6a88a412f3ce43d59fe81b94ccc' },
+        input: { source: 'tushare', adjustment: 'none', firstTradeDate: '2024-01-02', lastTradeDate: '2024-01-02' },
+        rows: [{ date: '2024-01-02', rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }] } } });
+    }
     return route.continue();
   });
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -128,6 +141,50 @@ async ({ page, control, output }) => {
   await page.getByText('归档引用（版本 2）', { exact: false }).scrollIntoViewIfNeeded();
   assert(!(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)), 'trading-date narrow page overflow');
   await page.screenshot({ path: output + '/trading-date-narrow.png' });
+
+  const previewAction = page.getByRole('button', { name: '预览 TSP 指标' });
+  const preview = page.getByRole('region', { name: 'TSP 指标预览' });
+  assert(previews === 0, 'archiving must not automatically request a preview');
+  await previewAction.click();
+  const retry = page.getByRole('button', { name: '重试指标预览' });
+  await retry.waitFor();
+  await retry.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: output + '/indicator-unavailable.png' });
+  await retry.click();
+  await preview.waitFor();
+  assert(await preview.evaluate(element => document.activeElement === element), 'focus did not follow the preview action');
+  assert((await preview.locator('dd').allTextContents()).join(',') === '0.00,0.00,0.00,3.00', 'latest four indicator values');
+  assert((await preview.innerText()).includes('历史覆盖和 K 线最终状态未知'), 'show evidence limits');
+  assert(starts === 3 && previews === 2, 'preview retries must not recollect');
+  await preview.scrollIntoViewIfNeeded();
+  assert(await page.locator('.settings-main').evaluate(element => element.scrollWidth <= element.clientWidth), 'indicator preview narrow overflow');
+  await page.screenshot({ path: output + '/indicator-narrow.png' });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await preview.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: output + '/indicator-wide.png' });
+
+  const start = page.getByRole('button', { name: '开始采集' });
+  await start.click();
+  await page.locator('.observation-ref code').filter({ hasText: '4'.repeat(64) }).waitFor();
+  await previewAction.click();
+  await page.getByText('正在计算已归档日线。').waitFor();
+  await page.getByLabel('采集数据类型').selectOption('daily');
+  await start.click();
+  await page.getByText('归档引用（版本 1）', { exact: false }).waitFor();
+  const late = page.waitForResponse(response => response.request().postDataJSON()?.method === 'readObservationIndicators');
+  assert(typeof releasePreview === 'function', 'late preview was not requested');
+  releasePreview();
+  await late;
+  assert(await preview.count() === 0 && await previewAction.count() === 0, 'late preview became visible for a v1 archive');
+
+  await page.getByLabel('采集数据类型').selectOption('daily-date');
+  await start.click();
+  await page.getByText('未返回数据', { exact: true }).waitFor();
+  assert(await previewAction.count() === 0, 'empty archive offered a preview');
+  await start.click();
+  await previewAction.click();
+  await page.getByText('当前服务版本不支持 TSP 指标预览。').waitFor();
+  assert(await start.isEnabled() && starts === 7 && previews === 4, 'older Host preview broke collection');
   assert(!pageErrors.length, 'unexpected page errors: ' + pageErrors.join('; '));
-  return { synthetic: true, checks: saved.checks, screenshots: ['source-wide.png', 'source-narrow.png', 'source-old-host.png', 'trading-date-wide.png', 'trading-date-rejected.png', 'trading-date-unknown.png', 'trading-date-narrow.png'], expectedConflict: true };
+  return { synthetic: true, checks: saved.checks, screenshots: ['source-wide.png', 'source-narrow.png', 'source-old-host.png', 'trading-date-wide.png', 'trading-date-rejected.png', 'trading-date-unknown.png', 'trading-date-narrow.png', 'indicator-unavailable.png', 'indicator-narrow.png', 'indicator-wide.png'], expectedConflict: true };
 }
