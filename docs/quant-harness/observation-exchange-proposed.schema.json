@@ -1,0 +1,984 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:whyj:proposal:observation-exchange:1",
+  "title": "Proposed observation exchange batch v1; not an implemented API",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "proposed-1"
+    },
+    "request": {
+      "$ref": "#/$defs/request"
+    },
+    "response": {
+      "$ref": "#/$defs/response"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "request",
+    "response"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "instant": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$"
+    },
+    "decimal": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)(\\.\\d+)?$"
+    },
+    "nullableDecimal": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/decimal"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "symbol": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "identity": {
+      "type": "object",
+      "properties": {
+        "symbol": {
+          "$ref": "#/$defs/symbol"
+        },
+        "market": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "assetType": {
+          "enum": [
+            "stock",
+            "index",
+            "etf",
+            "other",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "symbol",
+        "market",
+        "assetType"
+      ],
+      "additionalProperties": false
+    },
+    "rangeDate": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "const": "trading-date"
+        },
+        "start": {
+          "$ref": "#/$defs/date"
+        },
+        "end": {
+          "$ref": "#/$defs/date"
+        },
+        "boundary": {
+          "const": "inclusive"
+        },
+        "timeZone": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "mode",
+        "start",
+        "end",
+        "boundary",
+        "timeZone"
+      ],
+      "additionalProperties": false
+    },
+    "rangeInstant": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "const": "instant"
+        },
+        "start": {
+          "$ref": "#/$defs/instant"
+        },
+        "end": {
+          "$ref": "#/$defs/instant"
+        },
+        "boundary": {
+          "const": "start-inclusive-end-exclusive"
+        }
+      },
+      "required": [
+        "mode",
+        "start",
+        "end",
+        "boundary"
+      ],
+      "additionalProperties": false
+    },
+    "barValues": {
+      "type": "object",
+      "properties": {
+        "open": {
+          "$ref": "#/$defs/decimal"
+        },
+        "high": {
+          "$ref": "#/$defs/decimal"
+        },
+        "low": {
+          "$ref": "#/$defs/decimal"
+        },
+        "close": {
+          "$ref": "#/$defs/decimal"
+        },
+        "volume": {
+          "$ref": "#/$defs/decimal"
+        },
+        "amount": {
+          "$ref": "#/$defs/nullableDecimal"
+        }
+      },
+      "required": [
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "units": {
+      "type": "object",
+      "properties": {
+        "price": {
+          "enum": [
+            "CNY",
+            "USD",
+            "HKD",
+            "unknown"
+          ]
+        },
+        "volume": {
+          "enum": [
+            "shares",
+            "hands",
+            "units",
+            "unknown"
+          ]
+        },
+        "amount": {
+          "enum": [
+            "CNY",
+            "CNY-thousand",
+            "USD",
+            "HKD",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "price",
+        "volume",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "dailyDate": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "daily_bar"
+        },
+        "timeMode": {
+          "const": "trading-date"
+        },
+        "tradeDate": {
+          "$ref": "#/$defs/date"
+        },
+        "calendarTimeZone": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sourceTimestamp": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/instant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "interval": {
+          "const": "1d"
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "sourceAsOf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/instant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finality": {
+          "enum": [
+            "final",
+            "partial",
+            "unknown"
+          ]
+        },
+        "quality": {
+          "enum": [
+            "verified",
+            "unverified",
+            "unknown"
+          ]
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "adjustment": {
+          "enum": [
+            "raw",
+            "forward",
+            "backward",
+            "unknown"
+          ]
+        },
+        "units": {
+          "$ref": "#/$defs/units"
+        },
+        "values": {
+          "$ref": "#/$defs/barValues"
+        }
+      },
+      "required": [
+        "kind",
+        "timeMode",
+        "tradeDate",
+        "calendarTimeZone",
+        "sourceTimestamp",
+        "interval",
+        "identity",
+        "sourceAsOf",
+        "finality",
+        "quality",
+        "revision",
+        "adjustment",
+        "units",
+        "values"
+      ],
+      "additionalProperties": false
+    },
+    "dailyInstant": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "daily_bar"
+        },
+        "timeMode": {
+          "const": "instant"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/instant"
+        },
+        "interval": {
+          "const": "1d"
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "sourceAsOf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/instant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finality": {
+          "enum": [
+            "final",
+            "partial",
+            "unknown"
+          ]
+        },
+        "quality": {
+          "enum": [
+            "verified",
+            "unverified",
+            "unknown"
+          ]
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "adjustment": {
+          "enum": [
+            "raw",
+            "forward",
+            "backward",
+            "unknown"
+          ]
+        },
+        "units": {
+          "$ref": "#/$defs/units"
+        },
+        "values": {
+          "$ref": "#/$defs/barValues"
+        }
+      },
+      "required": [
+        "kind",
+        "timeMode",
+        "timestamp",
+        "interval",
+        "identity",
+        "sourceAsOf",
+        "finality",
+        "quality",
+        "revision",
+        "adjustment",
+        "units",
+        "values"
+      ],
+      "additionalProperties": false
+    },
+    "minute": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "minute_bar"
+        },
+        "timestamp": {
+          "$ref": "#/$defs/instant"
+        },
+        "interval": {
+          "enum": [
+            "1m",
+            "5m",
+            "10m",
+            "15m",
+            "30m",
+            "60m"
+          ]
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "sourceAsOf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/instant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finality": {
+          "enum": [
+            "final",
+            "partial",
+            "unknown"
+          ]
+        },
+        "quality": {
+          "enum": [
+            "verified",
+            "unverified",
+            "unknown"
+          ]
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "adjustment": {
+          "enum": [
+            "raw",
+            "forward",
+            "backward",
+            "unknown"
+          ]
+        },
+        "units": {
+          "$ref": "#/$defs/units"
+        },
+        "values": {
+          "$ref": "#/$defs/barValues"
+        }
+      },
+      "required": [
+        "kind",
+        "timestamp",
+        "interval",
+        "identity",
+        "sourceAsOf",
+        "finality",
+        "quality",
+        "revision",
+        "adjustment",
+        "units",
+        "values"
+      ],
+      "additionalProperties": false
+    },
+    "factor": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "adjustment_factor"
+        },
+        "effectiveTime": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "const": "trading-date"
+                },
+                "date": {
+                  "$ref": "#/$defs/date"
+                },
+                "timeZone": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "required": [
+                "mode",
+                "date",
+                "timeZone"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "mode": {
+                  "const": "instant"
+                },
+                "timestamp": {
+                  "$ref": "#/$defs/instant"
+                }
+              },
+              "required": [
+                "mode",
+                "timestamp"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "factorBasis": {
+          "enum": [
+            "event_ratio",
+            "cumulative",
+            "unknown"
+          ]
+        },
+        "factor": {
+          "$ref": "#/$defs/decimal"
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "sourceAsOf": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/instant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finality": {
+          "enum": [
+            "final",
+            "partial",
+            "unknown"
+          ]
+        },
+        "quality": {
+          "enum": [
+            "verified",
+            "unverified",
+            "unknown"
+          ]
+        },
+        "revision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "effectiveTime",
+        "factorBasis",
+        "factor",
+        "identity",
+        "sourceAsOf",
+        "finality",
+        "quality",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "request": {
+      "type": "object",
+      "properties": {
+        "dataset": {
+          "enum": [
+            "daily_bar",
+            "minute_bar",
+            "adjustment_factor"
+          ]
+        },
+        "source": {
+          "enum": [
+            "tickflow",
+            "tushare",
+            "akshare",
+            "llmquant-data",
+            "financial-datasets"
+          ]
+        },
+        "symbols": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/symbol"
+          }
+        },
+        "range": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/rangeDate"
+            },
+            {
+              "$ref": "#/$defs/rangeInstant"
+            }
+          ]
+        },
+        "interval": {
+          "enum": [
+            "1d",
+            "1m",
+            "5m",
+            "10m",
+            "15m",
+            "30m",
+            "60m",
+            null
+          ]
+        },
+        "adjustment": {
+          "enum": [
+            "raw",
+            "forward",
+            "backward",
+            "unknown",
+            null
+          ]
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "cursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "sinceRevision": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "required": [
+        "dataset",
+        "source",
+        "symbols",
+        "range",
+        "interval",
+        "adjustment",
+        "limit",
+        "cursor",
+        "sinceRevision"
+      ],
+      "additionalProperties": false
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "auth",
+            "entitlement",
+            "timeout",
+            "rate_limit",
+            "partial",
+            "unsupported",
+            "stale",
+            "invalid",
+            "internal"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        }
+      },
+      "required": [
+        "code",
+        "retryable",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "partial",
+            "failed"
+          ]
+        },
+        "actualSource": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "endpoint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9/_-]+$"
+        },
+        "observedAt": {
+          "$ref": "#/$defs/instant"
+        },
+        "coverage": {
+          "enum": [
+            "complete",
+            "partial",
+            "unknown"
+          ]
+        },
+        "nextCursor": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/error"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "records": {
+          "type": "array",
+          "items": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/dailyDate"
+              },
+              {
+                "$ref": "#/$defs/dailyInstant"
+              },
+              {
+                "$ref": "#/$defs/minute"
+              },
+              {
+                "$ref": "#/$defs/factor"
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "status",
+        "actualSource",
+        "endpoint",
+        "observedAt",
+        "coverage",
+        "nextCursor",
+        "error",
+        "records"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "complete"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "type": "null"
+              },
+              "nextCursor": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "failed"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "error": {
+                "$ref": "#/$defs/error"
+              },
+              "nextCursor": {
+                "type": "null"
+              },
+              "records": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "partial"
+              }
+            }
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "nextCursor": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "error": {
+                    "$ref": "#/$defs/error"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "request": {
+            "properties": {
+              "dataset": {
+                "const": "daily_bar"
+              }
+            },
+            "required": [
+              "dataset"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "properties": {
+              "interval": {
+                "enum": [
+                  "1d"
+                ]
+              }
+            }
+          },
+          "response": {
+            "properties": {
+              "records": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/dailyDate"
+                    },
+                    {
+                      "$ref": "#/$defs/dailyInstant"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "request": {
+            "properties": {
+              "dataset": {
+                "const": "minute_bar"
+              }
+            },
+            "required": [
+              "dataset"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "properties": {
+              "interval": {
+                "enum": [
+                  "1m",
+                  "5m",
+                  "10m",
+                  "15m",
+                  "30m",
+                  "60m"
+                ]
+              },
+              "range": {
+                "$ref": "#/$defs/rangeInstant"
+              }
+            }
+          },
+          "response": {
+            "properties": {
+              "records": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/minute"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "request": {
+            "properties": {
+              "dataset": {
+                "const": "adjustment_factor"
+              }
+            },
+            "required": [
+              "dataset"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "request": {
+            "properties": {
+              "interval": {
+                "enum": [
+                  null
+                ]
+              },
+              "adjustment": {
+                "type": "null"
+              }
+            }
+          },
+          "response": {
+            "properties": {
+              "records": {
+                "items": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/$defs/factor"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

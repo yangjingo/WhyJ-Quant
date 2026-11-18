@@ -1,0 +1,339 @@
+[
+  {
+    "schemaVersion": "proposed-1",
+    "request": {
+      "dataset": "daily_bar",
+      "source": "tickflow",
+      "symbols": [
+        "600000.SH"
+      ],
+      "range": {
+        "mode": "trading-date",
+        "start": "2024-01-02",
+        "end": "2024-01-03",
+        "boundary": "inclusive",
+        "timeZone": "Asia/Shanghai"
+      },
+      "interval": "1d",
+      "adjustment": "raw",
+      "limit": 100,
+      "cursor": null,
+      "sinceRevision": null
+    },
+    "response": {
+      "status": "complete",
+      "actualSource": "tickflow",
+      "endpoint": "/v1/klines",
+      "observedAt": "2024-01-03T07:00:00Z",
+      "coverage": "unknown",
+      "nextCursor": null,
+      "error": null,
+      "records": [
+        {
+          "kind": "daily_bar",
+          "timeMode": "trading-date",
+          "tradeDate": "2024-01-02",
+          "calendarTimeZone": "Asia/Shanghai",
+          "sourceTimestamp": null,
+          "interval": "1d",
+          "identity": {
+            "symbol": "600000.SH",
+            "market": "A",
+            "assetType": "stock"
+          },
+          "sourceAsOf": null,
+          "finality": "unknown",
+          "quality": "unknown",
+          "revision": null,
+          "adjustment": "raw",
+          "units": {
+            "price": "unknown",
+            "volume": "unknown",
+            "amount": "unknown"
+          },
+          "values": {
+            "open": "10",
+            "high": "12",
+            "low": "9",
+            "close": "11",
+            "volume": "100",
+            "amount": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "schemaVersion": "proposed-1",
+    "request": {
+      "dataset": "daily_bar",
+      "source": "tickflow",
+      "symbols": [
+        "600000.SH"
+      ],
+      "range": {
+        "mode": "instant",
+        "start": "2024-01-02T00:00:00Z",
+        "end": "2024-01-03T00:00:00Z",
+        "boundary": "start-inclusive-end-exclusive"
+      },
+      "interval": "1d",
+      "adjustment": "raw",
+      "limit": 100,
+      "cursor": null,
+      "sinceRevision": null
+    },
+    "response": {
+      "status": "complete",
+      "actualSource": "tickflow",
+      "endpoint": "/v1/klines",
+      "observedAt": "2024-01-03T07:00:00Z",
+      "coverage": "unknown",
+      "nextCursor": null,
+      "error": null,
+      "records": [
+        {
+          "kind": "daily_bar",
+          "timeMode": "instant",
+          "timestamp": "2024-01-02T00:00:00Z",
+          "interval": "1d",
+          "identity": {
+            "symbol": "600000.SH",
+            "market": "A",
+            "assetType": "stock"
+          },
+          "sourceAsOf": null,
+          "finality": "unknown",
+          "quality": "unknown",
+          "revision": null,
+          "adjustment": "raw",
+          "units": {
+            "price": "unknown",
+            "volume": "unknown",
+            "amount": "unknown"
+          },
+          "values": {
+            "open": "10",
+            "high": "12",
+            "low": "9",
+            "close": "11",
+            "volume": "100",
+            "amount": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "schemaVersion": "proposed-1",
+    "request": {
+      "dataset": "minute_bar",
+      "source": "tickflow",
+      "symbols": [
+        "600000.SH"
+      ],
+      "range": {
+        "mode": "instant",
+        "start": "2024-01-02T01:00:00Z",
+        "end": "2024-01-02T02:00:00Z",
+        "boundary": "start-inclusive-end-exclusive"
+      },
+      "interval": "1m",
+      "adjustment": "raw",
+      "limit": 100,
+      "cursor": null,
+      "sinceRevision": null
+    },
+    "response": {
+      "status": "partial",
+      "actualSource": "tickflow",
+      "endpoint": "/v1/klines",
+      "observedAt": "2024-01-03T07:00:00Z",
+      "coverage": "unknown",
+      "nextCursor": "cursor-2",
+      "error": null,
+      "records": [
+        {
+          "kind": "minute_bar",
+          "timestamp": "2024-01-02T01:30:00Z",
+          "interval": "1m",
+          "identity": {
+            "symbol": "600000.SH",
+            "market": "A",
+            "assetType": "stock"
+          },
+          "sourceAsOf": null,
+          "finality": "unknown",
+          "quality": "unknown",
+          "revision": null,
+          "adjustment": "raw",
+          "units": {
+            "price": "unknown",
+            "volume": "unknown",
+            "amount": "unknown"
+          },
+          "values": {
+            "open": "10",
+            "high": "12",
+            "low": "9",
+            "close": "11",
+            "volume": "100",
+            "amount": null
+          }
+        }
+      ]
+    }
+  },
+  {
+    "schemaVersion": "proposed-1",
+    "request": {
+      "dataset": "adjustment_factor",
+      "source": "tickflow",
+      "symbols": [
+        "600000.SH"
+      ],
+      "range": {
+        "mode": "trading-date",
+        "start": "2024-01-02",
+        "end": "2024-01-03",
+        "boundary": "inclusive",
+        "timeZone": "Asia/Shanghai"
+      },
+      "interval": null,
+      "adjustment": null,
+      "limit": 100,
+      "cursor": null,
+      "sinceRevision": null
+    },
+    "response": {
+      "status": "complete",
+      "actualSource": "tickflow",
+      "endpoint": "/v1/klines/ex-factors",
+      "observedAt": "2024-01-03T07:00:00Z",
+      "coverage": "unknown",
+      "nextCursor": null,
+      "error": null,
+      "records": [
+        {
+          "kind": "adjustment_factor",
+          "effectiveTime": {
+            "mode": "trading-date",
+            "date": "2024-01-02",
+            "timeZone": "Asia/Shanghai"
+          },
+          "factorBasis": "unknown",
+          "factor": "1.05",
+          "identity": {
+            "symbol": "600000.SH",
+            "market": "A",
+            "assetType": "stock"
+          },
+          "sourceAsOf": null,
+          "finality": "unknown",
+          "quality": "unknown",
+          "revision": null
+        }
+      ]
+    }
+  },
+  {
+    "schemaVersion": "proposed-1",
+    "request": {
+      "dataset": "daily_bar",
+      "source": "tickflow",
+      "symbols": [
+        "600000.SH"
+      ],
+      "range": {
+        "mode": "trading-date",
+        "start": "2024-01-02",
+        "end": "2024-01-03",
+        "boundary": "inclusive",
+        "timeZone": "Asia/Shanghai"
+      },
+      "interval": "1d",
+      "adjustment": "raw",
+      "limit": 100,
+      "cursor": null,
+      "sinceRevision": null
+    },
+    "response": {
+      "status": "complete",
+      "actualSource": "tickflow",
+      "endpoint": "/v1/klines",
+      "observedAt": "2024-01-03T07:00:00Z",
+      "coverage": "unknown",
+      "nextCursor": null,
+      "error": null,
+      "records": [
+        {
+          "kind": "daily_bar",
+          "timeMode": "trading-date",
+          "tradeDate": "2024-01-02",
+          "calendarTimeZone": "Asia/Shanghai",
+          "sourceTimestamp": "2024-01-01T16:00:00Z",
+          "interval": "1d",
+          "identity": {
+            "symbol": "600000.SH",
+            "market": "A",
+            "assetType": "stock"
+          },
+          "sourceAsOf": null,
+          "finality": "unknown",
+          "quality": "unknown",
+          "revision": null,
+          "adjustment": "raw",
+          "units": {
+            "price": "unknown",
+            "volume": "unknown",
+            "amount": "unknown"
+          },
+          "values": {
+            "open": "10",
+            "high": "12",
+            "low": "9",
+            "close": "11",
+            "volume": "0",
+            "amount": "0"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "schemaVersion": "proposed-1",
+    "request": {
+      "dataset": "daily_bar",
+      "source": "tickflow",
+      "symbols": [
+        "600000.SH"
+      ],
+      "range": {
+        "mode": "trading-date",
+        "start": "2024-01-02",
+        "end": "2024-01-03",
+        "boundary": "inclusive",
+        "timeZone": "Asia/Shanghai"
+      },
+      "interval": "1d",
+      "adjustment": "raw",
+      "limit": 100,
+      "cursor": null,
+      "sinceRevision": null
+    },
+    "response": {
+      "status": "failed",
+      "actualSource": null,
+      "endpoint": null,
+      "observedAt": "2024-01-03T07:00:00Z",
+      "coverage": "unknown",
+      "nextCursor": null,
+      "error": {
+        "code": "entitlement",
+        "retryable": false,
+        "message": "Access denied"
+      },
+      "records": []
+    }
+  }
+]
