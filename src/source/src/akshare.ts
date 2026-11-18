@@ -275,16 +275,16 @@ export async function fetchAkshareFundNav(symbol: string, signal?: AbortSignal):
     attempts: [...data.attempts, { endpoint: EASTMONEY_FUND_NAV_ENDPOINT, status: "ok", rows: nav.length }] };
 }
 
-export async function fetchAkshareFundProfile(symbol: string): Promise<AkshareFundHistory> {
-  return fetchAkshareFundMode(symbol, "profile");
+export async function fetchAkshareFundProfile(symbol: string, signal?: AbortSignal): Promise<AkshareFundHistory> {
+  return fetchAkshareFundMode(symbol, "profile", signal);
 }
 
 export async function fetchAkshareFundPurchase(symbol: string, signal?: AbortSignal): Promise<AkshareFundHistory> {
   return fetchAkshareFundMode(symbol, "purchase", signal);
 }
 
-export async function fetchAkshareFundPerformance(symbol: string): Promise<AkshareFundHistory> {
-  return fetchAkshareFundMode(symbol, "performance");
+export async function fetchAkshareFundPerformance(symbol: string, signal?: AbortSignal): Promise<AkshareFundHistory> {
+  return fetchAkshareFundMode(symbol, "performance", signal);
 }
 
 export async function fetchAkshareRows(

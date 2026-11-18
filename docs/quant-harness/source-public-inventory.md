@@ -1,6 +1,6 @@
 # Source public entry inventory
 
-Snapshot: main `ee9aa3ff98e6b3fd64640a10d5cff908f3b0beff`. This is a repository inventory, not a provider capability certification or permission to remove an export.
+The export table inventories the named public entry in this revision. It records direct repository consumers and selected-provider mappings. Real account access and coverage require separate evidence.
 
 ## Boundary and discovery
 
@@ -11,6 +11,50 @@ Legacy `fetchBars` can use date-covering cache and provider fallback; `fetchLive
 Rows below enumerate the explicit named re-exports in [the public entry](../../src/source/index.ts). The consumer column records static named imports/re-exports whose relative specifier resolves directly to that entry, outside `src/source`; aliases are attributed to the original name. A dash means no such import was found, not that the export is unused. Tests are included. Namespace consumers are listed separately because identifying their per-export access requires further analysis. Dynamic imports, CommonJS, path aliases, transitive imports, generated code and external consumers are not established by this scan. Module-level tests can import internal paths directly and are outside this public-entry scan. The snapshot must be refreshed when interfaces or consumers change.
 
 Classification describes the current public boundary; an unresolved mapping is not an approved migration. Types are listed with their owning family, not represented as callable operations.
+
+## Canonical Source families
+
+The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getMarketDataCapabilities` reports offline operation support for that selection. It performs no network request and declares no entitlement or live coverage. The cross-market daily request, Shanghai trading-date request and UTC instant K-line request are distinct. [Provider and field examples](./source-data-providers.md)
+
+| Current callable contract | Implemented mapping and observable response |
+| --- | --- |
+| Daily `fetchDailyBars` | Five built-in daily adapters use inclusive dates, native scope and actual endpoint. A US Financial Datasets day request sets `interval=day` and returns OHLCV with a separate optional adjusted close. Tushare raw daily cannot satisfy a forward-adjusted request. |
+| Trading-date `fetchKlines` | TickFlow and Tushare A-share stocks. Tushare `daily.trade_date` maps to a session date and no instant. TickFlow maps `/v1/klines.timestamp` in Shanghai. A Tushare forward-adjusted request is unsupported, and neither output proves session coverage. |
+| Instant `fetchKlines` | TickFlow `/v1/klines`. For a 5-minute raw request, `period=5m` and `adjust=none` select timestamped bars. A provided interval or adjustment is validated. Date-only Tushare results cannot satisfy this contract. |
+| `fetchAdjustmentFactors` | TickFlow `/v1/klines/ex-factors`. `timestamp` and `ex_factor` map to a dated factor whose basis is unknown. This is not a dividend or split event ledger. |
+| `fetchQuotes`, `fetchOrderBook`, `subscribeQuotes` | TickFlow `/v1/quotes`, `/v1/depth` and authenticated stream. Snapshot `last_price` and `prev_close` are distinct values, absent symbols are explicit, and depth levels retain provider order and zero values. Subscription setup requires an acknowledgement and does not establish tick delivery. |
+| `fetchPriceSnapshot` | TickFlow quote projection for A shares and Financial Datasets `/prices/snapshot` for US equities. A latest-price result carries an actual or unknown timestamp, and the Financial Datasets subset cannot satisfy full OHLC or depth. |
+| `fetchFinancials` | TickFlow `/v1/financials/{income,balance-sheet,cash-flow,metrics,shares}`. E.g. report `period_end` and `announce_date` map independently and `net_income` maps to `netIncome`. An announcement date does not establish availability at a modeled execution time. |
+| `fetchDailyValuation` | Tushare `daily_basic` requires an exact stock trade date. `pe`, `pe_ttm`, `pb`, `total_mv`, and `circ_mv` have separate meanings. Dates are validated and monetary units remain native. |
+| `searchInstruments`, `fetchInstrumentUniverse`, `fetchTradingCalendar` | Tushare A-share `stock_basic` searches by name, AKShare SH/SZ main-board rosters retain per-exchange endpoint evidence, and AKShare/Sina `tool_trade_date_hist_sina` returns dates. The roster is current and limited in scope. It is not a historical symbol master or market coverage guarantee. |
+| `fetchFundNav`, `fetchFundProfile`, `fetchFundPurchaseTerms`, `fetchFundPerformance` | AKShare/Eastmoney and Tushare `fund_nav` provide open-fund NAV. AKShare `fund_info_ths` and Snowball supply profile fields, `fund_purchase_em` supplies current purchase terms and headline fee, and Snowball achievement/risk endpoints map to separate result arrays. Raw rank and tiered fee schedules retain their provider-specific contracts. |
+| `fetchIndexMetadata`, `fetchIndexConstituents`, `fetchIndexQuotes` | AKShare `index_stock_info`, existing CSI/Sina constituent endpoints, and Sina or `stock_zh_index_spot_em` quotes. Membership, membership dates, published metadata and spot prices remain separate. |
+| Source-level `fetchNews`, `readNewsDocument`, `readDisclosurePdf` | News uses Eastmoney `stock_news_em` and Yahoo Finance search or ticker news with explicit coverage and articles. Document readers preserve direct URL evidence and bounded extraction state. The PDF route covers explicit exchange and CNInfo URLs. No automatic filings discovery. |
+| Source-level `fetchComparisonFx` | Frankfurter `/v2/rates` with ECB provenance. A USD/EUR request maps the provider rate to the portfolio's base-per-quote convention. No interpolation or broker-rate inference. |
+
+Existing operations keep their specific failure contract. Selected daily and reference operations expose `SourceRequestError.code` for unsupported routes, incompatible daily price basis, deadline expiration and upstream failure where applicable. Those errors retain `Error` compatibility. Input and response validation can report additional errors and caller abort reasons are preserved. Known truncation, incompatible basis or provider failure cannot yield a partial series relabeled as complete.
+
+### Documented capability gaps
+
+Provider documentation is evidence of schemas, rather than evidence of working credentials or WhyJ adapter coverage. A future Core Source change needs a caller, concrete endpoint and semantic mapping before adding a route. The current scope covers shipped public observations and compatibility routes.
+
+| Family | Current disposition and owner |
+| --- | --- |
+| Intraday trades or a separate cumulative session series, exchange definitions and non-A trading calendars | Documented in provider catalogs for some markets. TickFlow minute OHLCV and one A-share calendar are implemented. Tick/trade rows, session totals and market hours need separate Source contracts with start/end and missing-session semantics. |
+| Dividends, split and capital events, suspensions and daily price limits | Tushare documents distinct endpoints. The current factor interface cannot answer the event history or tradability question. Source owns any future typed event mapping. |
+| Additional statements, company profiles, valuation histories and factor data | TickFlow implements the five current report/metric kinds and Tushare exact-date stock valuation. Tushare, AKShare, Financial Datasets and LLMQuant list more families. Source owns future mapping of units, period, disclosure and revision. Quant owns derived indicators. |
+| Fund holdings, complete instrument/exchange catalogs, sector or concept membership, fund flows, institutional/insider holdings | Distinct reference datasets documented by some providers. Raw AKShare compatibility tables and current index/member reads do not certify these capabilities. Source owns any product-scoped additions. |
+| Macro series, automated evidence discovery, FX beyond ECB, derivatives, crypto and commodities | Catalogued upstream where applicable. The current product Source scope implements explicit document reads and ECB conversion. Further additions require bounded coverage and use cases. |
+| Account holdings and brokerage actions | Product account and execution scope. Excluded from market Source. |
+
+See [TickFlow](https://docs.tickflow.org/llms.txt), [Tushare](https://tushare.pro/document/2?doc_id=27), [AKShare](https://akshare.akfamily.xyz/data/stock/stock.html), [Financial Datasets](https://docs.financialdatasets.ai/llms.txt) and [LLMQuant Data](https://docs.llmquantdata.com/llms.txt) for the upstream catalogs. Deterministic fixtures here cover request mapping and counterexamples. Previously recorded live examples are attached to their specific provider delivery issues. No additional live entitlement checks were run for this audit.
+
+### Calling and migration boundaries
+
+1. New selected-provider callers use the factory and its capability metadata. Runtime owns credentials and cancellation. The caller specifies a market and the intended semantic operation.
+2. Research callers that use cache, fallbacks, archived observations or finality checks keep the existing Runtime binding. Selected raw observations and legacy cache results are not interchangeable. Report replay only reads its fixed references.
+3. Provider-named entry points stay available for CLI/TUI/Desktop and downstream source consumers. Move a caller where its request and output contracts match, with a module-specific test. Raw AKShare probes and legacy fund detail rows keep their original schemas and endpoint options.
+4. News, document reads and FX are neutral Source-level functions with their own source or URL rules. They share the Source public entry without inheriting the selected market-data account. Unsupported regions, aliases, endpoint entitlements and return shapes require bounded Source work before moving a consumer.
 
 ## `./src/akshare.ts`
 
@@ -76,14 +120,14 @@ Selected-provider facade and its DTOs; only TickFlow currently implements it.
 
 | Export | Kind | Classification | Direct named consumers |
 | --- | --- | --- | --- |
-| `createMarketDataSource` | value | Selected-provider facade | `src/runtime/data/source-runtime.ts` |
+| `createMarketDataSource` | value | Selected-provider facade | `src/runtime/data/source-runtime.ts`, `tests/contracts/observation-archive.test.ts` |
 | `getMarketDataCapabilities` | value | Selected-provider facade | — |
 | `MarketDataCapabilities` | type | Type | — |
 | `MarketDataSource` | type | Type | — |
 | `SourceConnection` | type | Type | — |
-| `SourceRequestOptions` | type | Type | — |
-| `KlineInterval` | type | Type | — |
-| `KlineAdjustment` | type | Type | — |
+| `SourceRequestOptions` | type | Type | `src/runtime/data/observation-collection.ts` |
+| `KlineInterval` | type | Type | `src/runtime/data/observation-collection.ts` |
+| `KlineAdjustment` | type | Type | `src/runtime/data/observation-collection.ts` |
 | `TimeWindow` | type | Type | — |
 | `KlineRequest` | type | Type | — |
 | `FactorRequest` | type | Type | — |
@@ -237,7 +281,7 @@ Workspace price aggregation, validation and DTO; facade mapping unresolved.
 
 ## Namespace imports
 
-These files import the public entry as a namespace; their individual member use is not included in the named-consumer column.
+These files import or re-export the public entry as a namespace. Their individual member use is outside the named-consumer column.
 
 - `apps/tui/test/research-workflow.test.ts`
 - `src/artifact/test/report-comparison.test.ts`
@@ -251,12 +295,12 @@ These files import the public entry as a namespace; their individual member use 
 
 | Export | Kind | Classification | Static consumers |
 | --- | --- | --- | --- |
-| `TSP_LIST_CATALOG_REVISION` | value | Utility / metadata | catalog test |
-| `TSP_LIST_CATALOG_VERSION` | value | Utility / metadata | catalog test |
-| `TSP_LIST_COLUMNS` | value | Utility / metadata | catalog test |
+| `TSP_LIST_CATALOG_REVISION` | value | Utility / metadata | — |
+| `TSP_LIST_CATALOG_VERSION` | value | Utility / metadata | — |
+| `TSP_LIST_COLUMNS` | value | Utility / metadata | — |
 | `TspListColumn` | type | Utility / metadata | — |
 
-These four additive exports identify the pinned display-column inventory; they do not certify a provider capability. See [TSP list catalog](./tsp-list-catalog.md). The earlier 104-export snapshot above remains tied to its stated revision.
+These exports identify the pinned display-column inventory. Provider capability is tracked independently. See [TSP list catalog](./tsp-list-catalog.md).
 
 ## Order book facade types
 
@@ -274,9 +318,9 @@ These additive types describe the selected-source `fetchOrderBook` operation. Th
 
 | Export | Kind | Classification | Static consumers |
 | --- | --- | --- | --- |
-| `TradingDateKlineRequest` | type | Market data facade | Source tests |
+| `TradingDateKlineRequest` | type | Market data facade | `src/runtime/data/observation-collection.ts`, `src/runtime/test/trading-date-collection.test.ts` |
 | `TradingDateKline` | type | Market data facade | — |
-| `TradingDateKlineResult` | type | Market data facade | — |
+| `TradingDateKlineResult` | type | Market data facade | `src/storage/test/trading-date-archive.test.ts` |
 | `TradingDateMarketDataSource` | type | Market data facade | — |
 | `TradingDateMarketDataCapabilities` | type | Market data facade | — |
 
@@ -286,9 +330,9 @@ These additive types represent a session date separately from any provider times
 
 | Export | Kind | Classification | Static consumers |
 | --- | --- | --- | --- |
-| `toBarObservations` | value | Observation conversion | Source tests |
-| `toFactorObservations` | value | Observation conversion | Source tests |
-| `toTradingDateBarObservations` | value | Observation conversion | Source tests |
+| `toBarObservations` | value | Observation conversion | `src/runtime/data/observation-collection.ts`, `tests/contracts/observation-archive.test.ts` |
+| `toFactorObservations` | value | Observation conversion | `src/runtime/data/observation-collection.ts`, `tests/contracts/observation-archive.test.ts` |
+| `toTradingDateBarObservations` | value | Observation conversion | `src/runtime/data/observation-collection.ts`, `src/storage/test/trading-date-archive.test.ts` |
 | `ObservationEnvelopeBase` | type | Observation contract | — |
 | `BarObservation` | type | Observation contract | — |
 | `FactorObservation` | type | Observation contract | — |
@@ -319,6 +363,19 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `MarketReferenceSource` | type | Reference facade operations | — |
 | `InstrumentReference` | type | Instrument identity | — |
 | `FundNavObservation` | type | Fund NAV observation | — |
+| `FundDetailObservation` | type | Fund profile, purchase or performance observation | — |
+| `FundProfile` | type | Known fund profile fields | — |
+| `FundPurchaseTerms` | type | Current subscription, redemption and headline fee | — |
+| `FundPerformance` | type | Period performance and risk observations | — |
 | `IndexReference` | type | Published index metadata | — |
 | `IndexMemberReference` | type | Current index membership observation | — |
 | `IndexQuoteObservation` | type | Index spot observation | — |
+| `MarketObservation` | type | Valuation, price or calendar observation with provenance | — |
+| `MarketObservationCapabilities` | type | Per-provider observation capabilities | — |
+| `MarketObservationSource` | type | Observation facade operations | — |
+| `DailyValuation` | type | Date-specific market valuation | — |
+| `PriceSnapshot` | type | Last price and day change | — |
+| `TradingCalendar` | type | Calendar dates and time zone | — |
+| `InstrumentUniverse` | type | Roster with per-exchange provenance | — |
+| `SourceRequestError` | value | Selected request failure | — |
+| `SourceErrorCode` | type | Stable selected failure category | — |

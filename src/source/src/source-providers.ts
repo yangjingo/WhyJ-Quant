@@ -3,6 +3,7 @@ import { normalizeSymbol } from "../../market/symbols.ts";
 import { isSafeProviderEndpoint } from "../../market/provider-endpoint.ts";
 import { isPriceAdjustment } from "../../market/price-adjustment.ts";
 import { ProviderBudget } from "./provider-budget.ts";
+import { SourceRequestError } from "./market-data-error.ts";
 export { normalizeBarSeries } from "../../market/bars.ts";
 
 import { fetchFromAKShareDetailed } from "./akshare.ts";
@@ -38,12 +39,13 @@ export function selectedDailyBarMarkets(source: ProviderSource): Market[] {
 export async function fetchSelectedDailyBars(
   request: DailyBarsRequest, connection: SourceConnection, options: SourceRequestOptions = {},
 ): Promise<DailyBarsResult> {
-  options.signal?.throwIfAborted();
+  const signal = options.signal;
+  signal?.throwIfAborted();
   if (!request || typeof request.symbol !== "string") throw new Error("Invalid daily bars request");
   const { source, apiKey, baseUrl, env } = connection;
   const { market, start, end, adjustment: requestedBasis } = request;
   if (!Object.hasOwn(dailyBarMarkets, source) || !dailyBarMarkets[source].includes(market))
-    throw new Error("Source capability not implemented for this daily bars market");
+    throw new SourceRequestError("unsupported", "Source capability not implemented for this daily bars market");
   if (requestedBasis !== undefined && !isPriceAdjustment(requestedBasis)) throw new Error("Invalid daily price basis");
   validateDateRange(start, end);
   const symbol = normalizeSymbol(request.symbol, market);
@@ -52,16 +54,17 @@ export async function fetchSelectedDailyBars(
     tushare: { token: apiKey, baseUrl, env }, tickflow: connectionOptions,
     llmquant: connectionOptions, financialDatasets: connectionOptions,
   };
-  const budget = new ProviderBudget(options.signal, options.timeoutMs);
+  const budget = new ProviderBudget(signal, options.timeoutMs);
   try {
     const adapter = createProviderAdapters(providerOptions, budget)[source];
     const response = await budget.run(() => adapter.fetchBars({ symbol, market, start, end, signal: budget.signal })).catch(error => {
-      options.signal?.throwIfAborted();
-      throw new Error(providerErrorMessage(error));
+      signal?.throwIfAborted();
+      throw new SourceRequestError(budget.exhausted ? "timeout" : "provider-failure", providerErrorMessage(error));
     });
-    if (budget.exhausted) throw new Error("Provider request timed out");
+    if (budget.exhausted) throw new SourceRequestError("timeout", "Provider request timed out");
     const adjustment = Array.isArray(response) ? "provider-unspecified" : response.adjustment ?? "provider-unspecified";
-    if (requestedBasis !== undefined && requestedBasis !== adjustment) throw new Error("Source returned an incompatible daily price basis");
+    if (requestedBasis !== undefined && requestedBasis !== adjustment)
+      throw new SourceRequestError("incompatible-basis", "Source returned an incompatible daily price basis");
     const endpoint = source === "tickflow" ? "/v1/klines"
       : source === "llmquant-data" ? "/api/equity/historical"
       : source === "financial-datasets" ? "/prices/"

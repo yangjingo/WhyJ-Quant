@@ -106,6 +106,14 @@ export async function fetchFromTushare(symbol: string, start?: string, end?: str
 }
 
 const DAILY_FIELDS = ["ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"];
+const VALUATION_FIELDS = ["ts_code", "trade_date", "close", "pe", "pe_ttm", "pb", "total_mv", "circ_mv"];
+
+export async function fetchTushareDailyValuation(symbol: string, date: string, options: TushareOptions) {
+  const rows = await callTushare("daily_basic", { ts_code: symbol, trade_date: date.replace(/-/g, "") }, VALUATION_FIELDS, options);
+  assertResponseSymbol(rows, symbol);
+  if (rows.length > 1 || rows.some(row => formatDate(String(row.trade_date)) !== date)) throw new Error("Provider response invalid");
+  return rows[0] ?? null;
+}
 
 export async function searchTushareSymbols(keyword: string, options: TushareOptions = {}): Promise<SymbolInfo[]> {
   const rows = await callTushare(
@@ -128,7 +136,7 @@ export async function fetchTushareSnapshot(symbol: string, options: TushareOptio
   const rows = await callTushare(
     "daily_basic",
     { ts_code: symbol },
-    ["ts_code", "trade_date", "close", "pe", "pe_ttm", "pb", "total_mv", "circ_mv"],
+    VALUATION_FIELDS,
     options,
   );
   assertResponseSymbol(rows, symbol);
