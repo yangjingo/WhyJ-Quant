@@ -25,3 +25,11 @@ bun run src/cli/dev/tsp-daily-indicator-smoke.ts 600000.SH 2026-07-01 2026-11-17
 ```
 
 The probe requests forward-adjusted A-share daily bars, archives and replays the response, then emits JSON with source endpoint, returned dates, archive and formula identity, per-field availability and direct renderer mappings. Coverage and finality remain unknown. The other list keys include raw observations, fundamentals, exchange-specific signals, strategy output and user state. They require their own source or computation evidence under #258.
+
+## Built-in research factors
+
+Quant's `computeTspResearchFactors` evaluates the 77 registered TSP built-in research factor keys for one symbol. It reuses the daily calculation for the 17 overlapping technical fields. Results use WhyJ calculations and the pinned TSP scoring definitions. The existing WhyJ factor names and their formulas retain their own conventions. [TSP registry](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/factors/registry.py#L95) · [TSP scoring expressions](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/scoring.py#L88)
+
+Only OHLCV and the trading date are required. Amount-dependent factors use explicitly supplied CNY amounts; VWAP and the TSP float-market-value score also need a known volume unit (`share` or `hand`). Turnover uses historical percentage points. Limit-up counts use the supplied per-date classified history and leave incomplete windows unavailable. Provider-normalized inputs and the price basis remain the caller's responsibility.
+
+Financial factors accept dated, validated snapshots for the same symbol. The latest snapshot announced on a strictly earlier date determines eligibility. The previous report stays eligible on a new report's announcement date. PB uses close divided by positive BPS, while the other six facts preserve the eligible provider values. Missing input or an invalid denominator yields `null`. The calculator neither discovers provider data nor asserts historical coverage. [TSP financial gate](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/fundamentals.py#L81)
