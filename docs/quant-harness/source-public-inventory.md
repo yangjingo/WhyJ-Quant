@@ -295,12 +295,13 @@ These files import or re-export the public entry as a namespace. Their individua
 
 | Export | Kind | Classification | Static consumers |
 | --- | --- | --- | --- |
+| `TSP_DAILY_INDICATOR_FIELDS` | value | Utility / derived-field metadata | `src/cli/dev/tsp-daily-indicator-smoke.ts`, `src/quant/test/tsp-indicators.test.ts` |
 | `TSP_LIST_CATALOG_REVISION` | value | Utility / metadata | — |
 | `TSP_LIST_CATALOG_VERSION` | value | Utility / metadata | — |
-| `TSP_LIST_COLUMNS` | value | Utility / metadata | — |
+| `TSP_LIST_COLUMNS` | value | Utility / metadata | `src/cli/dev/tsp-daily-indicator-smoke.ts` |
 | `TspListColumn` | type | Utility / metadata | — |
 
-These exports identify the pinned display-column inventory. Provider capability is tracked independently. See [TSP list catalog](./tsp-list-catalog.md).
+These exports identify pinned display columns and daily OHLCV derivations. Provider capability is tracked independently. See [TSP list catalog](./tsp-list-catalog.md).
 
 ## Order book facade types
 
