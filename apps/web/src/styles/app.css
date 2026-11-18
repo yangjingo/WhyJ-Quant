@@ -302,10 +302,17 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .observation-ref code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; color: var(--cream); }
 .observation-indicators { margin-top: 12px; min-width: 0; }
 .observation-indicators p { margin: 6px 0; }
+.observation-indicators h5 { font-size: 14px; color: var(--cream); margin: 0 0 8px; }
+.observation-indicators h5 time { color: var(--muted); font-size: 12px; font-weight: 500; margin-inline-start: 8px; }
+.observation-indicator-groups { margin-block: 14px 8px; }
+.observation-indicator-groups details { border-top: 1px solid var(--line); }
+.observation-indicator-groups summary { cursor: pointer; padding: 10px 0; color: var(--cream); font-size: 13px; }
+.observation-indicator-groups summary:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.observation-indicator-groups details .observation-indicator-values { margin: 0 0 10px; }
 .observation-indicator-values { display: grid; grid-template-columns: repeat(auto-fit, minmax(6rem, 1fr)); gap: 8px; margin: 12px 0; }
 .observation-indicator-values > div { padding: 8px 12px; border-top: 1px solid var(--line); background: var(--panel); }
-.observation-indicator-values dt { color: var(--muted); font-size: 12px; }
-.observation-indicator-values dd { margin: 4px 0 0; color: var(--cream); font-variant-numeric: tabular-nums; }
+.observation-indicator-values dt { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.observation-indicator-values dd { margin: 4px 0 0; color: var(--cream); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .observation-indicator-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

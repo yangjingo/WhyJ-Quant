@@ -48,6 +48,69 @@ type PreviewState =
 const indicatorLabels = { rsi6: "RSI 6", rsi14: "RSI 14", rsi24: "RSI 24", atr14: "ATR 14" } as const;
 const indicatorKeys = Object.keys(indicatorLabels) as (keyof typeof indicatorLabels)[];
 
+const indicatorGroups = [
+  { label: "价格与区间", fields: {
+    prev_close: "前收盘", change_amount: "涨跌额", change_pct: "涨跌幅", amplitude: "振幅",
+    high_60d: "60 日最高收盘", low_60d: "60 日最低收盘",
+  } },
+  { label: "均线", fields: {
+    ma5: "MA 5", ma10: "MA 10", ma20: "MA 20", ma30: "MA 30", ma60: "MA 60",
+    ema5: "EMA 5", ema10: "EMA 10", ema20: "EMA 20", ema30: "EMA 30", ema60: "EMA 60",
+  } },
+  { label: "趋势与摆动", fields: {
+    macd_dif: "MACD DIF", macd_dea: "MACD DEA", macd_hist: "MACD 柱值", boll_upper: "布林上轨", boll_lower: "布林下轨",
+    kdj_k: "KDJ K", kdj_d: "KDJ D", kdj_j: "KDJ J", rsi_6: "RSI 6", rsi_14: "RSI 14", rsi_24: "RSI 24",
+  } },
+  { label: "波动与成交量", fields: {
+    atr_14: "ATR 14", annual_vol_20d: "20 日年化波动率", vol_ma5: "5 日均量", vol_ma10: "10 日均量", vol_ratio_5d: "5 日量比",
+  } },
+  { label: "区间动量", fields: {
+    momentum_5d: "5 日动量", momentum_10d: "10 日动量", momentum_20d: "20 日动量", momentum_30d: "30 日动量", momentum_60d: "60 日动量",
+  } },
+] as const;
+const namedFields = new Set(indicatorGroups.flatMap(group => Object.keys(group.fields)));
+const percentFields = new Set(["change_pct", "amplitude", "annual_vol_20d", "momentum_5d", "momentum_10d", "momentum_20d", "momentum_30d", "momentum_60d"]);
+const decimal = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 4 });
+const percent = new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 4 });
+
+function indicatorValue(field: string, value: number | null): string {
+  if (value === null) return "暂无";
+  if (percentFields.has(field)) return percent.format(value);
+  return decimal.format(value) + (field === "vol_ratio_5d" ? "×" : "");
+}
+
+/** Present the latest values from the fixed archive selected by the preview request. */
+export function ObservationIndicatorResult({ result }: { result: ObservationIndicatorPreview }) {
+  const { daily, input, rows } = result;
+  const latest = rows.at(-1)!;
+  const formula = daily?.formula ?? result.formula;
+  const values = daily?.rows.at(-1)?.values;
+  const fields = new Set(daily?.fields);
+  const groups: { label: string; entries: [string, string][] }[] = indicatorGroups.map(group => ({
+    label: group.label, entries: Object.entries(group.fields).filter(([field]) => fields.has(field)),
+  }));
+  const other = [...fields].filter(field => !namedFields.has(field));
+  if (other.length) groups.push({ label: "其他指标", entries: other.map(field => [field, field]) });
+
+  return <>
+    <h5>日线指标预览 <time dateTime={latest.date}>{latest.date}</time></h5>
+    <p className="supporting">数据源 {input.source} · {input.adjustment === "none" ? "未复权" : "前复权"} · {input.firstTradeDate} 至 {input.lastTradeDate} · {rows.length} 条</p>
+    <p className="supporting observation-ref">WhyJ 计算 · 公式 v{formula.version} · TSP 修订 <code>{formula.revision}</code></p>
+    {values ? <div className="observation-indicator-groups">
+      {groups.filter(group => group.entries.length).map((group, i) => <details key={group.label} open={i === 0}>
+        <summary>{group.label}</summary>
+        <dl className="observation-indicator-values">
+          {group.entries.map(([field, label]) => <div key={field}><dt>{label}</dt><dd>{indicatorValue(field, values[field]!)}</dd></div>)}
+        </dl>
+      </details>)}
+      <p className="supporting">暂无表示计算窗口或输入不足。</p>
+    </div> : <dl className="observation-indicator-values">
+      {indicatorKeys.map(key => <div key={key}><dt>{indicatorLabels[key]}</dt><dd>{latest[key].toFixed(2)}</dd></div>)}
+    </dl>}
+    <p className="supporting">指标从归档首日开始计算。历史覆盖和 K 线最终状态未知。</p>
+  </>;
+}
+
 function ObservationIndicators({ read, archiveRef }: {
   read: WorkbenchClient["readObservationIndicators"];
   archiveRef: ObservationIndicatorPreview["archiveRef"];
@@ -65,6 +128,14 @@ function ObservationIndicators({ read, archiveRef }: {
       const latest = result.rows.at(-1);
       if (result.archiveRef.version !== archiveRef.version || result.archiveRef.revision !== archiveRef.revision
         || !latest || !indicatorKeys.every(key => Number.isFinite(latest[key]))) throw new Error("Invalid indicator preview");
+      if (result.daily) {
+        const { fields, rows, producer } = result.daily;
+        const day = rows.at(-1);
+        if (producer !== "whyj" || day?.date !== latest.date || fields.length === 0 || new Set(fields).size !== fields.length
+          || !fields.every(field => Object.hasOwn(day.values, field) && (day.values[field] === null || Number.isFinite(day.values[field])))) {
+          throw new Error("Invalid daily indicator preview");
+        }
+      }
       setPreview({ status: "ready", result });
     } catch (error) {
       const code = (error as { code?: string } | null)?.code;
@@ -72,23 +143,15 @@ function ObservationIndicators({ read, archiveRef }: {
     }
   };
   if (preview.status === "ready") {
-    const { input, formula, rows } = preview.result;
-    const latest = rows.at(-1)!;
-    return <section className="observation-indicators" ref={resultRegion} tabIndex={-1} aria-label="TSP 指标预览">
-      <p><strong>TSP 指标预览</strong> · {latest.date}</p>
-      <dl className="observation-indicator-values">
-        {indicatorKeys.map(key => <div key={key}><dt>{indicatorLabels[key]}</dt><dd>{latest[key].toFixed(2)}</dd></div>)}
-      </dl>
-      <p className="supporting">{input.source} · {input.adjustment === "none" ? "未复权" : "前复权"} · {input.firstTradeDate} 至 {input.lastTradeDate} · {rows.length} 条</p>
-      <p className="supporting observation-ref">公式 v{formula.version} · TSP 修订 <code>{formula.revision}</code></p>
-      <p className="supporting">指标从归档首日开始计算。历史覆盖和 K 线最终状态未知。</p>
+    return <section className="observation-indicators" ref={resultRegion} tabIndex={-1} aria-label="日线指标预览">
+      <ObservationIndicatorResult result={preview.result} />
     </section>;
   }
-  if (preview.status === "unsupported") return <p role="status" className="supporting">当前服务版本不支持 TSP 指标预览。</p>;
+  if (preview.status === "unsupported") return <p role="status" className="supporting">当前服务版本不支持日线指标预览。</p>;
   return <div className="observation-indicators">
     {preview.status === "failed" && <p role="alert" className="operation-feedback error-feedback">无法读取指标预览，请核对日线归档后重试。</p>}
     <button type="button" className="action" disabled={preview.status === "loading"} onClick={() => void load()}>
-      {preview.status === "loading" ? "正在读取指标…" : preview.status === "failed" ? "重试指标预览" : "预览 TSP 指标"}
+      {preview.status === "loading" ? "正在读取指标…" : preview.status === "failed" ? "重试指标预览" : "预览日线指标"}
     </button>
     {preview.status === "loading" && <p role="status" className="supporting">正在计算已归档日线。</p>}
   </div>;
