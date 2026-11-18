@@ -138,6 +138,17 @@ test("derives pinned indicators from the entire dated batch without refetching o
       for (const row of original.daily.rows) {
         expect(Object.keys(row.values).sort()).toEqual([...original.daily.fields].sort());
       }
+      expect(original.dailySignals).toMatchObject({
+        producer: "whyj", formula: { id: "tsp_daily_signals", version: 1, revision: "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" },
+        rows: [
+          { date: "2024-01-02", values: { signal_macd_dead: null, signal_limit_up: null, signal_volume_surge: null } },
+          { date: endDate, values: { signal_macd_dead: true, signal_macd_golden: false, signal_limit_up: null } },
+        ],
+      });
+      expect(original.dailySignals.fields).toHaveLength(20);
+      for (const row of original.dailySignals.rows) {
+        expect(Object.keys(row.values).sort()).toEqual([...original.dailySignals.fields].sort());
+      }
       expect(await replayTradingDateObservations(receipt.ref)).toEqual(records);
     }
     expect(fetchMock).toHaveBeenCalledTimes(2);

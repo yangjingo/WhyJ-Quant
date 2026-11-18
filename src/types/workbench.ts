@@ -412,4 +412,11 @@ export interface ObservationIndicatorPreview {
     fields: readonly string[];
     rows: { date: string; values: Record<string, number | null> }[];
   };
+  /** WhyJ's daily rule decisions for this fixed archive. Missing inputs stay null. */
+  dailySignals?: {
+    producer: "whyj";
+    formula: { id: "tsp_daily_signals"; version: number; revision: string };
+    fields: readonly string[];
+    rows: { date: string; values: Record<string, boolean | null> }[];
+  };
 }
