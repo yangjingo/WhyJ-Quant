@@ -1,4 +1,6 @@
 import { createTickFlowMarketDataAdapter } from "./tickflow-market-data.ts";
+import { SourceRequestError } from "./market-data-error.ts";
+import { createMarketObservationSource, marketObservationCapabilities, type MarketObservationCapabilities, type MarketObservationSource } from "./market-observations.ts";
 import { createMarketReferenceSource, referenceCapabilities, type MarketReferenceCapabilities, type MarketReferenceSource } from "./market-reference.ts";
 import { fetchTradingDateKlines } from "./trading-date-klines.ts";
 import { fetchSelectedDailyBars, selectedDailyBarMarkets } from "./source-providers.ts";
@@ -69,7 +71,7 @@ export interface TradingDateMarketDataSource extends OrderBookMarketDataSource {
 export interface DailyBarsMarketDataSource extends TradingDateMarketDataSource {
   fetchDailyBars(request: DailyBarsRequest, options?: SourceRequestOptions): Promise<DailyBarsResult>;
 }
-export interface UnifiedMarketDataSource extends DailyBarsMarketDataSource, MarketReferenceSource {}
+export interface UnifiedMarketDataSource extends DailyBarsMarketDataSource, MarketReferenceSource, MarketObservationSource {}
 export interface SourceConnection { source: ProviderSource; apiKey?: string; baseUrl?: string; env?: Record<string, string | undefined> }
 
 /** Adapter implementation metadata, not a provider connectivity or entitlement check. */
@@ -91,6 +93,7 @@ export interface DailyBarsMarketDataCapabilities extends TradingDateMarketDataCa
 }
 export interface UnifiedMarketDataCapabilities extends DailyBarsMarketDataCapabilities {
   reference: MarketReferenceCapabilities;
+  observations: MarketObservationCapabilities;
 }
 
 /** Describes the selected-source facade only; legacy provider APIs have separate capabilities. */
@@ -105,6 +108,7 @@ export function getMarketDataCapabilities(source: ProviderSource): UnifiedMarket
   return { source, operations: { klines: status, adjustmentFactors: status, quotes: status, orderBook: status, financials: status, quoteSubscription: status },
     dailyBars: { status: "implemented", markets: selectedDailyBarMarkets(source) },
     reference: referenceCapabilities(source),
+    observations: marketObservationCapabilities(source),
     dailyByTradingDate: source === "tickflow" || source === "tushare"
       ? { status: "implemented", markets: ["A"], assetTypes: ["stock"], adjustments: source === "tickflow" ? ["none", "forward"] : ["none"], maxCalendarDays: 366, timeZone: "Asia/Shanghai" }
       : { status: "not-implemented" },
@@ -114,7 +118,7 @@ export function getMarketDataCapabilities(source: ProviderSource): UnifiedMarket
 /** A selected provider only; this facade never silently falls back or reads a cache. */
 export function createMarketDataSource(connection: SourceConnection): UnifiedMarketDataSource {
   const datedConnection = { ...connection, env: connection.env ? { ...connection.env } : undefined };
-  const unsupported = async (): Promise<never> => { throw new Error(`Source capability not implemented: ${connection.source}`); };
+  const unsupported = async (): Promise<never> => { throw new SourceRequestError("unsupported", "Source capability not implemented"); };
   const base: OrderBookMarketDataSource = connection.source === "tickflow" ? createTickFlowMarketDataAdapter(connection)
     : { fetchKlines: unsupported, fetchAdjustmentFactors: unsupported, fetchQuotes: unsupported, fetchOrderBook: unsupported, fetchFinancials: unsupported, subscribeQuotes: unsupported };
   function fetchKlines(request: TradingDateKlineRequest, options?: SourceRequestOptions): Promise<TradingDateKlineResult>;
@@ -127,7 +131,7 @@ export function createMarketDataSource(connection: SourceConnection): UnifiedMar
     return base.fetchKlines(request, options);
   }
   return {
-    ...base, ...createMarketReferenceSource(datedConnection),
+    ...base, ...createMarketReferenceSource(datedConnection), ...createMarketObservationSource(datedConnection, base.fetchQuotes),
     fetchKlines, fetchDailyBars: (request, options) => fetchSelectedDailyBars(request, datedConnection, options),
   };
 }
