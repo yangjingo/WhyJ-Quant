@@ -1,5 +1,5 @@
 /** Explicit selected-source collection and immutable replay. No scheduler or TSP transport. */
-import { computeTspDailyIndicators, TSP_DAILY_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../../quant/index.ts";
+import { computeTspDailyIndicatorsAndSignals, TSP_DAILY_INDICATOR_FORMULA_VERSION, TSP_DAILY_SIGNAL_FIELDS, TSP_DAILY_SIGNAL_FORMULA_VERSION, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../../quant/index.ts";
 import { toBarObservations, toFactorObservations, toTradingDateBarObservations, TSP_DAILY_INDICATOR_FIELDS, type KlineAdjustment, type KlineInterval, type SourceRequestOptions, type TradingDateKlineRequest } from "../../source/index.ts";
 import { archiveObservations, loadObservationArchive, archiveTradingDateObservations, loadTradingDateArchive, type ObservationArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
@@ -65,7 +65,8 @@ export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, sig
   signal?.throwIfAborted();
   records.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
   const first = records[0]!; // Storage validates that the batch is nonempty and homogeneous.
-  const daily = computeTspDailyIndicators(records.map(({ tradeDate, values }) => ({ date: tradeDate, ...values })));
+  const bars = records.map(({ tradeDate, values }) => ({ date: tradeDate, ...values }));
+  const { indicators: daily, signals } = computeTspDailyIndicatorsAndSignals(bars);
 
   return {
     archiveRef,
@@ -89,6 +90,12 @@ export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, sig
       formula: { id: "tsp_daily_ohlcv" as const, version: TSP_DAILY_INDICATOR_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
       fields: TSP_DAILY_INDICATOR_FIELDS,
       rows: daily.map(({ date, ...values }) => ({ date, values })),
+    },
+    dailySignals: {
+      producer: "whyj" as const,
+      formula: { id: "tsp_daily_signals" as const, version: TSP_DAILY_SIGNAL_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
+      fields: TSP_DAILY_SIGNAL_FIELDS,
+      rows: signals,
     },
   };
 }
