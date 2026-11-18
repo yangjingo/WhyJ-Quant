@@ -44,7 +44,7 @@ export type { DailyBarsMarketDataCapabilities, DailyBarsMarketDataSource, DailyB
 export type { UnifiedMarketDataCapabilities, UnifiedMarketDataSource } from "./src/market-data.ts";
 export { SourceRequestError } from "./src/market-data-error.ts";
 export type { SourceErrorCode } from "./src/market-data-error.ts";
-export type { DailyValuation, InstrumentUniverse, MarketObservation, MarketObservationCapabilities, MarketObservationSource, PriceSnapshot, TradingCalendar } from "./src/market-observations.ts";
+export type { DailyTradingLimit, DailyValuation, InstrumentUniverse, MarketObservation, MarketObservationCapabilities, MarketObservationSource, PriceSnapshot, TradingCalendar } from "./src/market-observations.ts";
 export type { FundNavObservation, IndexMemberReference, IndexQuoteObservation, IndexReference, InstrumentReference, MarketReferenceCapabilities, MarketReferenceResult, MarketReferenceSource } from "./src/market-reference.ts";
 export type { FundDetailObservation, FundPerformance, FundProfile, FundPurchaseTerms } from "./src/market-reference.ts";
 export type { MarketDataSource, SourceConnection, SourceRequestOptions, KlineInterval, KlineAdjustment, TimeWindow, KlineRequest, TradingDateKlineRequest, TradingDateKline, TradingDateKlineResult, FactorRequest, QuoteRequest, OrderBookRequest, OrderBookLevel, OrderBook, Kline, AdjustmentFactor, Quote, ObservationResult, KlineResult, QuoteResult, FinancialKind, FinancialRequest, FinancialRecord, QuoteSubscriptionRequest, QuoteEvent, QuoteSubscription, QuoteSubscriptionHandlers } from "./src/market-data.ts";

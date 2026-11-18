@@ -76,6 +76,26 @@ if (privateAnnualArgs[0] === "web") {
     process.exit(1);
   }
 }
+if (privateAnnualArgs[0] === "observation") {
+  try {
+    if (args.filter(arg => arg === "--json").length > 1) {
+      throw Object.assign(new Error("Use --json at most once."), { code: "invalid_arguments" });
+    }
+    const { runObservationCommand } = await import("./observation.ts");
+    const result = await runObservationCommand(privateAnnualArgs.slice(1), AbortSignal.timeout(60_000));
+    if (json) writeJson({ ok: true, command: "observation", data: result });
+    else console.log(JSON.stringify(result, null, 2));
+    process.exit(0);
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "invalid_arguments" || code === "observation_collection_failed" || code === "observation_archive_unavailable") {
+      writeFailure(code, (error as Error).message, json, "observation");
+    } else {
+      writeFailure("observation_failed", "The observation command could not start.", json, "observation");
+    }
+    process.exit(1);
+  }
+}
 if (privateAnnualArgs[0] === "private-annual") {
   try {
     if (args.filter(arg => arg === "--json").length > 1) throw new Error("Use --json at most once.");
@@ -275,6 +295,7 @@ function writeHelp(json: boolean) {
       { command: "whyj --version", description: "Show the installed WhyJ and bundled Pi package versions" },
       { command: "whyj web [--no-open]", description: "Connect to the workspace Host and open its local workbench" },
       { command: "whyj --json doctor", description: "Check config, auth sources, and runtime readiness" },
+      { command: "whyj --json observation collect-daily|replay-daily", description: "Collect daily observations or replay an immutable indicator revision" },
       { command: "whyj -c \"/help\"", description: "Run one slash command and exit" },
       { command: "whyj --json -c \"/portfolio\"", description: "Run one slash command and emit a stable JSON envelope" },
       { command: "whyj private-annual ...", description: "Explicitly export a verified private annual report from a selected history file" },
@@ -294,6 +315,8 @@ function writeHelp(json: boolean) {
     "  whyj --version",
     "  whyj web [--no-open]",
     "  whyj --json doctor",
+    "  whyj --json observation collect-daily --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD [--adjustment none|forward]",
+    "  whyj --json observation replay-daily --revision SHA256",
     "  whyj -c \"/help\"",
     "  whyj --json -c \"/portfolio\"",
     "  whyj private-annual --comparison ID --year YYYY --cutoff YYYY-MM-DD --history-file PATH --output NEW.html",
