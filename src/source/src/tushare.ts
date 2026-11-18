@@ -1,6 +1,6 @@
 import { isAIndexSymbol } from "../../market/symbols.ts";
 import type { Bar, SymbolInfo, PriceAdjustment } from "../../types/data.ts";
-import { postJson } from "./http.ts";
+import { postJson, postJsonLimited } from "./http.ts";
 
 export const DEFAULT_TUSHARE_BASE_URL = "https://api.tushare.pro";
 
@@ -113,6 +113,31 @@ export async function fetchTushareDailyValuation(symbol: string, date: string, o
   assertResponseSymbol(rows, symbol);
   if (rows.length > 1 || rows.some(row => formatDate(String(row.trade_date)) !== date)) throw new Error("Provider response invalid");
   return rows[0] ?? null;
+}
+
+const TRADING_LIMIT_FIELDS = ["ts_code", "trade_date", "pre_close", "up_limit", "down_limit"];
+
+export async function fetchTushareDailyTradingLimits(symbol: string, start: string, end: string, options: TushareOptions) {
+  const env = options.env ?? process.env;
+  const url = new URL(options.baseUrl ?? env.TUSHARE_BASE_URL ?? DEFAULT_TUSHARE_BASE_URL);
+  if (url.username || url.password || url.search || url.hash || (url.protocol !== "https:" && !(url.protocol === "http:" &&
+    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) throw new Error("Invalid Tushare base URL");
+  const result = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(url.href, {
+    api_name: "stk_limit", token: token(options),
+    params: { ts_code: symbol, start_date: start.replaceAll("-", ""), end_date: end.replaceAll("-", "") },
+    fields: TRADING_LIMIT_FIELDS.join(","),
+  }, 2 * 1024 * 1024, { signal: options.signal });
+  const fields = result?.data?.fields;
+  const items = result?.data?.items;
+  if (result?.code !== 0 || !Array.isArray(fields) || fields.length !== TRADING_LIMIT_FIELDS.length ||
+    !TRADING_LIMIT_FIELDS.every(field => fields.includes(field)) || !Array.isArray(items) || items.length > 366 ||
+    items.some(row => !Array.isArray(row) || row.length !== fields.length)) throw new Error("Provider trading limits response invalid");
+  const rows = items.map(row => Object.fromEntries(fields.map((field, i) => [field, row[i]!])));
+  assertResponseSymbol(rows, symbol);
+  return rows.map(row => {
+    if (typeof row.trade_date !== "string" || !/^\d{8}$/.test(row.trade_date)) throw new Error("Provider trading limit date invalid");
+    return { tradeDate: formatDate(row.trade_date), pre_close: row.pre_close, up_limit: row.up_limit, down_limit: row.down_limit };
+  });
 }
 
 export async function searchTushareSymbols(keyword: string, options: TushareOptions = {}): Promise<SymbolInfo[]> {

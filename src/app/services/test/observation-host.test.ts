@@ -66,7 +66,10 @@ test("authenticated RPC collects a selected TickFlow observation and preserves i
       rows: [{ date: "2026-11-12", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }],
       daily: { producer: "whyj", fields: expect.arrayContaining(["ma5", "macd_hist", "atr_14"]),
         formula: { id: "tsp_daily_ohlcv", version: 1, revision: "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" },
-        rows: [{ date: "2026-11-12", values: { ma5: null, macd_hist: 0, atr_14: 3 } }] } } });
+        rows: [{ date: "2026-11-12", values: { ma5: null, macd_hist: 0, atr_14: 3 } }] },
+      dailySignals: { producer: "whyj", fields: expect.arrayContaining(["signal_macd_dead", "signal_limit_up"]),
+        formula: { id: "tsp_daily_signals", version: 1, revision: "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc" },
+        rows: [{ date: "2026-11-12", values: { signal_macd_dead: null, signal_limit_up: null } }] } } });
     const missing = await send("readObservationIndicators", { ...ref, revision: "a".repeat(64) });
     expect(missing.status).toBe(404);
     const unavailable: unknown = await missing.json();
