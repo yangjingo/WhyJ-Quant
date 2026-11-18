@@ -26,6 +26,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchPriceSnapshot` | TickFlow quote projection for A shares and Financial Datasets `/prices/snapshot` for US equities. A latest-price result carries an actual or unknown timestamp, and the Financial Datasets subset cannot satisfy full OHLC or depth. |
 | `fetchFinancials` | TickFlow `/v1/financials/{income,balance-sheet,cash-flow,metrics,shares}`. E.g. report `period_end` and `announce_date` map independently and `net_income` maps to `netIncome`. An announcement date does not establish availability at a modeled execution time. |
 | `fetchDailyValuation` | Tushare `daily_basic` requires an exact stock trade date. `pe`, `pe_ttm`, `pb`, `total_mv`, and `circ_mv` have separate meanings. Dates are validated and monetary units remain native. |
+| `fetchDailyTradingLimits` | Tushare `stk_limit` supplies one A-share stock's previous close and effective limit prices in CNY over a bounded inclusive trading-date range. Availability depends on the selected account. WhyJ rule thresholds are computed separately. |
 | `searchInstruments`, `fetchInstrumentUniverse`, `fetchTradingCalendar` | Tushare A-share `stock_basic` searches by name, AKShare SH/SZ main-board rosters retain per-exchange endpoint evidence, and AKShare/Sina `tool_trade_date_hist_sina` returns dates. The roster is current and limited in scope. It is not a historical symbol master or market coverage guarantee. |
 | `fetchFundNav`, `fetchFundProfile`, `fetchFundPurchaseTerms`, `fetchFundPerformance` | AKShare/Eastmoney and Tushare `fund_nav` provide open-fund NAV. AKShare `fund_info_ths` and Snowball supply profile fields, `fund_purchase_em` supplies current purchase terms and headline fee, and Snowball achievement/risk endpoints map to separate result arrays. Raw rank and tiered fee schedules retain their provider-specific contracts. |
 | `fetchIndexMetadata`, `fetchIndexConstituents`, `fetchIndexQuotes` | AKShare `index_stock_info`, existing CSI/Sina constituent endpoints, and Sina or `stock_zh_index_spot_em` quotes. Membership, membership dates, published metadata and spot prices remain separate. |
@@ -375,6 +376,7 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `MarketObservationCapabilities` | type | Per-provider observation capabilities | — |
 | `MarketObservationSource` | type | Observation facade operations | — |
 | `DailyValuation` | type | Date-specific market valuation | — |
+| `DailyTradingLimit` | type | Date-specific exchange threshold observation | — |
 | `PriceSnapshot` | type | Last price and day change | — |
 | `TradingCalendar` | type | Calendar dates and time zone | — |
 | `InstrumentUniverse` | type | Roster with per-exchange provenance | — |

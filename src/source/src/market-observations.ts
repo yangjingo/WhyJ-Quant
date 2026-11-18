@@ -8,7 +8,7 @@ import { SourceRequestError } from "./market-data-error.ts";
 import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
-import { fetchTushareDailyValuation } from "./tushare.ts";
+import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation } from "./tushare.ts";
 
 export interface MarketObservation<T> {
   source: ProviderSource;
@@ -36,6 +36,14 @@ export interface DailyValuation {
   circulatingMarketValue: number | null;
   marketValueUnit: "CNY-ten-thousand";
 }
+export interface DailyTradingLimit {
+  symbol: string;
+  tradeDate: string;
+  previousClose: number | null;
+  limitUp: number | null;
+  limitDown: number | null;
+  priceUnit: "CNY";
+}
 export interface TradingCalendar {
   zone: "Asia/Shanghai";
   start: string;
@@ -54,6 +62,7 @@ export interface InstrumentUniverse {
 export interface MarketObservationSource {
   fetchPriceSnapshot(request: { symbol: string; market: Market }, options?: SourceRequestOptions): Promise<MarketObservation<PriceSnapshot | null>>;
   fetchDailyValuation(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyValuation | null>>;
+  fetchDailyTradingLimits(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyTradingLimit[]>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
 }
@@ -62,6 +71,7 @@ export type MarketObservationCapabilities = Record<keyof MarketObservationSource
 const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSource, Market>>> = {
   fetchPriceSnapshot: { tickflow: "A", "financial-datasets": "US" },
   fetchDailyValuation: { tushare: "A" },
+  fetchDailyTradingLimits: { tushare: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
 };
@@ -77,6 +87,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
   };
   return {
     fetchPriceSnapshot: status("fetchPriceSnapshot"), fetchDailyValuation: status("fetchDailyValuation"),
+    fetchDailyTradingLimits: status("fetchDailyTradingLimits"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
   };
 }
@@ -85,6 +96,10 @@ function nullableNumber(value: unknown): number | null {
   if (value == null) return null;
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("Provider observation field invalid");
   return value;
+}
+
+function isAStock(symbol: string): boolean {
+  return !isAIndexSymbol(symbol) && /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:[48]\d{5}|92\d{4})\.BJ)$/.test(symbol);
 }
 
 export function createMarketObservationSource(connection: SourceConnection, fetchQuotes: MarketDataSource["fetchQuotes"]): MarketObservationSource {
@@ -125,14 +140,32 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
     async fetchDailyValuation({ symbol: input, market, tradeDate }, options) {
       validate("fetchDailyValuation", market);
       const symbol = normalizeSymbol(input, market);
-      if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || isAIndexSymbol(symbol)
-        || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:[48]\d{5}|92\d{4})\.BJ)$/.test(symbol)) throw new Error("Invalid daily valuation request");
+      if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || !isAStock(symbol)) throw new Error("Invalid daily valuation request");
       const row = await readReference(options, signal => fetchTushareDailyValuation(symbol, tradeDate, { token: apiKey, baseUrl, env, signal }));
       return result(market, "daily_basic", row ? {
         symbol, tradeDate, close: nullableNumber(row.close), pe: nullableNumber(row.pe), peTtm: nullableNumber(row.pe_ttm),
         pb: nullableNumber(row.pb), totalMarketValue: nullableNumber(row.total_mv), circulatingMarketValue: nullableNumber(row.circ_mv),
         marketValueUnit: "CNY-ten-thousand" as const,
       } : null);
+    },
+    async fetchDailyTradingLimits({ symbol: input, market, start, end }, options) {
+      validate("fetchDailyTradingLimits", market);
+      const symbol = normalizeSymbol(input, market);
+      if (!isAStock(symbol) || typeof start !== "string" || typeof end !== "string") throw new Error("Invalid daily trading limits request");
+      validateDateRange(start, end);
+      if (Date.parse(end) - Date.parse(start) > 365 * 86_400_000) throw new Error("Daily trading limits window is too large");
+      const rows = await readReference(options, signal => fetchTushareDailyTradingLimits(symbol, start, end, { token: apiKey, baseUrl, env, signal }));
+      const seen = new Set<string>();
+      const data = rows.map(row => {
+        const { tradeDate } = row;
+        const previousClose = nullableNumber(row.pre_close), limitUp = nullableNumber(row.up_limit), limitDown = nullableNumber(row.down_limit);
+        if (!isDailyDate(tradeDate) || tradeDate < start || tradeDate > end || seen.has(tradeDate) ||
+          [previousClose, limitUp, limitDown].some(value => value !== null && value <= 0) ||
+          (limitUp !== null && limitDown !== null && limitUp < limitDown)) throw new Error("Provider trading limits observation invalid");
+        seen.add(tradeDate);
+        return { symbol, tradeDate, previousClose, limitUp, limitDown, priceUnit: "CNY" as const };
+      }).sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
+      return result(market, "stk_limit", data);
     },
     async fetchTradingCalendar({ market, start, end }, options) {
       validate("fetchTradingCalendar", market);
