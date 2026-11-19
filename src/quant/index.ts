@@ -30,6 +30,8 @@ export type { TspDailySignalBar, TspDailySignalId, TspDailySignalRow } from "./t
 export { computeTspIntraday, TSP_INTRADAY_FORMULA_VERSION } from "./tsp-intraday.ts";
 export type { TspCompletedMinuteBar, TspIntradayRow, TspIntradaySignals, TspIntradayValues } from "./tsp-intraday.ts";
 export { calculatePositionScenarios } from "./position-scenarios.ts";
+export { computeTspMarketBreadth, TSP_MARKET_BREADTH_FORMULA_VERSION } from "./tsp-market-breadth.ts";
+export type { TspBreadthMemberObservation, TspBreadthUniverse, TspMarketBreadth } from "./tsp-market-breadth.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";
 export { runDcaBacktest, validateDcaOptions, buildDcaSchedule, calculateXirr } from "./fund-dca.ts";
