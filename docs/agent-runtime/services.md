@@ -263,3 +263,9 @@ whyj --json observation replay-sector-rank --market-revision MARKET_SHA --catalo
 ```
 
 默认显示最新 12 个有可比排名的交易日，窗口限制为 7–30 个比较日。发生缺口的日期及其归档仍出现在 `input.sessions` 中。同一板块在上一已提供交易日缺少可比排名时，`rankMovement` 保持 `null`。
+
+### 竞价风向标采集和回放
+
+`collectAuctionBenchmark(tradeDate)` 使用扶摇专用凭证读取一个上海交易日，返回采集元数据、行数和不可变归档引用。空名单也会归档。调用失败或提交前取消时不会返回成功引用。
+
+`replayTspAuctionBenchmark` 按调用方提供的日历修订、交易日及相邻交易日，组合风向标归档和最多三份 Tushare 市场截面归档。回放按精确交易日取未复权价格，只匹配已归档名单中的标的。缺少某天归档或该标的行情时，受影响的指标保留为空。结果分别返回扶摇名单观察、价格归档来源及 WhyJ 的三种价格变化和高开标记。回放只访问本地归档，交易日相邻性由调用方所用日历确定。未复权收盘价变化可能包含公司行动影响。
