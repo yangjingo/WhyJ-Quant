@@ -181,3 +181,12 @@ whyj --json observation replay-daily --revision SHA256
 ```
 
 采集默认请求未复权日线。`--adjustment forward` 适用于支持该口径的选定来源。空采集返回 `status: "empty"` 和空引用。回放可离线进行，返回 37 个日线字段、日线信号和对应公式版本，保留输入的供应商、复权口径和归档引用。
+
+历史分时通过配置的 Tushare `stk_mins` 采集。一次请求一个 A 股标的，日期窗口至多 31 天并且早于上海当天。采集完成后，用第一条返回的 `data.ref.revision` 离线回放。
+
+```powershell
+whyj --json observation collect-minutes --symbol 600000.SH --start 2026-01-05 --end 2026-01-09
+whyj --json observation replay-intraday --revision SHA256
+```
+
+回放含 11 项指标、4 项穿越信号、原始时间标签和单列开盘边界。已有同一标的的涨跌停价归档时，可同时传入 `--previous-close-revision SHA256 --price-basis caller-confirmed-same-basis`，使用其中同日的昨收证据。只有确认两份归档价格口径相容时才声明该选项。
