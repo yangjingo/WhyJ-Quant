@@ -202,6 +202,29 @@ whyj --json observation replay-market --revision MARKET_SHA
 
 `--price-revisions` 接受逗号分隔的前复权日线归档修订。大量标的可用 `--price-revisions-file` 提供相同修订的 JSON 字符串数组。`--volume-revisions` 接受按交易日递增的至多五个市场截面归档修订。仅传单日市场归档时，均线宽度、新高新低和五日量比保持不可用。
 
+市场强弱和周期回放使用单独的归档清单。用配置的 Tushare 采集市场截面、涨跌停和基准指数，用支持前复权的数据源采集股票日线。将各回执的 `data.ref.revision` 填入清单。
+
+```bash
+whyj --json observation collect-market --date 2024-01-05
+whyj --json observation collect-limits --symbol 600000.SH --start 2024-01-02 --end 2024-01-05
+whyj --json observation collect-benchmark --symbol 000001.SH --start 2024-01-02 --end 2024-01-05
+whyj --json observation collect-daily --symbol 600000.SH --start 2023-12-01 --end 2024-01-05 --adjustment forward
+whyj --json observation replay-market-environment --manifest environment.json
+```
+
+```json
+{
+  "sessions": ["2024-01-05"],
+  "marketRevisions": ["MARKET_SHA"],
+  "limitRevisions": ["LIMIT_SHA"],
+  "priceHistory": [{"tradeDate": "2024-01-05", "priceRevisions": ["PRICE_SHA"]}],
+  "benchmark": {"symbol": "000001.SH", "revisions": ["BENCHMARK_SHA"]},
+  "phaseMode": "causal"
+}
+```
+
+按升序列出实际交易日，并将占位符替换成 64 位十六进制摘要。需要保留跨日的连板和阶段状态时，清单应包含相邻交易日、每日市场截面和覆盖这些日期的涨跌停记录。允许空的价格历史、涨跌停或基准修订列表，回放会报告缺失输入。`phaseMode` 默认是 `causal`，使用 `retrospective-tsp` 时输出会标记用到的后续观测。回放在数据源离线时也可运行。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell

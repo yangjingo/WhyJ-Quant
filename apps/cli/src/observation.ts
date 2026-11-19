@@ -1,8 +1,11 @@
 import { open } from "node:fs/promises";
 import { isDailyDate } from "../../../src/market/bars.ts";
+import { isAIndexSymbol } from "../../../src/market/symbols.ts";
+import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
-import { collectTradingDateObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
+import { replayTspMarketEnvironment, type MarketEnvironmentReplayRequest } from "../../../src/runtime/data/market-environment-replay.ts";
+import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
@@ -14,7 +17,7 @@ const revisionPattern = /^[a-f0-9]{64}$/;
 const compatiblePriceBasis = "caller-confirmed-same-basis";
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const maxRevisionFileBytes = 512_000;
-const maxRotationManifestBytes = 24 * 1_024 * 1_024;
+const maxObservationManifestBytes = 24 * 1_024 * 1_024;
 
 function invalid() {
   return Object.assign(new Error(usage), { code: "invalid_arguments" });
@@ -70,8 +73,64 @@ function parseRotationManifest(value: unknown): SectorRankReplayRequest[] {
   });
 }
 
+function parseEnvironmentManifest(value: unknown): MarketEnvironmentReplayRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+  const { sessions, marketRevisions, limitRevisions, priceHistory, benchmark, phaseMode } = value as Record<string, unknown>;
+  if (Object.keys(value).length !== (Object.hasOwn(value, "phaseMode") ? 6 : 5) ||
+    !Array.isArray(sessions) || sessions.length === 0 || sessions.length >= 7_000 ||
+    sessions.some((date, index) => typeof date !== "string" || !isDailyDate(date) || (index > 0 && date <= sessions[index - 1])) ||
+    !Array.isArray(priceHistory) || priceHistory.length > sessions.length ||
+    !benchmark || typeof benchmark !== "object" || Array.isArray(benchmark) || Object.keys(benchmark).length !== 2 ||
+    (phaseMode !== undefined && phaseMode !== "causal" && phaseMode !== "retrospective-tsp")) throw invalid();
+  const { symbol, revisions } = benchmark as Record<string, unknown>;
+  if (typeof symbol !== "string" || !/^(?:000\d{3}\.SH|399\d{3}\.SZ)$/.test(symbol)) throw invalid();
+  const dates = new Set(sessions);
+  const priceDates = new Set<string>();
+  const priceRefs = priceHistory.map(item => {
+    if (!item || typeof item !== "object" || Array.isArray(item) || Object.keys(item).length !== 2 ||
+      typeof item.tradeDate !== "string" || !dates.has(item.tradeDate) || priceDates.has(item.tradeDate)) throw invalid();
+    priceDates.add(item.tradeDate);
+    return { tradeDate: item.tradeDate, refs: validateRevisions(item.priceRevisions).map(revision => ({ version: 2 as const, revision })) };
+  });
+  const market = validateRevisions(marketRevisions);
+  if (market.length > sessions.length) throw invalid();
+  return {
+    sessions, phaseMode, priceHistory: priceRefs,
+    marketRefs: market.map(revision => ({ version: 1, kind: "market-cross-section", revision })),
+    limitRefs: validateRevisions(limitRevisions).map(revision => ({ version: 1, kind: "daily-trading-limits", revision })),
+    benchmark: { symbol, refs: validateRevisions(revisions).map(revision => ({ version: 1, kind: "benchmark-index", revision })) },
+  };
+}
+
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
+  if (action === "collect-benchmark" || action === "collect-limits") {
+    const fields = parseOptions(options, ["--symbol", "--start", "--end"]);
+    const symbol = fields.get("--symbol")?.toUpperCase(), start = fields.get("--start"), end = fields.get("--end");
+    const benchmark = action === "collect-benchmark";
+    if (!symbol || (benchmark
+      ? !/^(?:000\d{3}\.SH|399\d{3}\.SZ)$/.test(symbol)
+      : isAIndexSymbol(symbol) || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(symbol)) ||
+      !start || !end || !isDailyDate(start) || !isDailyDate(end) || start > end || Date.parse(end) - Date.parse(start) > 365 * dayMs) {
+      throw invalid();
+    }
+    try {
+      if (benchmark) return await collectBenchmarkIndexObservations({ symbol, start, end }, { signal });
+      return await collectTradingLimitObservations({ symbol, startDate: start, endDate: end }, { signal });
+    } catch {
+      throw Object.assign(new Error("Could not collect the requested benchmark or exchange limits. Check the configured source with whyj --json doctor --phase data."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-market-environment") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseEnvironmentManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspMarketEnvironment(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested market environment archives."), { code: "observation_archive_unavailable" });
+    }
+  }
   if (action === "collect-sector-catalog" || action === "collect-sector-members") {
     const catalog = action === "collect-sector-catalog";
     const fields = parseOptions(options, ["--date", catalog ? "--kind" : "--sector-code"]);
@@ -113,7 +172,7 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     const path = fields.get("--manifest"), requestedDays = fields.get("--days") ?? "12";
     const days = Number(requestedDays);
     if (!path || !/^\d+$/.test(requestedDays) || !Number.isSafeInteger(days)) throw invalid();
-    const requests = parseRotationManifest(await readObservationJsonFile(path, maxRotationManifestBytes, signal));
+    const requests = parseRotationManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return await replayTspSectorRotation(requests, days, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested sector rotation archives."), { code: "observation_archive_unavailable" });
