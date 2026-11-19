@@ -38,6 +38,14 @@ The probe requests forward-adjusted A-share daily bars, archives and replays the
 
 Limit-up, limit-down, broken-limit-up and limit-down recovery consume separately supplied raw prices and effective daily limit thresholds. Their availability is independent of the technical rules. A caller can provide raw OHLC from the same date and symbol along with the verified threshold; an adjusted bar alone does not identify it. The result describes historical rule state, with alert delivery and intraday tracking managed separately.
 
+## Completed-minute features and signals
+
+`computeTspIntraday` calculates 11 numeric features and four crossing events for one A-share symbol. The input uses a single price basis, Shanghai minute-start labels for completed bars (09:30–11:29 and 13:00–14:59), volume in shares, amount in CNY, and optional previous closes keyed by trading date. Ratio and distance fields use fractions. Source adapters must establish units, finality and timestamp semantics before calling this calculator. [Pinned features](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/intraday_features.py) · [Pinned crossing rules](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/intraday_signals.py)
+
+- The 1/3/5-minute volume ratios compare adjacent equally sized windows inside each continuous session. VWAP and the day's extremes accumulate across lunch and reset each trading date. The opening range is available after the 30th consecutive morning bar.
+- Crossings use a strict current comparison and an inclusive previous comparison. The previous bar may be the last morning bar at the afternoon reopening, provided both adjoining minutes are available. First bars, gaps and missing operands make the affected signal unavailable (`null`).
+- A missing minute invalidates the affected day's cumulative values from the gap onward. A volume window can recover as consecutive complete minutes arrive. A complete opening range already calculated stays available. Provider-observed zero is kept separate from missing data. These explicit availability rules apply before projection onto any event-only consumer.
+
 ## Built-in research factors
 
 Quant's `computeTspResearchFactors` evaluates the 77 registered TSP built-in research factor keys for one symbol. It reuses the daily calculation for the 17 overlapping technical fields. Results use WhyJ calculations and the pinned TSP scoring definitions. The existing WhyJ factor names and their formulas retain their own conventions. [TSP registry](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/factors/registry.py#L95) · [TSP scoring expressions](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/scoring.py#L88)
