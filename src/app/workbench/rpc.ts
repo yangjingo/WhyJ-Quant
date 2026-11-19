@@ -47,6 +47,10 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
       if (!client.readObservationExchangeIndicators) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持交易信号预览。", 404);
       return client.readObservationExchangeIndicators(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationExchangeIndicators"]>>[0]);
     }
+    case "readObservationIntraday": count(1); {
+      if (!client.readObservationIntraday) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持分时指标预览。", 404);
+      return client.readObservationIntraday(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationIntraday"]>>[0]);
+    }
     case "startDataDraft": count(0); {
       if (!client.startDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
       return client.startDataDraft();

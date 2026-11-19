@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { collectObservations, collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators,
   type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
+import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
 import { isDailyDate } from "../../market/bars.ts";
-import type { ObservationIndicatorPreview, ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
+import type { ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
+  ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
 import type { TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
@@ -11,6 +13,7 @@ const notFound = () => new WorkbenchError("OBSERVATION_JOB_NOT_FOUND", "未找�
 const intervals = ["1m", "5m", "10m", "15m", "30m", "60m"];
 const day = 86_400_000;
 const revision = /^[a-f0-9]{64}$/;
+const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const invalidReference = () => new WorkbenchError("INPUT_INVALID", "日线归档引用无效。", 400);
 
@@ -18,6 +21,14 @@ function dailyReference(value: unknown): TradingDateArchiveRef {
   if (!object(value) || Object.keys(value).length !== 2 || !Object.hasOwn(value, "version") || !Object.hasOwn(value, "revision") ||
     value.version !== 2 || typeof value.revision !== "string" || !revision.test(value.revision)) throw invalidReference();
   return { version: 2, revision: value.revision };
+}
+
+function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars">(
+  value: unknown, kind: Kind, error: () => WorkbenchError,
+) {
+  if (!object(value) || Object.keys(value).length !== 3 || !["version", "kind", "revision"].every(key => Object.hasOwn(value, key)) ||
+    value.version !== 1 || value.kind !== kind || typeof value.revision !== "string" || !revision.test(value.revision)) throw error();
+  return { version: 1 as const, kind, revision: value.revision };
 }
 
 async function replayIndicators(ref: TradingDateArchiveRef, exchange?: DailySignalExchangeRefs): Promise<ObservationIndicatorPreview> {
@@ -39,11 +50,39 @@ export async function readObservationExchangeIndicators(value: unknown): Promise
     Object.keys(value).some(key => !["archiveRef", "rawArchiveRef", "tradingLimitArchiveRef"].includes(key))) throw invalidExchangeReference();
   const ref = dailyReference(value.archiveRef);
   const rawArchiveRef = Object.hasOwn(value, "rawArchiveRef") ? dailyReference(value.rawArchiveRef) : undefined;
-  const limits = value.tradingLimitArchiveRef;
-  if (!object(limits) || Object.keys(limits).length !== 3 || !["version", "kind", "revision"].every(key => Object.hasOwn(limits, key)) ||
-    limits.version !== 1 || limits.kind !== "daily-trading-limits" ||
-    typeof limits.revision !== "string" || !revision.test(limits.revision)) throw invalidExchangeReference();
-  return replayIndicators(ref, { rawArchiveRef, tradingLimitArchiveRef: { version: 1, kind: limits.kind, revision: limits.revision } });
+  const tradingLimitArchiveRef = fixedReference(value.tradingLimitArchiveRef, "daily-trading-limits", invalidExchangeReference);
+  return replayIndicators(ref, { rawArchiveRef, tradingLimitArchiveRef });
+}
+
+export async function readObservationIntraday(value: unknown): Promise<ObservationIntradayPreview> {
+  const invalidIntraday = () => new WorkbenchError("INPUT_INVALID", "分时日期或归档引用无效。", 400);
+  if (!object(value) || !Object.hasOwn(value, "archiveRef") || !Object.hasOwn(value, "tradeDate") ||
+    Object.keys(value).some(key => !["archiveRef", "tradeDate", "previousClose"].includes(key)) ||
+    typeof value.tradeDate !== "string" || !isDailyDate(value.tradeDate)) throw invalidIntraday();
+  const tradeDate = value.tradeDate;
+  const ref = fixedReference(value.archiveRef, "historical-minute-bars", invalidIntraday);
+  let previousClose: ObservationIntradayRequest["previousClose"];
+  if (Object.hasOwn(value, "previousClose")) {
+    const input = value.previousClose;
+    if (!object(input) || Object.keys(input).length !== 2 || !Object.hasOwn(input, "ref") ||
+      !Object.hasOwn(input, "priceBasis") || input.priceBasis !== "caller-confirmed-same-basis") throw invalidIntraday();
+    previousClose = { ref: fixedReference(input.ref, "daily-trading-limits", invalidIntraday), priceBasis: input.priceBasis };
+  }
+  let replay: Awaited<ReturnType<typeof deriveTspArchiveIntraday>>;
+  try {
+    replay = await deriveTspArchiveIntraday(ref, { previousClose, signal: AbortSignal.timeout(30_000) });
+  } catch {
+    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的分时或昨收归档。请核对归档引用后重试。", 404);
+  }
+  const { startDate, endDate } = replay.input.requested;
+  if (tradeDate < startDate || tradeDate > endDate) throw invalidIntraday();
+  return {
+    ...replay, tradeDate,
+    openingBoundaries: replay.openingBoundaries.filter(row => row.tradeTime.slice(0, 10) === tradeDate),
+    rows: replay.rows.filter(row => row.tradingDate === tradeDate).map(row => ({
+      ...row, values: { ...row.values }, signals: { ...row.signals },
+    })),
+  };
 }
 
 /** Reject unknown properties, unbounded requests and credentials before acquiring a job. */
@@ -51,14 +90,16 @@ export function observationJobRequest(value: unknown): ObservationJobRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const input = value as Record<string, unknown>;
   const { dataset, symbol, startTime, endTime, adjustment, interval } = input;
-  if (dataset === "daily-trading-limits") {
+  if (dataset === "daily-trading-limits" || dataset === "historical-minute-bars") {
+    const minutes = dataset === "historical-minute-bars";
     const { startDate, endDate } = input;
     const keys = ["dataset", "symbol", "startDate", "endDate"];
     if (Object.keys(input).length !== keys.length || keys.some(key => !Object.hasOwn(input, key)) ||
       typeof symbol !== "string" || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(symbol) ||
       typeof startDate !== "string" || typeof endDate !== "string" || !isDailyDate(startDate) || !isDailyDate(endDate) ||
-      startDate < "0001-01-01" || endDate > "9998-12-31" || startDate > endDate ||
-      Date.parse(endDate) - Date.parse(startDate) > 365 * day) throw invalid();
+      startDate < (minutes ? "2010-01-01" : "0001-01-01") || endDate > "9998-12-31" || startDate > endDate ||
+      Date.parse(endDate) - Date.parse(startDate) > (minutes ? 30 : 365) * day ||
+      (minutes && endDate >= shanghaiDate.format())) throw invalid();
     return { dataset, symbol, startDate, endDate };
   }
   if (dataset === "daily" && input.timeMode === "trading-date") {
@@ -83,7 +124,8 @@ export function observationJobRequest(value: unknown): ObservationJobRequest {
     || (dataset === "minute" && !intervals.includes(interval as string))) throw invalid();
   return { ...input } as ObservationJobRequest;
 }
-function runtimeRequest(input: Exclude<ObservationJobRequest, { timeMode: "trading-date" } | { dataset: "daily-trading-limits" }>): ObservationCollectionRequest {
+function runtimeRequest(input: Exclude<ObservationJobRequest,
+  { timeMode: "trading-date" } | { dataset: "daily-trading-limits" | "historical-minute-bars" }>): ObservationCollectionRequest {
   if (input.dataset === "factor") return { dataset: "adjustment_factor", symbol: input.symbol, startTime: input.startTime, endTime: input.endTime };
   return { dataset: "bars", symbol: input.symbol, startTime: input.startTime, endTime: input.endTime,
     interval: input.dataset === "daily" ? "1d" : input.interval, adjustment: input.adjustment };
@@ -96,7 +138,8 @@ type Entry = { view: ObservationJobView; controller: AbortController; promise: P
 /** Jobs are process-local. Completion reflects the collector's result, even after cancellation was requested. */
 export function createObservationJobs(collect: typeof collectObservations = collectObservations,
   collectDates: typeof collectTradingDateObservations = collectTradingDateObservations,
-  collectLimits: typeof collectTradingLimitObservations = collectTradingLimitObservations) {
+  collectLimits: typeof collectTradingLimitObservations = collectTradingLimitObservations,
+  collectMinutes: typeof collectHistoricalMinuteObservations = collectHistoricalMinuteObservations) {
   const jobs = new Map<string, Entry>();
   let closing = false;
   const view = (entry: Entry): ObservationJobView => structuredClone(entry.view);
@@ -115,6 +158,7 @@ export function createObservationJobs(collect: typeof collectObservations = coll
     entry.promise = Promise.resolve().then(async () => {
       const options = { signal: controller.signal };
       if (request.dataset === "daily-trading-limits") return collectLimits(request, options);
+      if (request.dataset === "historical-minute-bars") return collectMinutes(request, options);
       if (isTradingDateRequest(request)) return collectDates({ timeMode: "trading-date", symbol: request.symbol, assetType: "stock",
         interval: "1d", adjustment: request.adjustment, startDate: request.startDate, endDate: request.endDate }, options);
       return collect(runtimeRequest(request), options);

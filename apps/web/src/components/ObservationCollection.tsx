@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { ObservationIndicatorPreview, ObservationJobRequest, ObservationJobView, WorkbenchClient } from "../client/contract";
+import { ObservationIntraday } from "./ObservationIntraday";
 
-type Dataset = "daily" | "daily-date" | "minute" | "factor";
+type Dataset = "daily" | "daily-date" | "minute" | "factor" | "historical-minute-bars";
 type Interval = "1m" | "5m" | "10m" | "15m" | "30m" | "60m";
 export interface CollectionFields { dataset: Dataset; symbol: string; start: string; end: string; adjustment: "none" | "forward"; interval: Interval }
 const day = 86_400_000;
@@ -16,6 +17,13 @@ function shanghaiDay(value: string): number {
   return Number.isFinite(time) && new Date(time + 8 * 3_600_000).toISOString().slice(0, 10) === value ? time : NaN;
 }
 export function observationRequest(fields: CollectionFields): ObservationJobRequest | null {
+  if (fields.dataset === "historical-minute-bars") {
+    const start = shanghaiDay(fields.start), end = shanghaiDay(fields.end);
+    if (!/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(fields.symbol) ||
+      !Number.isFinite(start) || !Number.isFinite(end) || fields.start < "2010-01-01" ||
+      end < start || end - start > 30 * day || fields.end >= todayShanghai()) return null;
+    return { dataset: fields.dataset, symbol: fields.symbol, startDate: fields.start, endDate: fields.end };
+  }
   if (fields.dataset === "daily-date") {
     const date = (value: string) => {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value < "0001-01-01" || value > "9998-12-31") return NaN;
@@ -191,7 +199,11 @@ export function ObservationCollection({ client }: { client: WorkbenchClient }) {
     void poll(); return () => { alive = false; clearTimeout(timer); };
   }, [client, jobId, supported, refresh]);
   const running = job?.status === "running" || (!!jobId && !job);
-  const previewRef = !busy && job?.id === jobId && job?.status === "archived" && job.receipt?.ref?.version === 2 ? job.receipt.ref : null;
+  const savedRef = !busy && job?.id === jobId && job?.status === "archived" ? job.receipt?.ref : null;
+  const previewRef = savedRef?.version === 2 ? savedRef : null;
+  const minuteRef = savedRef?.version === 1 && "kind" in savedRef && savedRef.kind === "historical-minute-bars"
+    ? { version: savedRef.version, kind: savedRef.kind, revision: savedRef.revision } as const
+    : null;
   const request = observationRequest(fields);
   const start = async () => {
     if (!request || !client.startObservationJob || busy || running || unknownStart) return;
@@ -223,15 +235,16 @@ export function ObservationCollection({ client }: { client: WorkbenchClient }) {
     <p className="supporting">使用已保存的数据源采集单个 A 股标的。日期按上海时间解释；结果保存在本机，不代表完整历史或 TSP 同步。</p>
     {!supported ? <p role="status">当前连接不支持行情采集，请更新并重新连接服务。</p> : <>
       <div className="data-source-grid">
-        <label className="field-row">数据类型<select aria-label="采集数据类型" value={fields.dataset} disabled={running || busy} onChange={e => patch({ dataset: e.target.value as Dataset })}><option value="daily">日 K（按时间）</option><option value="daily-date">日 K（按交易日）</option><option value="minute">分钟 K</option><option value="factor">复权因子</option></select></label>
+        <label className="field-row">数据类型<select aria-label="采集数据类型" value={fields.dataset} disabled={running || busy} onChange={e => patch({ dataset: e.target.value as Dataset })}><option value="daily">日 K（按时间）</option><option value="daily-date">日 K（按交易日）</option><option value="minute">分钟 K</option><option value="historical-minute-bars">历史分时指标</option><option value="factor">复权因子</option></select></label>
         <label className="field-row">标的代码<input aria-label="采集标的代码" value={fields.symbol} disabled={running || busy} placeholder="000001.SZ" onChange={e => patch({ symbol: e.target.value.toUpperCase() })} /></label>
         <label className="field-row">开始日期<input aria-label="采集开始日期" type="date" value={fields.start} disabled={running || busy} onChange={e => patch({ start: e.target.value })} /></label>
         <label className="field-row">结束日期<input aria-label="采集结束日期" type="date" value={fields.end} disabled={running || busy} onChange={e => patch({ end: e.target.value })} /></label>
         {fields.dataset === "minute" && <label className="field-row">分钟周期<select aria-label="分钟周期" value={fields.interval} disabled={running || busy} onChange={e => patch({ interval: e.target.value as Interval })}>{["1m", "5m", "10m", "15m", "30m", "60m"].map(value => <option key={value} value={value}>{value}</option>)}</select></label>}
-        {fields.dataset !== "factor" && <label className="field-row">价格口径<select aria-label="采集价格口径" value={fields.adjustment} disabled={running || busy} onChange={e => patch({ adjustment: e.target.value as "none" | "forward" })}><option value="none">未复权</option><option value="forward">前复权</option></select></label>}
+        {fields.dataset !== "factor" && fields.dataset !== "historical-minute-bars" && <label className="field-row">价格口径<select aria-label="采集价格口径" value={fields.adjustment} disabled={running || busy} onChange={e => patch({ adjustment: e.target.value as "none" | "forward" })}><option value="none">未复权</option><option value="forward">前复权</option></select></label>}
       </div>
       <p className="supporting">代码需包含交易所后缀；日线最多 366 天、分钟最多 31 天、因子最多 3660 天。实际权限和可用范围以返回结果为准。</p>
       {fields.dataset === "daily-date" && <p className="supporting">交易日模式支持 TickFlow 和 Tushare；Tushare 仅支持未复权。较旧的服务可能无法处理此模式。</p>}
+      {fields.dataset === "historical-minute-bars" && <p className="supporting">历史分时使用 Tushare。采集日期须早于上海当天，窗口至多 31 天。</p>}
       {!request && <p className="operation-feedback error-feedback" role="status">请检查标的代码和日期范围。</p>}
       <div className="data-source-actions"><button className="action primary-action" type="button" disabled={!request || running || busy || unknownStart} onClick={() => void start()}>开始采集</button>
         {job?.status === "running" && <button className="action" type="button" disabled={busy || job.cancelRequested} onClick={() => void cancel()}>{job.cancelRequested ? "正在取消…" : "取消采集"}</button>}
@@ -239,10 +252,12 @@ export function ObservationCollection({ client }: { client: WorkbenchClient }) {
         {jobId && problem && <button className="text-action" type="button" onClick={clear}>移除本页任务记录</button>}
         {unknownStart && <button className="text-action" type="button" onClick={() => { savePending(false); setUnknownStart(false); setProblem(""); }}>我已核实，允许重新采集</button>}</div>
       {job && <div className="data-source-result" role="status" aria-live="polite"><strong>{({ running: job.cancelRequested ? "正在取消，等待最终结果" : "采集中", archived: "已保存观察数据", empty: "未返回数据", failed: "采集失败", cancelled: "已取消" } as const)[job.status]}</strong>
-        <p>{job.request.symbol} · {({ daily: "日 K", minute: "分钟 K", factor: "复权因子", "daily-trading-limits": "涨跌停价" } as const)[job.request.dataset]}{job.receipt && ` · ${job.receipt.source} · ${job.receipt.rowCount} 条 · 获取时间 ${job.receipt.observedAt}`}</p>
+        <p>{job.request.symbol} · {({ daily: "日 K", minute: "分钟 K", factor: "复权因子", "daily-trading-limits": "涨跌停价", "historical-minute-bars": "历史分时" } as const)[job.request.dataset]}{job.receipt && ` · ${job.receipt.source} · ${job.receipt.rowCount} 条 · 获取时间 ${job.receipt.observedAt}`}</p>
         {job.receipt?.ref && <p className="supporting observation-ref">归档引用（版本 {job.receipt.ref.version}）：<code>{job.receipt.ref.revision}</code></p>}
         <p className="supporting">状态仅保留在当前服务进程；关闭此面板不会取消任务。</p></div>}
       {previewRef && <ObservationIndicators key={`${jobId}:${previewRef.revision}`} archiveRef={previewRef} read={client.readObservationIndicators} />}
+      {minuteRef && job?.request.dataset === "historical-minute-bars" && <ObservationIntraday key={`${jobId}:${minuteRef.revision}`}
+        archiveRef={minuteRef} startDate={job.request.startDate} endDate={job.request.endDate} read={client.readObservationIntraday} />}
       {problem && <p className="operation-feedback error-feedback" role="alert">{problem}</p>}
     </>}
   </div>;
