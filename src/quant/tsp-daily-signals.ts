@@ -56,7 +56,7 @@ export const TSP_DAILY_SIGNAL_FIELDS: readonly TspDailySignalId[] = Object.keys(
 
 export interface TspDailySignalRow { date: string; values: Record<TspDailySignalId, boolean | null> }
 
-function evaluate(series: readonly (TspDailySignalBar & TspDailyIndicatorRow)[], index: number, checks: readonly Comparison[]): boolean | null {
+function evaluate(series: readonly Partial<TspDailySignalBar & TspDailyIndicatorRow>[], index: number, checks: readonly Comparison[]): boolean | null {
   let matched = true;
   for (const [left, op, right, offset = 0] of checks) {
     const row = series[index - offset];
@@ -73,20 +73,36 @@ function evaluate(series: readonly (TspDailySignalBar & TspDailyIndicatorRow)[],
   return matched;
 }
 
+type TspExchangeOperands = Pick<TspDailySignalBar, "raw_close" | "raw_high" | "raw_low" | "limit_up_price" | "limit_down_price">;
+
+function validateExchangePrices({ raw_close, raw_high, raw_low, limit_up_price, limit_down_price }: TspExchangeOperands) {
+  if ([raw_close, raw_high, raw_low].some(value => value != null && (!Number.isFinite(value) || value < 0)) ||
+      [limit_up_price, limit_down_price].some(value => value != null && (!Number.isFinite(value) || value <= 0)) ||
+      (raw_high != null && raw_low != null && raw_low > raw_high) ||
+      (raw_close != null && raw_high != null && raw_close > raw_high) ||
+      (raw_close != null && raw_low != null && raw_close < raw_low) ||
+      (limit_up_price != null && limit_down_price != null && limit_down_price > limit_up_price)) {
+    throw new Error("Invalid TSP daily signal price observations");
+  }
+}
+
+/** Evaluate the closing and broken-limit flags without computing technical indicators. */
+export function computeTspDailyLadderFlags(input: TspExchangeOperands) {
+  validateExchangePrices(input);
+  const series = [input];
+  return {
+    signal_limit_up: evaluate(series, 0, rules.signal_limit_up),
+    signal_limit_down: evaluate(series, 0, rules.signal_limit_down),
+    signal_broken_limit_up: evaluate(series, 0, rules.signal_broken_limit_up),
+  };
+}
+
 /** Compute the shared indicator series and evaluate the pinned daily seeds against it. */
 export function computeTspDailyIndicatorsAndSignals(bars: readonly TspDailySignalBar[]) {
   const indicators = computeTspDailyIndicators(bars);
   const series = indicators.map((indicator, i) => {
     const bar = bars[i]!;
-    const { raw_close, raw_high, raw_low, limit_up_price, limit_down_price } = bar;
-    if ([raw_close, raw_high, raw_low].some(value => value != null && (!Number.isFinite(value) || value < 0)) ||
-        [limit_up_price, limit_down_price].some(value => value != null && (!Number.isFinite(value) || value <= 0)) ||
-        (raw_high != null && raw_low != null && raw_low > raw_high) ||
-        (raw_close != null && raw_high != null && raw_close > raw_high) ||
-        (raw_close != null && raw_low != null && raw_close < raw_low) ||
-        (limit_up_price != null && limit_down_price != null && limit_down_price > limit_up_price)) {
-      throw new Error("Invalid TSP daily signal price observations");
-    }
+    validateExchangePrices(bar);
     return { ...bar, ...indicator };
   });
   const signals: TspDailySignalRow[] = series.map(({ date }, index) => ({ date, values: Object.fromEntries(TSP_DAILY_SIGNAL_FIELDS.map(id => [
