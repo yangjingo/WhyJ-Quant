@@ -85,6 +85,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 `archiveHistoricalMinuteObservations` 保存 Tushare `stk_mins` 的一个非空单标的历史 1 分钟响应。原始上海本地时间标签与 09:30 开盘边界标记、股数和人民币成交额、实际来源及观察时间均保留；复权、覆盖和最终状态保持未知。`loadHistoricalMinuteArchive` 只读指定的 `historical-minute-bars` 内容摘要，文件位于 `.ohquant/data/historical-minute-archives-v1/`。归档可验证时间标签和交易日区间，常规分钟的边界转换由 Runtime 完成。
 
+市场截面通过 `archiveMarketCrossSection` 保存一个交易日的 Tushare `bak_basic` 股票池、`daily` 行情和 `daily_basic` 交易统计。各响应保存独立交易日、观察时刻和原始单位。未匹配到股票池的行情仍保留在归档，空响应和字段空值也原样保留。文件位于 `.ohquant/data/market-cross-section-archives-v1/`，通过 `loadMarketCrossSectionArchive` 按精确引用读取并验证摘要。股票池匹配、单位转换和覆盖率统计由回放层处理。观察时间记录采集时刻，历史数据的实际可得时间仍由数据使用方核实。
+
 `archiveFinancialObservations` 分别保存 Tushare `fina_indicator` 的单标的报告期范围响应，或 `disclosure_date` 的单标的单报告期响应。两类归档各自记录请求、端点和取数时间，保留同报告期多行、返回顺序、修订标记、零值和空值。空响应也有独立归档引用，覆盖标为未知。`loadFinancialObservationArchive` 按种类和内容摘要读取 `.ohquant/data/financial-observation-archives-v1/` 下的精确版本。历史回放需另外证明所用财务指标版本在判断时点已公开。
 
 每日涨跌停价可通过 `archiveDailyTradingLimits` 保存为独立的 `daily-trading-limits` 归档。每批包含同一 A 股标的、请求区间、按日排序的昨收和上下限、Tushare `stk_limit` 来源及观察时间。价格单位为元，保留供应商返回的空值。归档有自己的版本和内容摘要，文件位于 `.ohquant/data/trading-limit-archives-v1/`。 `loadDailyTradingLimitArchive` 只读给定引用，校验种类、摘要和记录，损坏或缺失时直接失败。该归档保存供应商价格，阈值容差和信号由 Quant 计算。

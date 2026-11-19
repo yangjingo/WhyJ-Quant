@@ -158,3 +158,61 @@ export interface FinancialObservationArchiveRef {
   kind: "report-financial-indicators" | "financial-disclosure-dates";
   revision: string;
 }
+
+interface StoredMarketSlice<Endpoint extends string> {
+  endpoint: Endpoint;
+  tradeDate: string;
+  observedAt: string;
+  coverage: "unknown";
+}
+
+export interface StoredMarketCrossSection {
+  source: "tushare";
+  market: "A";
+  tradeDate: string;
+  universe: StoredMarketSlice<"bak_basic"> & {
+    universe: "provider-dated-stocks";
+    members: { symbol: string; name: string; industry: string | null; listedOn: string | null }[];
+  };
+  bars: StoredMarketSlice<"daily"> & {
+    adjustment: "none";
+    priceUnit: "CNY";
+    volumeUnit: "hand";
+    amountUnit: "CNY-thousand";
+    rows: {
+      symbol: string;
+      open: number; high: number; low: number; close: number;
+      exRightsPreviousClose: number | null;
+      changeCny: number | null;
+      returnPct: number | null;
+      volume: number | null;
+      amount: number | null;
+    }[];
+  };
+  basics: StoredMarketSlice<"daily_basic"> & {
+    priceUnit: "CNY";
+    shareUnit: "ten-thousand-shares";
+    marketValueUnit: "CNY-ten-thousand";
+    rows: {
+      symbol: string;
+      close: number | null;
+      turnoverPct: number | null;
+      freeFloatTurnoverPct: number | null;
+      providerVolumeRatio: number | null;
+      totalShares: number | null;
+      floatShares: number | null;
+      freeFloatShares: number | null;
+      pe: number | null;
+      peTtm: number | null;
+      pb: number | null;
+      totalMarketValue: number | null;
+      circulatingMarketValue: number | null;
+    }[];
+  };
+}
+
+export interface MarketCrossSectionArchiveRef {
+  version: 1;
+  kind: "market-cross-section";
+  revision: string;
+}
