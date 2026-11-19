@@ -2,8 +2,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, SectorObservationArchiveRef,
-  StoredDailyTradingLimitBatch,
+import type { BenchmarkIndexArchiveRef, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef,
+  ObservationArchiveRef, SectorObservationArchiveRef, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
   StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
@@ -493,5 +493,54 @@ export async function loadSectorObservationArchive(ref: SectorObservationArchive
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== kind) throw fail();
   validateSectorBatch(data.batch);
   if (sectorArchiveKinds[data.batch.endpoint] !== kind) throw fail();
+  return data.batch;
+}
+
+const benchmarkIndexKind = "benchmark-index";
+const benchmarkIndexDir = () => join(resolveDataDir(), "benchmark-index-archives-v1");
+const benchmarkIndexKeys = ["symbol", "source", "market", "endpoint", "observedAt", "coverage", "requested", "priceUnit", "returnUnit", "rows"];
+const benchmarkIndexRowKeys = ["tradeDate", "closePoints", "previousClosePoints", "changePoints", "returnPct"];
+
+function benchmarkIndexPath(ref: BenchmarkIndexArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== benchmarkIndexKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(benchmarkIndexDir(), `${ref.revision}.json`);
+}
+
+function validateBenchmarkIndex(batch: unknown): asserts batch is StoredBenchmarkIndexBatch {
+  if (!object(batch) || !exactKeys(batch, benchmarkIndexKeys) || batch.source !== "tushare" || batch.market !== "A" ||
+    batch.endpoint !== "index_daily" || batch.coverage !== "unknown" || batch.priceUnit !== "index-points" ||
+    batch.returnUnit !== "percentage-points" || typeof batch.symbol !== "string" || !/^(?:000\d{3}\.SH|399\d{3}\.SZ)$/.test(batch.symbol) ||
+    typeof batch.observedAt !== "string" || !instant(batch.observedAt) || !object(batch.requested) ||
+    !exactKeys(batch.requested, ["start", "end"]) || !Array.isArray(batch.rows)) throw fail();
+  const { start, end } = batch.requested;
+  if (!dailyDate(start) || !dailyDate(end) || start > end) throw fail();
+  const days = (Date.parse(end) - Date.parse(start)) / 86_400_000 + 1;
+  if (days > 366 || batch.rows.length > days) throw fail();
+
+  const observedDate = shanghaiDate(Date.parse(batch.observedAt));
+  let previousDate = "";
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, benchmarkIndexRowKeys) || !dailyDate(row.tradeDate) || row.tradeDate < start ||
+      row.tradeDate > end || row.tradeDate > observedDate || row.tradeDate <= previousDate ||
+      !nonnegative(row.closePoints) || row.closePoints === 0 || !positiveOrNull(row.previousClosePoints) ||
+      !finiteOrNull(row.changePoints) || (row.returnPct !== null &&
+        (typeof row.returnPct !== "number" || !Number.isFinite(row.returnPct) || row.returnPct < -100))) throw fail();
+    previousDate = row.tradeDate;
+  }
+}
+
+export async function archiveBenchmarkIndexObservations(batch: StoredBenchmarkIndexBatch, signal?: AbortSignal): Promise<BenchmarkIndexArchiveRef> {
+  validateBenchmarkIndex(batch);
+  const content = canonical({ version: 1, kind: benchmarkIndexKind, batch });
+  const ref: BenchmarkIndexArchiveRef = { version: 1, kind: benchmarkIndexKind, revision: digest(content) };
+  await writeFixedArchive(benchmarkIndexDir(), benchmarkIndexPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadBenchmarkIndexArchive(ref: BenchmarkIndexArchiveRef, signal?: AbortSignal): Promise<StoredBenchmarkIndexBatch> {
+  const data = await readFixedArchive(benchmarkIndexPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== benchmarkIndexKind) throw fail();
+  validateBenchmarkIndex(data.batch);
   return data.batch;
 }

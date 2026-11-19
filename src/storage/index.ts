@@ -120,3 +120,5 @@ export type { FinancialObservationArchiveRef, StoredFinancialDisclosureDate, Sto
 
 export { archiveMarketCrossSection, loadMarketCrossSectionArchive } from "./src/observation-archive.ts";
 export type { MarketCrossSectionArchiveRef, StoredMarketCrossSection } from "../types/observation.ts";
+export { archiveBenchmarkIndexObservations, loadBenchmarkIndexArchive } from "./src/observation-archive.ts";
+export type { BenchmarkIndexArchiveRef, StoredBenchmarkIndexBatch } from "../types/observation.ts";

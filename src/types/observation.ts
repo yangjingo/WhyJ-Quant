@@ -240,3 +240,28 @@ export interface SectorObservationArchiveRef {
   kind: "dated-sector-catalog" | "dated-sector-members";
   revision: string;
 }
+
+export interface StoredBenchmarkIndexBatch {
+  symbol: string;
+  source: "tushare";
+  market: "A";
+  endpoint: "index_daily";
+  observedAt: string;
+  coverage: "unknown";
+  requested: { start: string; end: string };
+  priceUnit: "index-points";
+  returnUnit: "percentage-points";
+  rows: {
+    tradeDate: string;
+    closePoints: number;
+    previousClosePoints: number | null;
+    changePoints: number | null;
+    returnPct: number | null;
+  }[];
+}
+
+export interface BenchmarkIndexArchiveRef {
+  version: 1;
+  kind: "benchmark-index";
+  revision: string;
+}
