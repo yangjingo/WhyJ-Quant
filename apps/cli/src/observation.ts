@@ -4,7 +4,8 @@ import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from ".
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { collectTradingDateObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
-import { replayTspSectorRanking } from "../../../src/runtime/data/sector-rank-replay.ts";
+import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
+import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 
 const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
@@ -13,6 +14,7 @@ const revisionPattern = /^[a-f0-9]{64}$/;
 const compatiblePriceBasis = "caller-confirmed-same-basis";
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const maxRevisionFileBytes = 512_000;
+const maxRotationManifestBytes = 24 * 1_024 * 1_024;
 
 function invalid() {
   return Object.assign(new Error(usage), { code: "invalid_arguments" });
@@ -35,17 +37,37 @@ function validateRevisions(revisions: unknown): string[] {
   return revisions;
 }
 
-async function readRevisionFile(path: string, signal?: AbortSignal): Promise<string[]> {
+async function readObservationJsonFile(path: string, maxBytes: number, signal?: AbortSignal): Promise<unknown> {
   try {
     const file = await open(path, "r");
     try {
       const stat = await file.stat();
-      if (!stat.isFile() || stat.size > maxRevisionFileBytes) throw invalid();
+      if (!stat.isFile() || stat.size > maxBytes) throw invalid();
       const json = await file.readFile({ encoding: "utf8", signal });
-      if (Buffer.byteLength(json) > maxRevisionFileBytes) throw invalid();
-      return validateRevisions(JSON.parse(json));
+      if (Buffer.byteLength(json) > maxBytes) throw invalid();
+      return JSON.parse(json);
     } finally { await file.close(); }
   } catch { throw invalid(); }
+}
+
+async function readRevisionFile(path: string, signal?: AbortSignal): Promise<string[]> {
+  return validateRevisions(await readObservationJsonFile(path, maxRevisionFileBytes, signal));
+}
+
+function parseRotationManifest(value: unknown): SectorRankReplayRequest[] {
+  if (!Array.isArray(value)) throw invalid();
+  return value.map(item => {
+    if (!item || typeof item !== "object" || Array.isArray(item) || Object.keys(item).length !== 3 ||
+      typeof item.marketRevision !== "string" || !revisionPattern.test(item.marketRevision) ||
+      typeof item.catalogRevision !== "string" || !revisionPattern.test(item.catalogRevision)) throw invalid();
+    const revisions = validateRevisions(item.memberRevisions);
+    if (revisions.length >= 5_000) throw invalid();
+    return {
+      marketRef: { version: 1, kind: "market-cross-section", revision: item.marketRevision },
+      catalogRef: { version: 1, kind: "dated-sector-catalog", revision: item.catalogRevision },
+      memberRefs: revisions.map(revision => ({ version: 1, kind: "dated-sector-members", revision })),
+    };
+  });
 }
 
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
@@ -84,6 +106,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       }, signal);
     } catch {
       throw Object.assign(new Error("Could not replay the requested market and sector archive revisions."), { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-sector-rotation") {
+    const fields = parseOptions(options, ["--manifest", "--days"]);
+    const path = fields.get("--manifest"), requestedDays = fields.get("--days") ?? "12";
+    const days = Number(requestedDays);
+    if (!path || !/^\d+$/.test(requestedDays) || !Number.isSafeInteger(days)) throw invalid();
+    const requests = parseRotationManifest(await readObservationJsonFile(path, maxRotationManifestBytes, signal));
+    try { return await replayTspSectorRotation(requests, days, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested sector rotation archives."), { code: "observation_archive_unavailable" });
     }
   }
   if (action === "collect-daily" || action === "collect-minutes") {
