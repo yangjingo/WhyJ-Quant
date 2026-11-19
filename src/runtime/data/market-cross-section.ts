@@ -2,6 +2,7 @@ import { isDailyDate } from "../../market/bars.ts";
 import { computeTspMarketBreadth, TSP_INDICATOR_REVISION, TSP_MARKET_BREADTH_FORMULA_VERSION } from "../../quant/index.ts";
 import type { MarketObservation, SourceRequestOptions } from "../../source/index.ts";
 import { archiveMarketCrossSection, loadMarketCrossSectionArchive, type MarketCrossSectionArchiveRef } from "../../storage/index.ts";
+import { loadMarketBreadthHistory, type MarketBreadthHistory } from "./market-breadth-history.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
 
 function marketSlice<Endpoint extends string, T extends { tradeDate: string }>(
@@ -44,9 +45,18 @@ export async function collectMarketCrossSection(tradeDate: string, options: Sour
 
 const scale = (value: number | null | undefined, factor: number) => value == null ? null : value * factor;
 
-export async function deriveTspMarketBreadthArchive(ref: MarketCrossSectionArchiveRef, signal?: AbortSignal) {
+export async function deriveTspMarketBreadthArchive(
+  ref: MarketCrossSectionArchiveRef,
+  signal?: AbortSignal,
+  history?: MarketBreadthHistory,
+) {
   const archiveRef = { ...ref };
+  const historyRefs = history && {
+    priceArchives: history.priceArchives?.map(archive => ({ ...archive })) ?? [],
+    volumeArchives: history.volumeArchives?.map(archive => ({ ...archive })) ?? [],
+  };
   const snapshot = await loadMarketCrossSectionArchive(archiveRef, signal);
+  const rolling = historyRefs && await loadMarketBreadthHistory(snapshot, historyRefs, signal);
   signal?.throwIfAborted();
   const { universe: { members, ...universe }, bars: { rows: barRows, ...bars },
     basics: { rows: basicRows, ...basics }, source, market, tradeDate: tradingDate } = snapshot;
@@ -58,13 +68,16 @@ export async function deriveTspMarketBreadthArchive(ref: MarketCrossSectionArchi
     if (bar) matchingBars++;
     if (basic) matchingBasics++;
     if (!bar && !basic) return [];
+    const prices = rolling?.priceWindows.get(symbol);
     return [{
       tradingDate, symbol, name, close: bar?.close ?? null,
       changeFraction: scale(bar?.returnPct, 0.01),
       volumeShares: scale(bar?.volume, 100),
       amountCny: scale(bar?.amount, 1_000),
       turnoverPct: basic?.turnoverPct ?? null,
-      volumeRatio5d: null, ma5: null, ma20: null, ma60: null, high60d: null, low60d: null,
+      volumeRatio5d: rolling?.ratios.get(symbol) ?? null,
+      ma5: prices?.ma5 ?? null, ma20: prices?.ma20 ?? null, ma60: prices?.ma60 ?? null,
+      high60d: prices?.high_60d ?? null, low60d: prices?.low_60d ?? null,
       newHighSignal: null, newLowSignal: null,
     }];
   });
@@ -81,7 +94,7 @@ export async function deriveTspMarketBreadthArchive(ref: MarketCrossSectionArchi
       source, market, universe: { ...universe, rowCount: members.length },
       bars: { ...bars, rowCount: barRows.length, matched: matchingBars, outOfRoster: barRows.length - matchingBars },
       basics: { ...basics, rowCount: basicRows.length, matched: matchingBasics, outOfRoster: basicRows.length - matchingBasics },
-      rollingInputs: "unavailable" as const,
+      rollingInputs: rolling?.evidence ?? ("unavailable" as const),
     },
     metrics,
   };
