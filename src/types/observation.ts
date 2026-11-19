@@ -78,3 +78,37 @@ export interface TradingLimitArchiveRef {
   kind: "daily-trading-limits";
   revision: string;
 }
+
+export interface StoredHistoricalMinuteBar {
+  tradeTime: string;
+  openingBoundary: boolean;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  amount: number | null;
+}
+
+export interface StoredHistoricalMinuteBatch {
+  symbol: string;
+  market: "A";
+  source: "tushare";
+  endpoint: "stk_mins";
+  observedAt: string;
+  coverage: "unknown";
+  finality: "unknown";
+  adjustment: "unknown";
+  timeZone: "Asia/Shanghai";
+  interval: "1m";
+  volumeUnit: "share";
+  amountUnit: "CNY";
+  requested: { startDate: string; endDate: string };
+  rows: StoredHistoricalMinuteBar[];
+}
+
+export interface HistoricalMinuteArchiveRef {
+  version: 1;
+  kind: "historical-minute-bars";
+  revision: string;
+}
