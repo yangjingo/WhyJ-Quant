@@ -9,7 +9,7 @@ import type { MarketDataSource, SourceConnection, SourceRequestOptions } from ".
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
 import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareFinancialDisclosureDates,
-  fetchTushareHistoricalMinutes, fetchTushareReportFinancialIndicators } from "./tushare.ts";
+  fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareReportFinancialIndicators } from "./tushare.ts";
 
 export interface MarketObservation<T> {
   source: ProviderSource;
@@ -107,6 +107,17 @@ export interface InstrumentUniverse {
   sources: Awaited<ReturnType<typeof fetchMainboardUniverse>>["sources"];
 }
 
+export interface HistoricalStockUniverse {
+  universe: "provider-dated-stocks";
+  tradeDate: string;
+  members: {
+    symbol: string;
+    name: string;
+    industry: string | null;
+    listedOn: string | null;
+  }[];
+}
+
 export interface MarketObservationSource {
   fetchPriceSnapshot(request: { symbol: string; market: Market }, options?: SourceRequestOptions): Promise<MarketObservation<PriceSnapshot | null>>;
   fetchDailyValuation(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyValuation | null>>;
@@ -117,6 +128,8 @@ export interface MarketObservationSource {
     Promise<MarketObservation<FinancialDisclosureDate[]>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
+  fetchHistoricalStockUniverse(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<HistoricalStockUniverse>>;
   fetchHistoricalMinuteBars(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<HistoricalMinuteObservation>>;
 }
@@ -130,6 +143,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchFinancialDisclosureDates: { tushare: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
+  fetchHistoricalStockUniverse: { tushare: "A" },
   fetchHistoricalMinuteBars: { tushare: "A" },
 };
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -149,6 +163,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchReportFinancialIndicators: status("fetchReportFinancialIndicators"),
     fetchFinancialDisclosureDates: status("fetchFinancialDisclosureDates"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
+    fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
     fetchHistoricalMinuteBars: status("fetchHistoricalMinuteBars"),
   };
 }
@@ -298,6 +313,25 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
       if (universe !== "mainboard") throw new Error("Source instrument universe not implemented");
       const response = await readReference(options, signal => fetchMainboardUniverse({ signal }));
       return { ...response, source: "akshare", market: "A", universe, coverage: "unknown" };
+    },
+    async fetchHistoricalStockUniverse({ market, tradeDate }, options) {
+      validate("fetchHistoricalStockUniverse", market);
+      if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate < "2016-01-01") {
+        throw new Error("Invalid historical stock universe request");
+      }
+      const rows = await readReference(options, signal => fetchTushareHistoricalUniverse(tradeDate, { token: apiKey, baseUrl, env, signal }));
+      const seen = new Set<string>();
+      const members = rows.map(row => {
+        const { code: symbol, name, industry, listedOn } = row;
+        if (typeof symbol !== "string" || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(symbol) ||
+          seen.has(symbol) || typeof name !== "string" || !name.trim() || (industry !== null && typeof industry !== "string") ||
+          (listedOn !== null && (!isDailyDate(listedOn) || listedOn < "0001-01-01" || listedOn > tradeDate))) {
+          throw new Error("Provider historical stock universe observation invalid");
+        }
+        seen.add(symbol);
+        return { symbol, name: name.trim(), industry: industry?.trim() || null, listedOn };
+      }).sort((left, right) => left.symbol.localeCompare(right.symbol));
+      return result<HistoricalStockUniverse>(market, "bak_basic", { universe: "provider-dated-stocks", tradeDate, members });
     },
     async fetchHistoricalMinuteBars({ symbol: input, market, start, end }, options) {
       validate("fetchHistoricalMinuteBars", market);

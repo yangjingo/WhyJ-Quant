@@ -46,6 +46,8 @@ Source 可通过 `getMarketDataCapabilities` 查询当前选定供应商在统�
 
 ### 证券、净值和指数资料
 
+选定 Tushare 后，`fetchHistoricalStockUniverse({ market: "A", tradeDate })` 通过 `bak_basic` 查询 2016 年起指定交易日的历史股票列表。每条保留股票代码、名称、上市日和供应商当日行业字段，结果保留端点、取数时间及未知覆盖。达到端点行数上限时报错，空列表保留为空。当日名单用于确定该供应商提供的样本范围，上市交易资格、全市场覆盖和实时成分需要独立证据。 [Tushare 股票历史列表](https://tushare.pro/document/2?doc_id=262)
+
 统一接口的 `reference` 能力逐项声明支持的市场。证券查询、净值和指数有自己的字段和时间语义，共享选定供应商、实际端点、取得时间和未知覆盖状态。
 
 | 操作 | 已接入来源 | 例子 |
