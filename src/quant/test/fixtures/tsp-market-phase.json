@@ -1,0 +1,525 @@
+{
+  "revision": "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc",
+  "complete": {
+    "input": [
+      {
+        "tradingDate": "2025-01-02",
+        "state": "range",
+        "height": 3,
+        "firstBoardCount": 14,
+        "twoOrMoreCount": 4,
+        "promotionFraction": 0.1,
+        "sealFraction": 0.5
+      },
+      {
+        "tradingDate": "2025-01-03",
+        "state": "range",
+        "height": 3,
+        "firstBoardCount": 14,
+        "twoOrMoreCount": 4,
+        "promotionFraction": 0.1,
+        "sealFraction": 0.5
+      },
+      {
+        "tradingDate": "2025-01-04",
+        "state": "range",
+        "height": 3,
+        "firstBoardCount": 14,
+        "twoOrMoreCount": 4,
+        "promotionFraction": 0.1,
+        "sealFraction": 0.5
+      },
+      {
+        "tradingDate": "2025-01-05",
+        "state": "range",
+        "height": 3,
+        "firstBoardCount": 14,
+        "twoOrMoreCount": 4,
+        "promotionFraction": 0.1,
+        "sealFraction": 0.5
+      },
+      {
+        "tradingDate": "2025-01-06",
+        "state": "range",
+        "height": 3,
+        "firstBoardCount": 14,
+        "twoOrMoreCount": 4,
+        "promotionFraction": 0.1,
+        "sealFraction": 0.5
+      },
+      {
+        "tradingDate": "2025-01-07",
+        "state": "range",
+        "height": 3,
+        "firstBoardCount": 14,
+        "twoOrMoreCount": 4,
+        "promotionFraction": 0.1,
+        "sealFraction": 0.5
+      },
+      {
+        "tradingDate": "2025-01-08",
+        "state": "lean_strong",
+        "height": 6,
+        "firstBoardCount": 36,
+        "twoOrMoreCount": 12,
+        "promotionFraction": 0.27,
+        "sealFraction": 0.66
+      },
+      {
+        "tradingDate": "2025-01-09",
+        "state": "lean_strong",
+        "height": 6,
+        "firstBoardCount": 36,
+        "twoOrMoreCount": 12,
+        "promotionFraction": 0.27,
+        "sealFraction": 0.66
+      },
+      {
+        "tradingDate": "2025-01-10",
+        "state": "lean_strong",
+        "height": 6,
+        "firstBoardCount": 36,
+        "twoOrMoreCount": 12,
+        "promotionFraction": 0.27,
+        "sealFraction": 0.66
+      },
+      {
+        "tradingDate": "2025-01-11",
+        "state": "lean_strong",
+        "height": 6,
+        "firstBoardCount": 36,
+        "twoOrMoreCount": 12,
+        "promotionFraction": 0.27,
+        "sealFraction": 0.66
+      },
+      {
+        "tradingDate": "2025-01-12",
+        "state": "lean_strong",
+        "height": 6,
+        "firstBoardCount": 36,
+        "twoOrMoreCount": 12,
+        "promotionFraction": 0.27,
+        "sealFraction": 0.66
+      },
+      {
+        "tradingDate": "2025-01-13",
+        "state": "lean_strong",
+        "height": 6,
+        "firstBoardCount": 36,
+        "twoOrMoreCount": 12,
+        "promotionFraction": 0.27,
+        "sealFraction": 0.66
+      },
+      {
+        "tradingDate": "2025-01-14",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-15",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-16",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-17",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-18",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-19",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-20",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-21",
+        "state": "weak",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-22",
+        "state": "weak",
+        "height": 8,
+        "firstBoardCount": 75,
+        "twoOrMoreCount": 26,
+        "promotionFraction": 0.38,
+        "sealFraction": 0.74
+      },
+      {
+        "tradingDate": "2025-01-23",
+        "state": "strong",
+        "height": 12,
+        "firstBoardCount": 260,
+        "twoOrMoreCount": 70,
+        "promotionFraction": 0.65,
+        "sealFraction": 0.9
+      },
+      {
+        "tradingDate": "2025-01-24",
+        "state": "strong",
+        "height": 12,
+        "firstBoardCount": 260,
+        "twoOrMoreCount": 70,
+        "promotionFraction": 0.65,
+        "sealFraction": 0.9
+      },
+      {
+        "tradingDate": "2025-01-25",
+        "state": "strong",
+        "height": 12,
+        "firstBoardCount": 260,
+        "twoOrMoreCount": 70,
+        "promotionFraction": 0.65,
+        "sealFraction": 0.9
+      },
+      {
+        "tradingDate": "2025-01-26",
+        "state": "strong",
+        "height": 12,
+        "firstBoardCount": 260,
+        "twoOrMoreCount": 70,
+        "promotionFraction": 0.65,
+        "sealFraction": 0.9
+      },
+      {
+        "tradingDate": "2025-01-27",
+        "state": "strong",
+        "height": 12,
+        "firstBoardCount": 260,
+        "twoOrMoreCount": 70,
+        "promotionFraction": 0.65,
+        "sealFraction": 0.9
+      },
+      {
+        "tradingDate": "2025-01-28",
+        "state": "strong",
+        "height": 12,
+        "firstBoardCount": 260,
+        "twoOrMoreCount": 70,
+        "promotionFraction": 0.65,
+        "sealFraction": 0.9
+      },
+      {
+        "tradingDate": "2025-01-29",
+        "state": "strong",
+        "height": 12,
+        "firstBoardCount": 260,
+        "twoOrMoreCount": 70,
+        "promotionFraction": 0.65,
+        "sealFraction": 0.9
+      },
+      {
+        "tradingDate": "2025-01-30",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-01-31",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-01",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-02",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-03",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-04",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-05",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-06",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-07",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-08",
+        "state": "lean_weak",
+        "height": 6,
+        "firstBoardCount": 40,
+        "twoOrMoreCount": 8,
+        "promotionFraction": 0.02,
+        "sealFraction": 0.45
+      },
+      {
+        "tradingDate": "2025-02-09",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      },
+      {
+        "tradingDate": "2025-02-10",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      },
+      {
+        "tradingDate": "2025-02-11",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      },
+      {
+        "tradingDate": "2025-02-12",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      },
+      {
+        "tradingDate": "2025-02-13",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      },
+      {
+        "tradingDate": "2025-02-14",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      },
+      {
+        "tradingDate": "2025-02-15",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      },
+      {
+        "tradingDate": "2025-02-16",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      },
+      {
+        "tradingDate": "2025-02-17",
+        "state": "range",
+        "height": 5,
+        "firstBoardCount": 35,
+        "twoOrMoreCount": 9,
+        "promotionFraction": 0.17,
+        "sealFraction": 0.63
+      }
+    ],
+    "phases": [
+      "ice",
+      "ice",
+      "ice",
+      "ice",
+      "ice",
+      "ice",
+      "ice",
+      "repair",
+      "repair",
+      "ignite",
+      "ignite",
+      "ignite",
+      "ignite",
+      "ignite",
+      "rally",
+      "rally",
+      "rally",
+      "rally",
+      "rally",
+      "rally",
+      "repair",
+      "repair",
+      "repair",
+      "climax",
+      "climax",
+      "climax",
+      "climax",
+      "climax",
+      "climax",
+      "repair",
+      "repair",
+      "repair",
+      "ebb",
+      "ebb",
+      "ebb",
+      "ebb",
+      "ebb",
+      "ebb",
+      "ebb",
+      "ebb",
+      "ebb",
+      "ebb",
+      "ebb",
+      "repair",
+      "repair",
+      "repair",
+      "repair"
+    ]
+  },
+  "leading": {
+    "input": [
+      {
+        "tradingDate": "2025-01-02",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 65,
+        "twoOrMoreCount": 25,
+        "promotionFraction": null,
+        "sealFraction": 0.7
+      },
+      {
+        "tradingDate": "2025-01-03",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 65,
+        "twoOrMoreCount": 25,
+        "promotionFraction": null,
+        "sealFraction": 0.7
+      },
+      {
+        "tradingDate": "2025-01-04",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 65,
+        "twoOrMoreCount": 25,
+        "promotionFraction": 0.3,
+        "sealFraction": 0.7
+      },
+      {
+        "tradingDate": "2025-01-05",
+        "state": "strong",
+        "height": 8,
+        "firstBoardCount": 65,
+        "twoOrMoreCount": 25,
+        "promotionFraction": null,
+        "sealFraction": 0.7
+      }
+    ],
+    "phases": [
+      "rally",
+      "rally",
+      "rally",
+      "rally"
+    ]
+  }
+}

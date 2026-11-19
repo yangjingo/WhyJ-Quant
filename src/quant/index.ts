@@ -41,6 +41,8 @@ export { computeTspPriceDeviation, tspDeviationBenchmarkCandidates, TSP_DEVIATIO
 export type { TspDeviationClose, TspDeviationIndex, TspPriceDeviationInput, TspPriceDeviationRow } from "./tsp-price-deviation.ts";
 export { computeTspMarketRegime, TSP_MARKET_REGIME_FORMULA_VERSION } from "./tsp-market-regime.ts";
 export type { TspMarketState, TspRegimeMetrics } from "./tsp-market-regime.ts";
+export { computeTspMarketPhaseSeries, TSP_MARKET_PHASE_FORMULA_VERSION } from "./tsp-market-phase.ts";
+export type { TspMarketPhaseInput, TspMarketPhaseMode, TspMarketPhase } from "./tsp-market-phase.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";
 export { runDcaBacktest, validateDcaOptions, buildDcaSchedule, calculateXirr } from "./fund-dca.ts";
