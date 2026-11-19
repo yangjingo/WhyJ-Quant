@@ -25,6 +25,7 @@ export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId
 export { computeTspPriceLevels, TSP_PRICE_LEVEL_FORMULA_VERSION } from "./tsp-price-levels.ts";
 export type { TspPriceLevel, TspPriceLevelBar } from "./tsp-price-levels.ts";
 export { computeTspDailyIndicatorsAndSignals, computeTspDailySignals, TSP_DAILY_SIGNAL_FIELDS, TSP_DAILY_SIGNAL_FORMULA_VERSION } from "./tsp-daily-signals.ts";
+export { tspTradingLimitThresholds } from "./tsp-daily-signals.ts";
 export type { TspDailySignalBar, TspDailySignalId, TspDailySignalRow } from "./tsp-daily-signals.ts";
 export { computeTspIntraday, TSP_INTRADAY_FORMULA_VERSION } from "./tsp-intraday.ts";
 export type { TspCompletedMinuteBar, TspIntradayRow, TspIntradaySignals, TspIntradayValues } from "./tsp-intraday.ts";
