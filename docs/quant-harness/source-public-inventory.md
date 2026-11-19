@@ -31,6 +31,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchFinancialDisclosureDates` | Tushare `disclosure_date` supplies plan and actual disclosure dates and correction text for one A-share stock and one report period. These dates do not identify the release of a given ratio revision. |
 | `fetchDailyMarketBars` | Tushare `daily` reads one raw A-share date cross-section with ex-rights previous close and native volume and amount units. |
 | `fetchDailyMarketBasics` | Tushare `daily_basic` reads one cross-section of turnover, valuation and capital fields. Retains provider volume ratio, endpoint provenance and unknown coverage. |
+| `fetchDatedBenchmarkObservations` | Tushare `index_daily` reads an exchange-qualified A-share benchmark over a dated range. It retains provider close, prior close, point change and percentage return with unknown coverage. |
 | `fetchHistoricalStockUniverse` | Tushare `bak_basic` returns a provider-defined historical A-share list for one date. Preserves source and optional listing date and industry. Coverage is unknown; a saturated response fails. |
 | `fetchDatedSectorCatalog` | Tushare `dc_index` returns the Eastmoney industry or concept catalog for one date and named vendor taxonomy. Retains group codes, names and optional hierarchy. |
 | `fetchDatedSectorMembers` | Tushare `dc_member` returns members of one Eastmoney sector for one exact historical date. Keeps stock identity and optional name. Empty and cap-saturated responses have distinct outcomes. |
@@ -394,6 +395,8 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `InstrumentUniverse` | type | Roster with per-exchange provenance | — |
 | `DailyMarketBar` | type | Raw market bar with the provider's ex-rights return denominator | — |
 | `DailyMarketBars` | type | Raw market bar cross-section with native units | — |
+| `DatedBenchmarkRow` | type | Provider index points and percentage change on a single trade date | — |
+| `DatedBenchmarkObservations` | type | Dated index observation rows, requested window and native units | — |
 | `DailyMarketBasic` | type | Dated turnover, share counts, and valuation fields | — |
 | `DailyMarketBasics` | type | Daily basic cross-section with native units | — |
 | `DatedSectorCatalog` | type | Exact-date Eastmoney provider classification and optional hierarchy | — |

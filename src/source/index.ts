@@ -45,6 +45,7 @@ export type { UnifiedMarketDataCapabilities, UnifiedMarketDataSource } from "./s
 export { SourceRequestError } from "./src/market-data-error.ts";
 export type { SourceErrorCode } from "./src/market-data-error.ts";
 export type { DailyMarketBar, DailyMarketBars, DailyMarketBasic, DailyMarketBasics } from "./src/market-observations.ts";
+export type { DatedBenchmarkObservations, DatedBenchmarkRow } from "./src/market-observations.ts";
 export type { DatedSectorCatalog, DatedSectorMembers } from "./src/market-observations.ts";
 export type { DailyTradingLimit, DailyValuation, FinancialDisclosureDate, HistoricalMinuteBar, HistoricalMinuteObservation, HistoricalStockUniverse, InstrumentUniverse, MarketObservation, MarketObservationCapabilities, MarketObservationSource, PriceSnapshot, ReportFinancialIndicator, TradingCalendar } from "./src/market-observations.ts";
 export type { FundNavObservation, IndexMemberReference, IndexQuoteObservation, IndexReference, InstrumentReference, MarketReferenceCapabilities, MarketReferenceResult, MarketReferenceSource } from "./src/market-reference.ts";
