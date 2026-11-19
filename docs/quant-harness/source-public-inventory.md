@@ -33,6 +33,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDailyMarketBasics` | Tushare `daily_basic` reads one cross-section of turnover, valuation and capital fields. Retains provider volume ratio, endpoint provenance and unknown coverage. |
 | `fetchDatedBenchmarkObservations` | Tushare `index_daily` reads an exchange-qualified A-share benchmark over a dated range. It retains provider close, prior close, point change and percentage return with unknown coverage. |
 | `fetchDatedAuctionBenchmark` | The explicit Fuyao `/api/a-share/auction/short-term-benchmark` read preserves selected stock identities and order, labels and percentage-point auction returns. The response assembly timestamp is distinct from the exact Shanghai trade date and local capture time. |
+| `fetchDatedDragonTigerBoard` | Read one explicit Fuyao all, institution or hot-money board. Preserve provider counts, CNY amounts, fractional ratios, ordered one- and three-day stock records, and nested seat positions. |
 | `fetchHistoricalStockUniverse` | Tushare `bak_basic` returns a provider-defined historical A-share list for one date. Preserves source and optional listing date and industry. Coverage is unknown; a saturated response fails. |
 | `fetchDatedSectorCatalog` | Tushare `dc_index` returns the Eastmoney industry or concept catalog for one date and named vendor taxonomy. Retains group codes, names and optional hierarchy. |
 | `fetchDatedSectorMembers` | Tushare `dc_member` returns members of one Eastmoney sector for one exact historical date. Keeps stock identity and optional name. Empty and cap-saturated responses have distinct outcomes. |
@@ -123,6 +124,16 @@ Provider-specific Financial Datasets operations; facade mapping unresolved.
 | `fetchDatedAuctionBenchmark` | value | Read Fuyao's selected auction list for a Shanghai trade date | Explicit supplemental observation |
 | `AuctionBenchmarkRow` | type | Stock identity, native auction return and provider tags | — |
 | `DatedAuctionBenchmark` | type | Dated snapshot, assembly and capture times, coverage and native units | — |
+
+## `./src/fuyao-dragon-tiger.ts`
+
+| Export | Kind | Use | Canonical route |
+| --- | --- | --- | --- |
+| `fetchDatedDragonTigerBoard` | value | Read one full board for an exact Shanghai trade date | Explicit supplemental observation |
+| `DatedDragonTigerBoard` | type | Provider board and capture provenance | — |
+| `DragonTigerBoardKind` | type | Provider board variants | — |
+| `DragonTigerStockRow` | type | Stock observation with provider window, amounts and ratios | — |
+| `DragonTigerSeatRow` | type | Provider seat aggregate and nested stock observations | — |
 
 ## `./src/akshare-global-bars.ts`
 

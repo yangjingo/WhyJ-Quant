@@ -1,10 +1,9 @@
 import { isDailyDate } from "../../market/bars.ts";
-import { getText } from "./http.ts";
+import { readFuyao } from "./fuyao-http.ts";
 import { SourceRequestError } from "./market-data-error.ts";
 import type { SourceConnection, SourceRequestOptions } from "./market-data.ts";
 
 const ENDPOINT = "/api/a-share/auction/short-term-benchmark";
-const DEFAULT_BASE_URL = "https://fuyao.aicubes.cn";
 const MAX_RESPONSE_BYTES = 256 * 1024;
 const STOCK_SYMBOL = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 
@@ -68,33 +67,6 @@ export async function fetchDatedAuctionBenchmark(
 ): Promise<DatedAuctionBenchmark> {
   options.signal?.throwIfAborted();
   if (typeof tradeDate !== "string" || !isDailyDate(tradeDate)) throw new Error("Invalid Fuyao auction trade date");
-  if (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 120_000)) {
-    throw new Error("Invalid Fuyao request timeout");
-  }
-  const env = connection.env ?? process.env;
-  const key = connection.apiKey ?? env.WHYJ_QUANT_FUYAO_API_KEY;
-  if (!key?.trim()) throw new SourceRequestError("provider-failure", "WHYJ_QUANT_FUYAO_API_KEY is not configured");
-
-  let base: URL;
-  try { base = new URL(connection.baseUrl ?? env.FUYAO_BASE_URL ?? DEFAULT_BASE_URL); }
-  catch { throw new Error("Invalid Fuyao base URL"); }
-  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(base.hostname);
-  if (base.username || base.password || base.search || base.hash || base.pathname !== "/"
-    || (base.protocol !== "https:" && !(base.protocol === "http:" && loopback))) {
-    throw new Error("Invalid Fuyao base URL");
-  }
-  const url = new URL(ENDPOINT, base);
-  url.searchParams.set("date", tradeDate);
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(await getText(url.href, MAX_RESPONSE_BYTES, { ...options, redirect: "error" }, { "X-api-key": key }));
-  } catch (error) {
-    options.signal?.throwIfAborted();
-    if (error instanceof Error && /^Request timed out after \d+ms$/.test(error.message)) {
-      throw new SourceRequestError("timeout", "Fuyao auction benchmark request timed out");
-    }
-    throw new SourceRequestError("provider-failure", "Fuyao auction benchmark request failed");
-  }
+  const payload = await readFuyao(ENDPOINT, { date: tradeDate }, MAX_RESPONSE_BYTES, "auction benchmark", connection, options);
   return decodeResponse(payload, tradeDate);
 }
