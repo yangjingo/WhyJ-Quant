@@ -122,3 +122,5 @@ export { archiveMarketCrossSection, loadMarketCrossSectionArchive } from "./src/
 export type { MarketCrossSectionArchiveRef, StoredMarketCrossSection } from "../types/observation.ts";
 export { archiveBenchmarkIndexObservations, loadBenchmarkIndexArchive } from "./src/observation-archive.ts";
 export type { BenchmarkIndexArchiveRef, StoredBenchmarkIndexBatch } from "../types/observation.ts";
+export { archiveAuctionBenchmark, loadAuctionBenchmarkArchive } from "./src/observation-archive.ts";
+export type { AuctionBenchmarkArchiveRef, StoredAuctionBenchmark } from "../types/observation.ts";

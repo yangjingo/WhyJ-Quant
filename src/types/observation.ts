@@ -265,3 +265,23 @@ export interface BenchmarkIndexArchiveRef {
   kind: "benchmark-index";
   revision: string;
 }
+
+export interface StoredAuctionBenchmark {
+  source: "fuyao";
+  endpoint: "/api/a-share/auction/short-term-benchmark";
+  market: "A";
+  tradeDate: string;
+  calendarTimeZone: "Asia/Shanghai";
+  tradeDateTimestamp: number;
+  responseAssembledAt: number;
+  observedAt: string;
+  coverage: "unknown";
+  returnUnit: "percentage-points";
+  rows: { symbol: string; name: string; auctionReturnPct: number | null; tags: string[] }[];
+}
+
+export interface AuctionBenchmarkArchiveRef {
+  version: 1;
+  kind: "auction-benchmark";
+  revision: string;
+}
