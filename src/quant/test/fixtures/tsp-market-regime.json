@@ -1,0 +1,258 @@
+{
+  "revision": "f9cb383c5918c6a88a412f3ce43d59fe81b94ccc",
+  "cases": [
+    {
+      "metrics": {
+        "upFraction": 0.29,
+        "averageFraction": 0.013,
+        "medianFraction": -0.027,
+        "strongDifferenceFraction": -0.15,
+        "limitUpCount": 131,
+        "sealFraction": 0.83,
+        "maxStreak": 2,
+        "strongDownFraction": 0.26,
+        "indexChangeFraction": 0.024,
+        "aboveMa20Fraction": 0.59
+      },
+      "state": "range",
+      "score": 45,
+      "rawScore": 45.3125,
+      "dimensions": {
+        "profit": 31.75,
+        "speculation": 70.0,
+        "resilience": 0.0,
+        "trend": 83.5
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.77,
+        "averageFraction": 0.025,
+        "medianFraction": -0.016,
+        "strongDifferenceFraction": 0.15,
+        "limitUpCount": 11,
+        "sealFraction": 0.67,
+        "maxStreak": 11,
+        "strongDownFraction": 0.15,
+        "indexChangeFraction": 0.011,
+        "aboveMa20Fraction": 0.36
+      },
+      "state": "lean_strong",
+      "score": 55,
+      "rawScore": 54.7,
+      "dimensions": {
+        "profit": 80.0,
+        "speculation": 52.400000000000006,
+        "resilience": 19.0,
+        "trend": 49.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.39,
+        "averageFraction": -0.023,
+        "medianFraction": 0.002,
+        "strongDifferenceFraction": 0.06,
+        "limitUpCount": 120,
+        "sealFraction": 0.37,
+        "maxStreak": 7,
+        "strongDownFraction": 0.1,
+        "indexChangeFraction": -0.028,
+        "aboveMa20Fraction": 0.86
+      },
+      "state": "lean_weak",
+      "score": 44,
+      "rawScore": 43.567499999999995,
+      "dimensions": {
+        "profit": 33.05,
+        "speculation": 48.0,
+        "resilience": 50.0,
+        "trend": 50.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.45,
+        "averageFraction": -0.029,
+        "medianFraction": -0.008,
+        "strongDifferenceFraction": 0.14,
+        "limitUpCount": 64,
+        "sealFraction": 0.96,
+        "maxStreak": 7,
+        "strongDownFraction": 0.06,
+        "indexChangeFraction": 0.022,
+        "aboveMa20Fraction": 0.13
+      },
+      "state": "range",
+      "score": 54,
+      "rawScore": 53.974999999999994,
+      "dimensions": {
+        "profit": 33.0,
+        "speculation": 72.1,
+        "resilience": 75.0,
+        "trend": 47.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.24,
+        "averageFraction": -0.033,
+        "medianFraction": -0.026,
+        "strongDifferenceFraction": -0.21,
+        "limitUpCount": 120,
+        "sealFraction": 0.28,
+        "maxStreak": 11,
+        "strongDownFraction": 0.17,
+        "indexChangeFraction": -0.013,
+        "aboveMa20Fraction": 0.77
+      },
+      "state": "lean_weak",
+      "score": 30,
+      "rawScore": 29.545,
+      "dimensions": {
+        "profit": 2.7,
+        "speculation": 60.0,
+        "resilience": 6.0,
+        "trend": 62.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.79,
+        "averageFraction": 0.013,
+        "medianFraction": 0.012,
+        "strongDifferenceFraction": -0.2,
+        "limitUpCount": 94,
+        "sealFraction": 0.53,
+        "maxStreak": 1,
+        "strongDownFraction": 0.0,
+        "indexChangeFraction": 0.008,
+        "aboveMa20Fraction": 0.48
+      },
+      "state": "strong",
+      "score": 70,
+      "rawScore": 69.745,
+      "dimensions": {
+        "profit": 89.2,
+        "speculation": 28.5,
+        "resilience": 100.0,
+        "trend": 57.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.76,
+        "averageFraction": 0.026,
+        "medianFraction": 0.004,
+        "strongDifferenceFraction": 0.05,
+        "limitUpCount": 6,
+        "sealFraction": 0.75,
+        "maxStreak": 4,
+        "strongDownFraction": 0.05,
+        "indexChangeFraction": 0.007,
+        "aboveMa20Fraction": 0.5
+      },
+      "state": "lean_strong",
+      "score": 69,
+      "rawScore": 69.125,
+      "dimensions": {
+        "profit": 89.5,
+        "speculation": 40.0,
+        "resilience": 81.0,
+        "trend": 58.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.79,
+        "averageFraction": -0.026,
+        "medianFraction": 0.012,
+        "strongDifferenceFraction": 0.18,
+        "limitUpCount": 38,
+        "sealFraction": 0.16,
+        "maxStreak": 0,
+        "strongDownFraction": 0.2,
+        "indexChangeFraction": -0.023,
+        "aboveMa20Fraction": 0.36
+      },
+      "state": "weak",
+      "score": 29,
+      "rawScore": 29.345,
+      "dimensions": {
+        "profit": 74.2,
+        "speculation": 1.5,
+        "resilience": 0.0,
+        "trend": 15.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.75,
+        "averageFraction": -0.016,
+        "medianFraction": -0.035,
+        "strongDifferenceFraction": 0.16,
+        "limitUpCount": 46,
+        "sealFraction": 0.19,
+        "maxStreak": 12,
+        "strongDownFraction": 0.08,
+        "indexChangeFraction": -0.015,
+        "aboveMa20Fraction": 0.81
+      },
+      "state": "range",
+      "score": 52,
+      "rawScore": 52.5,
+      "dimensions": {
+        "profit": 55.0,
+        "speculation": 35.4,
+        "resilience": 62.0,
+        "trend": 60.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0.83,
+        "averageFraction": 0.033,
+        "medianFraction": 0.034,
+        "strongDifferenceFraction": 0.22,
+        "limitUpCount": 119,
+        "sealFraction": 0.43,
+        "maxStreak": 6,
+        "strongDownFraction": 0.24,
+        "indexChangeFraction": 0.026,
+        "aboveMa20Fraction": 0.21
+      },
+      "state": "lean_strong",
+      "score": 56,
+      "rawScore": 55.5,
+      "dimensions": {
+        "profit": 100.0,
+        "speculation": 42.0,
+        "resilience": 0.0,
+        "trend": 50.0
+      }
+    },
+    {
+      "metrics": {
+        "upFraction": 0,
+        "averageFraction": 0,
+        "medianFraction": 0,
+        "strongDifferenceFraction": 0,
+        "limitUpCount": 0,
+        "sealFraction": 0,
+        "maxStreak": 0,
+        "strongDownFraction": 0,
+        "indexChangeFraction": 0,
+        "aboveMa20Fraction": 0
+      },
+      "state": "lean_weak",
+      "score": 39,
+      "rawScore": 39.440000000000005,
+      "dimensions": {
+        "profit": 26.400000000000002,
+        "speculation": 0.0,
+        "resilience": 100.0,
+        "trend": 51.0
+      }
+    }
+  ]
+}

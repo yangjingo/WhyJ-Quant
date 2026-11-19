@@ -39,6 +39,8 @@ export { computeTspMarketEmotion, TSP_MARKET_EMOTION_FORMULA_VERSION } from "./t
 export type { TspEmotionMetric, TspEmotionMetrics, TspEmotionOverrides } from "./tsp-market-emotion.ts";
 export { computeTspPriceDeviation, tspDeviationBenchmarkCandidates, TSP_DEVIATION_WINDOWS, TSP_PRICE_DEVIATION_FORMULA_VERSION } from "./tsp-price-deviation.ts";
 export type { TspDeviationClose, TspDeviationIndex, TspPriceDeviationInput, TspPriceDeviationRow } from "./tsp-price-deviation.ts";
+export { computeTspMarketRegime, TSP_MARKET_REGIME_FORMULA_VERSION } from "./tsp-market-regime.ts";
+export type { TspMarketState, TspRegimeMetrics } from "./tsp-market-regime.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";
 export { runDcaBacktest, validateDcaOptions, buildDcaSchedule, calculateXirr } from "./fund-dca.ts";
