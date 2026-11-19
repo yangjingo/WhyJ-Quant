@@ -35,6 +35,8 @@ export type { TspBreadthMemberObservation, TspBreadthUniverse, TspMarketBreadth 
 export { computeTspSectorRanking, TSP_SECTOR_RANKING_FORMULA_VERSION } from "./tsp-sector-ranking.ts";
 export type { TspSectorMember, TspSectorMembership, TspSectorRankingInput, TspSectorRank, TspSectorSnapshotGroup } from "./tsp-sector-ranking.ts";
 export { computeTspSectorRotation, TSP_SECTOR_ROTATION_FORMULA_VERSION } from "./tsp-sector-rotation.ts";
+export { computeTspMarketEmotion, TSP_MARKET_EMOTION_FORMULA_VERSION } from "./tsp-market-emotion.ts";
+export type { TspEmotionMetric, TspEmotionMetrics, TspEmotionOverrides } from "./tsp-market-emotion.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";
 export { runDcaBacktest, validateDcaOptions, buildDcaSchedule, calculateXirr } from "./fund-dca.ts";
