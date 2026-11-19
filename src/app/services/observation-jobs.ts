@@ -1,25 +1,49 @@
 import { randomUUID } from "node:crypto";
-import { collectObservations, collectTradingDateObservations, deriveTspArchiveIndicators, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
+import { collectObservations, collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators,
+  type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import type { ObservationIndicatorPreview, ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
+import type { TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
 const invalid = () => new WorkbenchError("INPUT_INVALID", "采集参数无效。", 400);
 const notFound = () => new WorkbenchError("OBSERVATION_JOB_NOT_FOUND", "未找到该采集任务。", 404);
 const intervals = ["1m", "5m", "10m", "15m", "30m", "60m"];
 const day = 86_400_000;
+const revision = /^[a-f0-9]{64}$/;
+const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+const invalidReference = () => new WorkbenchError("INPUT_INVALID", "日线归档引用无效。", 400);
+
+function dailyReference(value: unknown): TradingDateArchiveRef {
+  if (!object(value) || Object.keys(value).length !== 2 || !Object.hasOwn(value, "version") || !Object.hasOwn(value, "revision") ||
+    value.version !== 2 || typeof value.revision !== "string" || !revision.test(value.revision)) throw invalidReference();
+  return { version: 2, revision: value.revision };
+}
+
+async function replayIndicators(ref: TradingDateArchiveRef, exchange?: DailySignalExchangeRefs): Promise<ObservationIndicatorPreview> {
+  try {
+    return await deriveTspArchiveIndicators(ref, undefined, exchange);
+  } catch {
+    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", exchange ? "无法读取指定的日线或限价归档。请核对归档引用后重试。"
+      : "无法读取指定的日线归档。请核对归档引用后重试。", 404);
+  }
+}
 
 export async function readObservationIndicators(value: unknown): Promise<ObservationIndicatorPreview> {
-  const invalidReference = () => new WorkbenchError("INPUT_INVALID", "日线归档引用无效。", 400);
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidReference();
-  const ref = value as Record<string, unknown>;
-  if (Object.keys(ref).length !== 2 || !Object.hasOwn(ref, "version") || !Object.hasOwn(ref, "revision")
-    || ref.version !== 2 || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw invalidReference();
-  try {
-    return await deriveTspArchiveIndicators({ version: 2, revision: ref.revision });
-  } catch {
-    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的日线归档。请核对归档引用后重试。", 404);
-  }
+  return replayIndicators(dailyReference(value));
+}
+
+export async function readObservationExchangeIndicators(value: unknown): Promise<ObservationIndicatorPreview> {
+  const invalidExchangeReference = () => new WorkbenchError("INPUT_INVALID", "交易信号归档引用无效。", 400);
+  if (!object(value) || !Object.hasOwn(value, "archiveRef") || !Object.hasOwn(value, "tradingLimitArchiveRef") ||
+    Object.keys(value).some(key => !["archiveRef", "rawArchiveRef", "tradingLimitArchiveRef"].includes(key))) throw invalidExchangeReference();
+  const ref = dailyReference(value.archiveRef);
+  const rawArchiveRef = Object.hasOwn(value, "rawArchiveRef") ? dailyReference(value.rawArchiveRef) : undefined;
+  const limits = value.tradingLimitArchiveRef;
+  if (!object(limits) || Object.keys(limits).length !== 3 || !["version", "kind", "revision"].every(key => Object.hasOwn(limits, key)) ||
+    limits.version !== 1 || limits.kind !== "daily-trading-limits" ||
+    typeof limits.revision !== "string" || !revision.test(limits.revision)) throw invalidExchangeReference();
+  return replayIndicators(ref, { rawArchiveRef, tradingLimitArchiveRef: { version: 1, kind: limits.kind, revision: limits.revision } });
 }
 
 /** Reject unknown properties, unbounded requests and credentials before acquiring a job. */
@@ -27,6 +51,16 @@ export function observationJobRequest(value: unknown): ObservationJobRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const input = value as Record<string, unknown>;
   const { dataset, symbol, startTime, endTime, adjustment, interval } = input;
+  if (dataset === "daily-trading-limits") {
+    const { startDate, endDate } = input;
+    const keys = ["dataset", "symbol", "startDate", "endDate"];
+    if (Object.keys(input).length !== keys.length || keys.some(key => !Object.hasOwn(input, key)) ||
+      typeof symbol !== "string" || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(symbol) ||
+      typeof startDate !== "string" || typeof endDate !== "string" || !isDailyDate(startDate) || !isDailyDate(endDate) ||
+      startDate < "0001-01-01" || endDate > "9998-12-31" || startDate > endDate ||
+      Date.parse(endDate) - Date.parse(startDate) > 365 * day) throw invalid();
+    return { dataset, symbol, startDate, endDate };
+  }
   if (dataset === "daily" && input.timeMode === "trading-date") {
     const { startDate, endDate } = input;
     const keys = ["dataset", "timeMode", "symbol", "startDate", "endDate", "adjustment"];
@@ -49,7 +83,7 @@ export function observationJobRequest(value: unknown): ObservationJobRequest {
     || (dataset === "minute" && !intervals.includes(interval as string))) throw invalid();
   return { ...input } as ObservationJobRequest;
 }
-function runtimeRequest(input: Exclude<ObservationJobRequest, { timeMode: "trading-date" }>): ObservationCollectionRequest {
+function runtimeRequest(input: Exclude<ObservationJobRequest, { timeMode: "trading-date" } | { dataset: "daily-trading-limits" }>): ObservationCollectionRequest {
   if (input.dataset === "factor") return { dataset: "adjustment_factor", symbol: input.symbol, startTime: input.startTime, endTime: input.endTime };
   return { dataset: "bars", symbol: input.symbol, startTime: input.startTime, endTime: input.endTime,
     interval: input.dataset === "daily" ? "1d" : input.interval, adjustment: input.adjustment };
@@ -60,7 +94,9 @@ function isTradingDateRequest(input: ObservationJobRequest): input is Extract<Ob
 type Entry = { view: ObservationJobView; controller: AbortController; promise: Promise<void> };
 
 /** Jobs are process-local. Completion reflects the collector's result, even after cancellation was requested. */
-export function createObservationJobs(collect: typeof collectObservations = collectObservations, collectDates: typeof collectTradingDateObservations = collectTradingDateObservations) {
+export function createObservationJobs(collect: typeof collectObservations = collectObservations,
+  collectDates: typeof collectTradingDateObservations = collectTradingDateObservations,
+  collectLimits: typeof collectTradingLimitObservations = collectTradingLimitObservations) {
   const jobs = new Map<string, Entry>();
   let closing = false;
   const view = (entry: Entry): ObservationJobView => structuredClone(entry.view);
@@ -76,10 +112,13 @@ export function createObservationJobs(collect: typeof collectObservations = coll
     const id = randomUUID(), controller = new AbortController();
     const entry: Entry = { controller, view: { id, request, status: "running", cancelRequested: false, receipt: null, error: null }, promise: Promise.resolve() };
     jobs.set(id, entry);
-    entry.promise = Promise.resolve().then(async () => isTradingDateRequest(request)
-      ? await collectDates({ timeMode: "trading-date", symbol: request.symbol, assetType: "stock", interval: "1d", adjustment: request.adjustment,
-          startDate: request.startDate, endDate: request.endDate }, { signal: controller.signal })
-      : await collect(runtimeRequest(request), { signal: controller.signal })).then(result => {
+    entry.promise = Promise.resolve().then(async () => {
+      const options = { signal: controller.signal };
+      if (request.dataset === "daily-trading-limits") return collectLimits(request, options);
+      if (isTradingDateRequest(request)) return collectDates({ timeMode: "trading-date", symbol: request.symbol, assetType: "stock",
+        interval: "1d", adjustment: request.adjustment, startDate: request.startDate, endDate: request.endDate }, options);
+      return collect(runtimeRequest(request), options);
+    }).then(result => {
       entry.view.status = result.status;
       entry.view.receipt = { source: result.source, endpoint: result.endpoint, observedAt: result.observedAt, rowCount: result.rowCount, ref: result.ref };
     }, (error: unknown) => {

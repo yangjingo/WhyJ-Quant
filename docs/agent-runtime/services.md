@@ -165,7 +165,9 @@ Runtime 的 `deriveTspArchiveIndicators` 接受精确的 v2 日线归档引用�
 
 `dailySignals` 从同一固定归档回放 WhyJ 的 20 个日线规则。每个交易日的规则结果用 `true` 表示命中，`false` 表示有足够输入且未命中，`null` 表示预热或输入不足。涨停、跌停、炸板和翘板需要额外的生效限价和未复权价格，只有基本日线归档时保持 `null`。规则有自己的公式 ID 和版本。旧 Host 可省略此部分。
 
-Runtime 的 `collectTradingLimitObservations` 将选定来源的每日生效限价采集为固定引用。`deriveTspArchiveIndicators` 可额外接收限价引用和同标的未复权日线引用，以交易日精确对齐。主日线已是未复权时可复用该引用。Quant 将生效价分别减去或加上 0.005 元，得到与固定 TSP 公式一致的比较价。缺日或缺项保持 `null`，返回值保留两个输入的引用和来源。当前补充引用从 Runtime 传入，已有认证日线预览仍接受单份日线引用。
+Runtime 的 `collectTradingLimitObservations` 将选定来源的每日生效限价采集为固定引用。`deriveTspArchiveIndicators` 可额外接收限价引用和同标的未复权日线引用，以交易日精确对齐。主日线已是未复权时可复用该引用。Quant 将生效价分别减去或加上 0.005 元，得到与固定 TSP 公式一致的比较价。缺日或缺项保持 `null`，返回值保留两个输入的引用和来源。
+
+Host 的认证采集任务支持 `{ dataset: "daily-trading-limits", symbol, startDate, endDate }`，凭证来自已保存的选定来源。非空收据包含带种类的归档引用。可选认证 RPC `readObservationExchangeIndicators` 以 `{ archiveRef, tradingLimitArchiveRef, rawArchiveRef? }` 回放，两种归档缺失或损坏均返回固定的不可用诊断。原有 `readObservationIndicators` 继续接收单份日线归档引用。旧 Host 对可选新方法返回 `METHOD_NOT_FOUND`。
 
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 

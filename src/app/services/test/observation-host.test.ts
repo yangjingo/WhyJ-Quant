@@ -82,11 +82,19 @@ test("authenticated RPC collects a selected TickFlow observation and preserves i
   } finally { await host.close(); await provider.stop(true); if (previous === undefined) delete process.env.OHQUANT_DIR; else process.env.OHQUANT_DIR = previous; rmSync(root, { recursive: true, force: true }); }
 });
 
-test("an archive collected from Tushare still provides an indicator preview after a Host restart", async () => {
+test("authenticated Tushare daily and limit collections support fixed-archive indicator replay after Host restart", async () => {
   const root = mkdtempSync(join(tmpdir(), "whyj-host-dated-"));
   const previous = process.env.OHQUANT_DIR; process.env.OHQUANT_DIR = root; let calls = 0;
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(req) {
-    calls++; const body = await req.json() as { api_name: string; token: string }; expect(body.api_name).toBe("daily"); expect(body.token).toBe("synthetic-key");
+    calls++;
+    const body = await req.json() as { api_name: string; token: string; params: unknown };
+    expect(body.token).toBe("synthetic-key");
+    expect(body.params).toEqual({ ts_code: "600000.SH", start_date: "20240102", end_date: "20240102" });
+    if (body.api_name === "stk_limit") return Response.json({ code: 0, data: {
+      fields: ["ts_code", "trade_date", "pre_close", "up_limit", "down_limit"],
+      items: [["600000.SH", "20240102", 10, 11, 9]],
+    } });
+    expect(body.api_name).toBe("daily");
     return Response.json({ code: 0, data: { fields: ["ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"], items: [["600000.SH", "20240102", 10, 12, 9, 11, 100, null]] } });
   } });
   mkdirSync(join(root, "assets")); writeFileSync(join(root, "assets", "index.html"), "<html><head></head></html>");
@@ -95,7 +103,9 @@ test("an archive collected from Tushare still provides an indicator preview afte
   try {
     const client = async (url: string) => {
       const token = (await (await fetch(url + "/api/workbench/bootstrap")).json() as { token: string }).token;
-      return (method: string, arg: unknown) => fetch(url + "/api/workbench/rpc", { method: "POST", headers: { "Content-Type": "application/json", "x-workbench-token": token }, body: JSON.stringify({ method, args: [arg] }) });
+      return (method: string, arg: unknown, authenticated = true) => fetch(url + "/api/workbench/rpc", { method: "POST",
+        headers: { "Content-Type": "application/json", ...(authenticated ? { "x-workbench-token": token } : {}) },
+        body: JSON.stringify({ method, args: [arg] }) });
     };
     const send = await client(host.server.url.origin);
     const response = await send("startObservationJob", { dataset: "daily", timeMode: "trading-date", symbol: "600000.SH", startDate: "2024-01-02", endDate: "2024-01-02", adjustment: "none" });
@@ -107,13 +117,54 @@ test("an archive collected from Tushare still provides an indicator preview afte
     expect(result).toMatchObject({ status: "archived", receipt: { source: "tushare", rowCount: 1 } });
     const ref = result.receipt?.ref; if (!ref || ref.version !== 2) throw new Error("missing v2 reference");
     expect(await loadTradingDateArchive(ref)).toMatchObject([{ tradeDate: "2024-01-02", sourceTimestamp: null, volumeUnit: "hand" }]);
+    const limitRequest = { dataset: "daily-trading-limits", symbol: "600000.SH", startDate: "2024-01-02", endDate: "2024-01-02" };
+    expect((await send("startObservationJob", limitRequest, false)).status).toBe(401);
+    expect((await send("startObservationJob", { ...limitRequest, key: "not-accepted" })).status).toBe(400);
+    expect(calls).toBe(1);
+    const limitResponse = await send("startObservationJob", limitRequest);
+    expect(limitResponse.status).toBe(200);
+    let limitJob = (await limitResponse.json() as { result: ObservationJobView }).result;
+    for (let i = 0; i < 100 && limitJob.status === "running"; i++) {
+      await Bun.sleep(20);
+      const reply = await send("readObservationJob", limitJob.id);
+      const text = await reply.text();
+      expect(text).not.toContain("synthetic-key");
+      limitJob = (JSON.parse(text) as { result: ObservationJobView }).result;
+    }
+    expect(limitJob.status).toBe("archived");
+    const limitRef = limitJob.receipt?.ref;
+    if (!limitRef || !("kind" in limitRef) || limitRef.kind !== "daily-trading-limits") throw new Error("missing limit reference");
+    const exchange = { archiveRef: ref, tradingLimitArchiveRef: limitRef };
+    expect((await send("readObservationExchangeIndicators", exchange, false)).status).toBe(401);
+    const first = await send("readObservationExchangeIndicators", exchange);
+    expect(first.status).toBe(200);
+    const expectedExchange = await first.json();
+    expect(expectedExchange).toMatchObject({ result: { archiveRef: ref, dailySignals: {
+      exchangeInputs: { raw: { ref, endpoint: "daily" }, limits: { ref: limitRef, endpoint: "stk_limit" } },
+      rows: [{ date: "2024-01-02", values: { signal_limit_up: true, signal_limit_down: false, signal_broken_limit_up: false } }],
+    } } });
     await host.close();
     host = startWorkbenchServer({ port: 0, assetsRoot: join(root, "assets") });
-    const preview = await (await client(host.server.url.origin))("readObservationIndicators", ref);
+    const restarted = await client(host.server.url.origin);
+    const preview = await restarted("readObservationIndicators", ref);
     expect(preview.status).toBe(200);
     expect(await preview.json()).toMatchObject({ result: { archiveRef: ref, input: { source: "tushare", adjustment: "none" },
       rows: [{ date: "2024-01-02", rsi6: 0, rsi14: 0, rsi24: 0, atr14: 3 }],
       daily: { producer: "whyj", rows: [{ date: "2024-01-02", values: { ma20: null, ema20: 11 } }] } } });
-    expect(calls).toBe(1);
+    expect(await (await restarted("readObservationExchangeIndicators", exchange)).json()).toEqual(expectedExchange);
+    for (const input of [{ ...exchange, tradingLimitArchiveRef: ref }, { ...exchange, rawArchiveRef: limitRef }, { ...exchange, key: "private" }]) {
+      const invalid = await restarted("readObservationExchangeIndicators", input);
+      expect(invalid.status).toBe(400);
+      expect(await invalid.json()).toMatchObject({ error: { code: "INPUT_INVALID" } });
+    }
+    const missing = await restarted("readObservationExchangeIndicators", { ...exchange, tradingLimitArchiveRef: { ...limitRef, revision: "a".repeat(64) } });
+    expect(missing.status).toBe(404);
+    const missingBody: unknown = await missing.json();
+    expect(missingBody).toMatchObject({ error: { code: "OBSERVATION_ARCHIVE_UNAVAILABLE" } });
+    writeFileSync(join(root, "data", "trading-limit-archives-v1", `${limitRef.revision}.json`), "private damaged body");
+    const damaged = await restarted("readObservationExchangeIndicators", exchange);
+    expect(damaged.status).toBe(404);
+    expect(await damaged.json()).toEqual(missingBody);
+    expect(calls).toBe(2);
   } finally { await host.close(); await provider.stop(true); if (previous === undefined) delete process.env.OHQUANT_DIR; else process.env.OHQUANT_DIR = previous; rmSync(root, { recursive: true, force: true }); }
 });

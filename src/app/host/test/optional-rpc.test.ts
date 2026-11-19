@@ -8,6 +8,10 @@ test("an unsupported optional RPC retains its fixed code without masking other f
   await expect(client(404, "METHOD_NOT_FOUND").startDataDraft!()).rejects.toMatchObject({ code: "METHOD_NOT_FOUND", message: "fixture failure" });
   await expect(client(404, "METHOD_NOT_FOUND").readObservationIndicators!({ version: 2, revision: "a".repeat(64) }))
     .rejects.toMatchObject({ code: "METHOD_NOT_FOUND" });
+  await expect(client(404, "METHOD_NOT_FOUND").readObservationExchangeIndicators!({
+    archiveRef: { version: 2, revision: "a".repeat(64) },
+    tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: "b".repeat(64) },
+  })).rejects.toMatchObject({ code: "METHOD_NOT_FOUND" });
   const other = await client(503, "HOST_STOPPING").startDataDraft!().catch(error => error);
   expect(other.message).toBe("fixture failure"); expect(other.code).toBeUndefined();
 });

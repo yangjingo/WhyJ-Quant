@@ -239,7 +239,7 @@ export function ObservationCollection({ client }: { client: WorkbenchClient }) {
         {jobId && problem && <button className="text-action" type="button" onClick={clear}>移除本页任务记录</button>}
         {unknownStart && <button className="text-action" type="button" onClick={() => { savePending(false); setUnknownStart(false); setProblem(""); }}>我已核实，允许重新采集</button>}</div>
       {job && <div className="data-source-result" role="status" aria-live="polite"><strong>{({ running: job.cancelRequested ? "正在取消，等待最终结果" : "采集中", archived: "已保存观察数据", empty: "未返回数据", failed: "采集失败", cancelled: "已取消" } as const)[job.status]}</strong>
-        <p>{job.request.symbol} · {({ daily: "日 K", minute: "分钟 K", factor: "复权因子" } as const)[job.request.dataset]}{job.receipt && ` · ${job.receipt.source} · ${job.receipt.rowCount} 条 · 获取时间 ${job.receipt.observedAt}`}</p>
+        <p>{job.request.symbol} · {({ daily: "日 K", minute: "分钟 K", factor: "复权因子", "daily-trading-limits": "涨跌停价" } as const)[job.request.dataset]}{job.receipt && ` · ${job.receipt.source} · ${job.receipt.rowCount} 条 · 获取时间 ${job.receipt.observedAt}`}</p>
         {job.receipt?.ref && <p className="supporting observation-ref">归档引用（版本 {job.receipt.ref.version}）：<code>{job.receipt.ref.revision}</code></p>}
         <p className="supporting">状态仅保留在当前服务进程；关闭此面板不会取消任务。</p></div>}
       {previewRef && <ObservationIndicators key={`${jobId}:${previewRef.revision}`} archiveRef={previewRef} read={client.readObservationIndicators} />}
