@@ -223,3 +223,14 @@ whyj --json observation replay-sector-rank --market-revision MARKET_SHA --catalo
 ```
 
 `MARKET_SHA` 取自同日 `collect-market` 回执，`CATALOG_SHA` 取自目录采集回执，均为 `data.ref.revision`。将每条成分回执的 `data.ref.revision` 保存为 `members.json` 中的 JSON 字符串数组。空数组 `[]` 可查看目录中哪些板块尚未采集。回放使用本地归档，输出 WhyJ 排行、归档修订和板块覆盖范围。
+
+多日轮动使用 `whyj --json observation replay-sector-rotation --manifest sessions.json --days 12`。`sessions.json` 是按交易日归档集合的 JSON 数组，提交顺序不限。每个对象包含 `marketRevision`、`catalogRevision` 和 `memberRevisions`，值来自同一交易日的采集回执。以下占位符替换成对应的 SHA256 修订。
+
+```json
+[
+  { "marketRevision": "FIRST_MARKET_SHA", "catalogRevision": "FIRST_CATALOG_SHA", "memberRevisions": ["FIRST_MEMBER_SHA"] },
+  { "marketRevision": "SECOND_MARKET_SHA", "catalogRevision": "SECOND_CATALOG_SHA", "memberRevisions": ["SECOND_MEMBER_SHA"] }
+]
+```
+
+默认显示最新 12 个有可比排名的交易日，窗口限制为 7–30 个比较日。发生缺口的日期及其归档仍出现在 `input.sessions` 中。同一板块在上一已提供交易日缺少可比排名时，`rankMovement` 保持 `null`。
