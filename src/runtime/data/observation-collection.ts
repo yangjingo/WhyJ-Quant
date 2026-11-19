@@ -1,7 +1,9 @@
 /** Explicit selected-source collection and immutable replay. No scheduler or TSP transport. */
-import { computeTspDailyIndicatorsAndSignals, TSP_DAILY_INDICATOR_FORMULA_VERSION, TSP_DAILY_SIGNAL_FIELDS, TSP_DAILY_SIGNAL_FORMULA_VERSION, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../../quant/index.ts";
+import { computeTspDailyIndicatorsAndSignals, tspTradingLimitThresholds, TSP_DAILY_INDICATOR_FORMULA_VERSION, TSP_DAILY_SIGNAL_FIELDS, TSP_DAILY_SIGNAL_FORMULA_VERSION, TSP_INDICATOR_FORMULA_VERSION, TSP_INDICATOR_REVISION } from "../../quant/index.ts";
 import { toBarObservations, toFactorObservations, toTradingDateBarObservations, TSP_DAILY_INDICATOR_FIELDS, type KlineAdjustment, type KlineInterval, type SourceRequestOptions, type TradingDateKlineRequest } from "../../source/index.ts";
-import { archiveObservations, loadObservationArchive, archiveTradingDateObservations, loadTradingDateArchive, type ObservationArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
+import { archiveObservations, loadObservationArchive, archiveTradingDateObservations, loadTradingDateArchive, archiveDailyTradingLimits,
+  loadDailyTradingLimitArchive, type ObservationArchiveRef, type StoredTradingDateBarObservation, type TradingDateArchiveRef,
+  type TradingLimitArchiveRef } from "../../storage/index.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
 
 export type ObservationCollectionRequest =
@@ -58,14 +60,82 @@ export async function collectTradingDateObservations(request: TradingDateKlineRe
 /** Read only the requested immutable v2 revision; no provider request or fallback. */
 export const replayTradingDateObservations = loadTradingDateArchive;
 
+export type TradingLimitCollectionReceipt = {
+  source: string; endpoint: string; observedAt: string;
+} & ({ status: "empty"; rowCount: 0; ref: null } | { status: "archived"; rowCount: number; ref: TradingLimitArchiveRef });
+
+export async function collectTradingLimitObservations(request: { symbol: string; startDate: string; endDate: string },
+  options: SourceRequestOptions = {}): Promise<TradingLimitCollectionReceipt> {
+  const { symbol, startDate, endDate } = request;
+  const control = { ...options };
+  control.signal?.throwIfAborted();
+  const source = await createConfiguredMarketDataSource(control.signal);
+  control.signal?.throwIfAborted();
+  const response = await source.fetchDailyTradingLimits({ symbol, market: "A", start: startDate, end: endDate }, control);
+  control.signal?.throwIfAborted();
+  const metadata = { source: response.source, endpoint: response.endpoint, observedAt: response.observedAt };
+  const [first] = response.data;
+  if (!first) return { ...metadata, status: "empty", rowCount: 0, ref: null };
+  if (response.source !== "tushare" || response.endpoint !== "stk_limit" || response.market !== "A") throw new Error("Invalid trading limit source");
+  const rows = response.data.map(({ tradeDate, previousClose, limitUp, limitDown }) => ({ tradeDate, previousClose, limitUp, limitDown }));
+  const ref = await archiveDailyTradingLimits({
+    symbol: first.symbol, market: response.market, source: response.source, endpoint: response.endpoint, observedAt: response.observedAt,
+    coverage: response.coverage, priceUnit: first.priceUnit, requested: { startDate, endDate }, rows,
+  }, control.signal);
+  return { ...metadata, status: "archived", rowCount: rows.length, ref };
+}
+
+export interface DailySignalExchangeRefs {
+  tradingLimitArchiveRef: TradingLimitArchiveRef;
+  rawArchiveRef?: TradingDateArchiveRef;
+}
+
+async function readExchangeInputs(
+  records: readonly StoredTradingDateBarObservation[], archiveRef: TradingDateArchiveRef,
+  exchange: DailySignalExchangeRefs, signal?: AbortSignal,
+) {
+  const rawRef = exchange.rawArchiveRef ?? archiveRef;
+  const [raw, limits] = await Promise.all([
+    exchange.rawArchiveRef ? replayTradingDateObservations(rawRef, signal) : records,
+    loadDailyTradingLimitArchive(exchange.tradingLimitArchiveRef, signal),
+  ]);
+  signal?.throwIfAborted();
+  const firstRaw = raw[0]!;
+  const symbol = records[0]!.symbol;
+  if (firstRaw.adjustment !== "none" || firstRaw.symbol !== symbol || limits.symbol !== symbol) {
+    throw new Error("Exchange signals require unadjusted prices and limits for the same symbol");
+  }
+  return {
+    rawByDate: new Map(raw.map(row => [row.tradeDate, row.values])),
+    limitByDate: new Map(limits.rows.map(row => [row.tradeDate, row])),
+    evidence: {
+      raw: { ref: rawRef, source: firstRaw.source, endpoint: firstRaw.endpoint, observedAt: firstRaw.observedAt, requested: firstRaw.requested },
+      limits: { ref: exchange.tradingLimitArchiveRef, source: limits.source, endpoint: limits.endpoint, observedAt: limits.observedAt, requested: limits.requested },
+    },
+  };
+}
+
 /** Calculate a preview over one immutable daily archive, seeded by its earliest bar. */
-export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, signal?: AbortSignal) {
+export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, signal?: AbortSignal, exchange?: DailySignalExchangeRefs) {
   const archiveRef = { ...ref };
+  const exchangeRefs = exchange && {
+    tradingLimitArchiveRef: { ...exchange.tradingLimitArchiveRef },
+    rawArchiveRef: exchange.rawArchiveRef && { ...exchange.rawArchiveRef },
+  };
   const records = await replayTradingDateObservations(archiveRef, signal);
   signal?.throwIfAborted();
   records.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
   const first = records[0]!; // Storage validates that the batch is nonempty and homogeneous.
-  const bars = records.map(({ tradeDate, values }) => ({ date: tradeDate, ...values }));
+  const inputs = exchangeRefs ? await readExchangeInputs(records, archiveRef, exchangeRefs, signal) : undefined;
+  const bars = records.map(({ tradeDate, values }) => {
+    const raw = inputs?.rawByDate.get(tradeDate);
+    const limits = inputs?.limitByDate.get(tradeDate);
+    return {
+      date: tradeDate, ...values,
+      raw_close: raw?.close, raw_high: raw?.high, raw_low: raw?.low,
+      ...(limits && tspTradingLimitThresholds(limits.limitUp, limits.limitDown)),
+    };
+  });
   const { indicators: daily, signals } = computeTspDailyIndicatorsAndSignals(bars);
 
   return {
@@ -96,6 +166,7 @@ export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, sig
       formula: { id: "tsp_daily_signals" as const, version: TSP_DAILY_SIGNAL_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
       fields: TSP_DAILY_SIGNAL_FIELDS,
       rows: signals,
+      ...(inputs && { exchangeInputs: inputs.evidence }),
     },
   };
 }

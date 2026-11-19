@@ -11,6 +11,15 @@ export interface TspDailySignalBar extends TspIndicatorBar {
   limit_down_price?: number | null;
 }
 
+/** Convert effective exchange prices to the pinned TSP comparison operands. */
+export function tspTradingLimitThresholds(limitUp: number | null, limitDown: number | null) {
+  const halfTickCny = 0.005;
+  const up = limitUp !== null && limitUp > halfTickCny ? limitUp - halfTickCny : null;
+  const down = limitDown !== null ? limitDown + halfTickCny : null;
+  if (up !== null && down !== null && up < down) return { limit_up_price: null, limit_down_price: null };
+  return { limit_up_price: up, limit_down_price: down };
+}
+
 type Field = Exclude<keyof TspDailySignalBar | keyof TspDailyIndicatorRow, "date">;
 type Comparison = readonly [Field, ">" | "<" | ">=" | "<=", Field | number, (0 | 1)?];
 
