@@ -241,6 +241,16 @@ export async function fetchTushareMarketDate(endpoint: "daily" | "daily_basic", 
   return rows;
 }
 
+export function fetchTushareSectorCatalog(tradeDate: string, providerType: "概念板块" | "行业板块", options: TushareOptions) {
+  return boundedTable("dc_index", { trade_date: tradeDate.replaceAll("-", ""), idx_type: providerType },
+    ["ts_code", "trade_date", "name", "idx_type", "level"], 4_999, options);
+}
+
+export function fetchTushareSectorMembers(tradeDate: string, sectorCode: string, options: TushareOptions) {
+  return boundedTable("dc_member", { trade_date: tradeDate.replaceAll("-", ""), ts_code: sectorCode },
+    ["trade_date", "ts_code", "con_code", "name"], 4_999, options);
+}
+
 export async function searchTushareSymbols(keyword: string, options: TushareOptions = {}): Promise<SymbolInfo[]> {
   const rows = await callTushare(
     "stock_basic",

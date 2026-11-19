@@ -9,7 +9,8 @@ import type { MarketDataSource, SourceConnection, SourceRequestOptions } from ".
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
 import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareFinancialDisclosureDates,
-  fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareMarketDate, fetchTushareReportFinancialIndicators } from "./tushare.ts";
+  fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareMarketDate, fetchTushareReportFinancialIndicators,
+  fetchTushareSectorCatalog, fetchTushareSectorMembers } from "./tushare.ts";
 
 export interface MarketObservation<T> {
   source: ProviderSource;
@@ -114,6 +115,21 @@ export interface DailyMarketBasics {
   marketValueUnit: "CNY-ten-thousand";
   rows: DailyMarketBasic[];
 }
+export interface DatedSectorCatalog {
+  tradeDate: string;
+  taxonomy: "eastmoney";
+  kind: "concept" | "industry";
+  providerType: "概念板块" | "行业板块";
+  groups: { code: string; name: string; level: string | null }[];
+}
+
+export interface DatedSectorMembers {
+  tradeDate: string;
+  taxonomy: "eastmoney";
+  sectorCode: string;
+  members: { symbol: string; name: string | null }[];
+}
+
 export interface TradingCalendar {
   zone: "Asia/Shanghai";
   start: string;
@@ -173,6 +189,10 @@ export interface MarketObservationSource {
     Promise<MarketObservation<FinancialDisclosureDate[]>>;
   fetchDailyMarketBars(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyMarketBars>>;
   fetchDailyMarketBasics(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyMarketBasics>>;
+  fetchDatedSectorCatalog(request: { market: Market; tradeDate: string; kind: DatedSectorCatalog["kind"] }, options?: SourceRequestOptions):
+    Promise<MarketObservation<DatedSectorCatalog>>;
+  fetchDatedSectorMembers(request: { market: Market; tradeDate: string; sectorCode: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<DatedSectorMembers>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
   fetchHistoricalStockUniverse(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
@@ -190,6 +210,8 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchFinancialDisclosureDates: { tushare: "A" },
   fetchDailyMarketBars: { tushare: "A" },
   fetchDailyMarketBasics: { tushare: "A" },
+  fetchDatedSectorCatalog: { tushare: "A" },
+  fetchDatedSectorMembers: { tushare: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
@@ -212,6 +234,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchReportFinancialIndicators: status("fetchReportFinancialIndicators"),
     fetchFinancialDisclosureDates: status("fetchFinancialDisclosureDates"),
     fetchDailyMarketBars: status("fetchDailyMarketBars"), fetchDailyMarketBasics: status("fetchDailyMarketBasics"),
+    fetchDatedSectorCatalog: status("fetchDatedSectorCatalog"), fetchDatedSectorMembers: status("fetchDatedSectorMembers"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
     fetchHistoricalMinuteBars: status("fetchHistoricalMinuteBars"),
@@ -246,6 +269,8 @@ function nonnegativeObservation(value: unknown): number | null {
 function isAStock(symbol: string): boolean {
   return !isAIndexSymbol(symbol) && /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:[48]\d{5}|92\d{4})\.BJ)$/.test(symbol);
 }
+
+const eastmoneySectorCode = /^BK\d{4,8}\.DC$/;
 
 export function createMarketObservationSource(connection: SourceConnection, fetchQuotes: MarketDataSource["fetchQuotes"]): MarketObservationSource {
   const { source, apiKey, baseUrl, env } = connection;
@@ -398,6 +423,44 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
       }));
       return result<DailyMarketBasics>(market, "daily_basic", { tradeDate, priceUnit: "CNY",
         shareUnit: "ten-thousand-shares", marketValueUnit: "CNY-ten-thousand", rows });
+    },
+    async fetchDatedSectorCatalog({ market, tradeDate, kind }, options) {
+      validate("fetchDatedSectorCatalog", market);
+      if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || (kind !== "concept" && kind !== "industry")) {
+        throw new Error("Invalid sector catalog request");
+      }
+      const providerType = kind === "concept" ? "概念板块" : "行业板块";
+      const rows = await readReference(options, signal => fetchTushareSectorCatalog(tradeDate, providerType, { token: apiKey, baseUrl, env, signal }));
+      const compactDate = tradeDate.replaceAll("-", "");
+      const seen = new Set<string>();
+      const groups = rows.map(row => {
+        const { ts_code: code, name, level } = row;
+        if (row.trade_date !== compactDate || row.idx_type !== providerType || typeof code !== "string" || !eastmoneySectorCode.test(code) ||
+          seen.has(code) || typeof name !== "string" || !name.trim() || (level !== null && typeof level !== "string")) {
+          throw new Error("Provider sector catalog observation invalid");
+        }
+        seen.add(code);
+        return { code, name: name.trim(), level: level?.trim() || null };
+      }).sort((left, right) => left.code.localeCompare(right.code));
+      return result<DatedSectorCatalog>(market, "dc_index", { tradeDate, taxonomy: "eastmoney", kind, providerType, groups });
+    },
+    async fetchDatedSectorMembers({ market, tradeDate, sectorCode: input }, options) {
+      validate("fetchDatedSectorMembers", market);
+      const sectorCode = typeof input === "string" ? input.trim().toUpperCase() : "";
+      if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate < "2024-12-20" || !eastmoneySectorCode.test(sectorCode)) {
+        throw new Error("Invalid dated sector membership request");
+      }
+      const rows = await readReference(options, signal => fetchTushareSectorMembers(tradeDate, sectorCode, { token: apiKey, baseUrl, env, signal }));
+      const compactDate = tradeDate.replaceAll("-", "");
+      const seen = new Set<string>();
+      const members = rows.map(row => {
+        const { con_code: symbol, name } = row;
+        if (row.trade_date !== compactDate || row.ts_code !== sectorCode || typeof symbol !== "string" || !isAStock(symbol) ||
+          seen.has(symbol) || (name !== null && typeof name !== "string")) throw new Error("Provider dated sector membership invalid");
+        seen.add(symbol);
+        return { symbol, name: name?.trim() || null };
+      }).sort((left, right) => left.symbol.localeCompare(right.symbol));
+      return result<DatedSectorMembers>(market, "dc_member", { tradeDate, taxonomy: "eastmoney", sectorCode, members });
     },
     async fetchTradingCalendar({ market, start, end }, options) {
       validate("fetchTradingCalendar", market);
