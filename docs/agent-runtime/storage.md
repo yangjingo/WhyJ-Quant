@@ -89,6 +89,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 `archiveFinancialObservations` 分别保存 Tushare `fina_indicator` 的单标的报告期范围响应，或 `disclosure_date` 的单标的单报告期响应。两类归档各自记录请求、端点和取数时间，保留同报告期多行、返回顺序、修订标记、零值和空值。空响应也有独立归档引用，覆盖标为未知。`loadFinancialObservationArchive` 按种类和内容摘要读取 `.ohquant/data/financial-observation-archives-v1/` 下的精确版本。历史回放需另外证明所用财务指标版本在判断时点已公开。
 
+`archiveSectorObservations` 按单个交易日分别归档东方财富板块目录 `dc_index` 和单板块成分 `dc_member` 的观察结果。每份归档保留其端点、分类口径、取数时间、原始行顺序和空值，成功的空响应也有精确引用。`loadSectorObservationArchive` 从 `.ohquant/data/sector-observation-archives-v1/` 按种类和摘要读取。后续排行使用归档中的提供商快照；交易日和取数时间仍分别记录，历史发布时间保持未知。
+
 每日涨跌停价可通过 `archiveDailyTradingLimits` 保存为独立的 `daily-trading-limits` 归档。每批包含同一 A 股标的、请求区间、按日排序的昨收和上下限、Tushare `stk_limit` 来源及观察时间。价格单位为元，保留供应商返回的空值。归档有自己的版本和内容摘要，文件位于 `.ohquant/data/trading-limit-archives-v1/`。 `loadDailyTradingLimitArchive` 只读给定引用，校验种类、摘要和记录，损坏或缺失时直接失败。该归档保存供应商价格，阈值容差和信号由 Quant 计算。
 
 Storage 的 `archiveObservations` 接收同一标的、来源、端点、观察时间和数据类型的一批 Source v1 日线、分钟线或复权因子观察；K 线还要求同一周期和复权口径。每批必须非空、时间戳不重复。复权因子跨标的结果须按标的拆批。当前只接受无查询参数的相对端点路径，避免把凭证写入归档。数值、零值、空成交额与未知字段原样保留；不会补齐缺失数据或套用因子。
