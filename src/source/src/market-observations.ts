@@ -8,7 +8,8 @@ import { SourceRequestError } from "./market-data-error.ts";
 import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
-import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareHistoricalMinutes } from "./tushare.ts";
+import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareFinancialDisclosureDates,
+  fetchTushareHistoricalMinutes, fetchTushareReportFinancialIndicators } from "./tushare.ts";
 
 export interface MarketObservation<T> {
   source: ProviderSource;
@@ -43,6 +44,30 @@ export interface DailyTradingLimit {
   limitUp: number | null;
   limitDown: number | null;
   priceUnit: "CNY";
+}
+export interface ReportFinancialIndicator {
+  symbol: string;
+  periodEnd: string;
+  announcementDate: string | null;
+  updateFlag: string | null;
+  bookValuePerShare: number | null;
+  bookValueCurrency: "unknown";
+  roe: number | null;
+  grossProfitMargin: number | null;
+  netProfitMargin: number | null;
+  operatingRevenueYoyPct: number | null;
+  totalOperatingRevenueYoyPct: number | null;
+  parentNetProfitYoyPct: number | null;
+  debtToAssets: number | null;
+  ratioUnit: "provider-native";
+}
+export interface FinancialDisclosureDate {
+  symbol: string;
+  periodEnd: string;
+  planAnnouncementDate: string | null;
+  plannedDisclosureDate: string | null;
+  actualDisclosureDate: string | null;
+  modificationRecord: string | null;
 }
 export interface TradingCalendar {
   zone: "Asia/Shanghai";
@@ -86,6 +111,10 @@ export interface MarketObservationSource {
   fetchPriceSnapshot(request: { symbol: string; market: Market }, options?: SourceRequestOptions): Promise<MarketObservation<PriceSnapshot | null>>;
   fetchDailyValuation(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyValuation | null>>;
   fetchDailyTradingLimits(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyTradingLimit[]>>;
+  fetchReportFinancialIndicators(request: { symbol: string; market: Market; startPeriod: string; endPeriod: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<ReportFinancialIndicator[]>>;
+  fetchFinancialDisclosureDates(request: { symbol: string; market: Market; periodEnd: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<FinancialDisclosureDate[]>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
   fetchHistoricalMinuteBars(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions):
@@ -97,6 +126,8 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchPriceSnapshot: { tickflow: "A", "financial-datasets": "US" },
   fetchDailyValuation: { tushare: "A" },
   fetchDailyTradingLimits: { tushare: "A" },
+  fetchReportFinancialIndicators: { tushare: "A" },
+  fetchFinancialDisclosureDates: { tushare: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalMinuteBars: { tushare: "A" },
@@ -115,6 +146,8 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
   return {
     fetchPriceSnapshot: status("fetchPriceSnapshot"), fetchDailyValuation: status("fetchDailyValuation"),
     fetchDailyTradingLimits: status("fetchDailyTradingLimits"),
+    fetchReportFinancialIndicators: status("fetchReportFinancialIndicators"),
+    fetchFinancialDisclosureDates: status("fetchFinancialDisclosureDates"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalMinuteBars: status("fetchHistoricalMinuteBars"),
   };
@@ -124,6 +157,19 @@ function nullableNumber(value: unknown): number | null {
   if (value == null) return null;
   if (typeof value !== "number" || !Number.isFinite(value)) throw new Error("Provider observation field invalid");
   return value;
+}
+
+function financialDate(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !/^\d{8}$/.test(value)) throw new Error("Provider financial date invalid");
+  const date = `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+  if (!isDailyDate(date)) throw new Error("Provider financial date invalid");
+  return date;
+}
+
+function financialText(value: unknown): string | null {
+  if (value === null || (typeof value === "string" && value.trim())) return value;
+  throw new Error("Provider financial revision field invalid");
 }
 
 function isAStock(symbol: string): boolean {
@@ -194,6 +240,48 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
         return { symbol, tradeDate, previousClose, limitUp, limitDown, priceUnit: "CNY" as const };
       }).sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
       return result(market, "stk_limit", data);
+    },
+    async fetchReportFinancialIndicators({ symbol: input, market, startPeriod, endPeriod }, options) {
+      validate("fetchReportFinancialIndicators", market);
+      const symbol = normalizeSymbol(input, market);
+      if (!isAStock(symbol) || typeof startPeriod !== "string" || typeof endPeriod !== "string") {
+        throw new Error("Invalid report financial indicator request");
+      }
+      validateDateRange(startPeriod, endPeriod);
+      const rows = await readReference(options, signal =>
+        fetchTushareReportFinancialIndicators(symbol, startPeriod, endPeriod, { token: apiKey, baseUrl, env, signal }));
+      const data = rows.map((row): ReportFinancialIndicator => {
+        const periodEnd = financialDate(row.end_date);
+        if (periodEnd === null || periodEnd < startPeriod || periodEnd > endPeriod) {
+          throw new Error("Provider financial report period outside request");
+        }
+        return {
+          symbol, periodEnd, announcementDate: financialDate(row.ann_date), updateFlag: financialText(row.update_flag),
+          bookValuePerShare: nullableNumber(row.bps), bookValueCurrency: "unknown", roe: nullableNumber(row.roe),
+          grossProfitMargin: nullableNumber(row.grossprofit_margin), netProfitMargin: nullableNumber(row.netprofit_margin),
+          operatingRevenueYoyPct: nullableNumber(row.or_yoy), totalOperatingRevenueYoyPct: nullableNumber(row.tr_yoy),
+          parentNetProfitYoyPct: nullableNumber(row.netprofit_yoy), debtToAssets: nullableNumber(row.debt_to_assets),
+          ratioUnit: "provider-native",
+        };
+      });
+      return result(market, "fina_indicator", data);
+    },
+    async fetchFinancialDisclosureDates({ symbol: input, market, periodEnd }, options) {
+      validate("fetchFinancialDisclosureDates", market);
+      const symbol = normalizeSymbol(input, market);
+      if (!isAStock(symbol) || typeof periodEnd !== "string" || !isDailyDate(periodEnd)) {
+        throw new Error("Invalid financial disclosure date request");
+      }
+      const rows = await readReference(options, signal =>
+        fetchTushareFinancialDisclosureDates(symbol, periodEnd, { token: apiKey, baseUrl, env, signal }));
+      const data = rows.map((row): FinancialDisclosureDate => {
+        if (financialDate(row.end_date) !== periodEnd) throw new Error("Provider financial disclosure period outside request");
+        return {
+          symbol, periodEnd, planAnnouncementDate: financialDate(row.ann_date), plannedDisclosureDate: financialDate(row.pre_date),
+          actualDisclosureDate: financialDate(row.actual_date), modificationRecord: financialText(row.modify_date),
+        };
+      });
+      return result(market, "disclosure_date", data);
     },
     async fetchTradingCalendar({ market, start, end }, options) {
       validate("fetchTradingCalendar", market);

@@ -27,6 +27,8 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchFinancials` | TickFlow `/v1/financials/{income,balance-sheet,cash-flow,metrics,shares}`. E.g. report `period_end` and `announce_date` map independently and `net_income` maps to `netIncome`. An announcement date does not establish availability at a modeled execution time. |
 | `fetchDailyValuation` | Tushare `daily_basic` requires an exact stock trade date. `pe`, `pe_ttm`, `pb`, `total_mv`, and `circ_mv` have separate meanings. Dates are validated and monetary units remain native. |
 | `fetchDailyTradingLimits` | Tushare `stk_limit` supplies one A-share stock's previous close and effective limit prices in CNY over a bounded inclusive trading-date range. Availability depends on the selected account. WhyJ rule thresholds are computed separately. |
+| `fetchReportFinancialIndicators` | Tushare `fina_indicator` supplies provider ratios, per-share book value and report announcement metadata for one A-share stock and an inclusive report-period window. Retains same-period rows and rejects cap-saturated responses. |
+| `fetchFinancialDisclosureDates` | Tushare `disclosure_date` supplies plan and actual disclosure dates and correction text for one A-share stock and one report period. These dates do not identify the release of a given ratio revision. |
 | `fetchHistoricalMinuteBars` | Tushare `stk_mins` returns past A-share one-minute bars for one symbol with a bounded date window. It preserves original Shanghai labels, shares, CNY, and an explicit 09:30 opening-boundary flag. Coverage and finality are unknown. |
 | `searchInstruments`, `fetchInstrumentUniverse`, `fetchTradingCalendar` | Tushare A-share `stock_basic` searches by name, AKShare SH/SZ main-board rosters retain per-exchange endpoint evidence, and AKShare/Sina `tool_trade_date_hist_sina` returns dates. The roster is current and limited in scope. It is not a historical symbol master or market coverage guarantee. |
 | `fetchFundNav`, `fetchFundProfile`, `fetchFundPurchaseTerms`, `fetchFundPerformance` | AKShare/Eastmoney and Tushare `fund_nav` provide open-fund NAV. AKShare `fund_info_ths` and Snowball supply profile fields, `fund_purchase_em` supplies current purchase terms and headline fee, and Snowball achievement/risk endpoints map to separate result arrays. Raw rank and tiered fee schedules retain their provider-specific contracts. |
@@ -378,6 +380,8 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `MarketObservationSource` | type | Observation facade operations | — |
 | `DailyValuation` | type | Date-specific market valuation | — |
 | `DailyTradingLimit` | type | Date-specific exchange threshold observation | — |
+| `ReportFinancialIndicator` | type | Report-period provider values with announcement and update metadata | — |
+| `FinancialDisclosureDate` | type | Report-period schedule and actual disclosure observation | — |
 | `HistoricalMinuteBar` | type | Dated historical minute observation with its original time label | — |
 | `HistoricalMinuteObservation` | type | Historical minute window with units and original rows | — |
 | `PriceSnapshot` | type | Last price and day change | — |

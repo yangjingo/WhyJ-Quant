@@ -61,14 +61,18 @@ function assertResponseSymbol(rows: Array<Record<string, TusharePrimitive>>, sym
 
 const MINUTE_FIELDS = ["ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount"];
 
-export async function fetchTushareHistoricalMinutes(symbol: string, start: string, end: string, options: TushareOptions) {
+function boundedTushareUrl(options: TushareOptions): string {
   const env = options.env ?? process.env;
   const url = new URL(options.baseUrl ?? env.TUSHARE_BASE_URL ?? DEFAULT_TUSHARE_BASE_URL);
   if (url.username || url.password || url.search || url.hash || (url.protocol !== "https:" &&
     !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) {
     throw new Error("Invalid Tushare base URL");
   }
-  const result = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(url.href, {
+  return url.href;
+}
+
+export async function fetchTushareHistoricalMinutes(symbol: string, start: string, end: string, options: TushareOptions) {
+  const result = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(boundedTushareUrl(options), {
     api_name: "stk_mins", token: token(options),
     params: { ts_code: symbol, freq: "1min", start_date: `${start} 09:00:00`, end_date: `${end} 19:00:00` },
     fields: MINUTE_FIELDS.join(","),
@@ -143,11 +147,7 @@ export async function fetchTushareDailyValuation(symbol: string, date: string, o
 const TRADING_LIMIT_FIELDS = ["ts_code", "trade_date", "pre_close", "up_limit", "down_limit"];
 
 export async function fetchTushareDailyTradingLimits(symbol: string, start: string, end: string, options: TushareOptions) {
-  const env = options.env ?? process.env;
-  const url = new URL(options.baseUrl ?? env.TUSHARE_BASE_URL ?? DEFAULT_TUSHARE_BASE_URL);
-  if (url.username || url.password || url.search || url.hash || (url.protocol !== "https:" && !(url.protocol === "http:" &&
-    ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) throw new Error("Invalid Tushare base URL");
-  const result = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(url.href, {
+  const result = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(boundedTushareUrl(options), {
     api_name: "stk_limit", token: token(options),
     params: { ts_code: symbol, start_date: start.replaceAll("-", ""), end_date: end.replaceAll("-", "") },
     fields: TRADING_LIMIT_FIELDS.join(","),
@@ -163,6 +163,32 @@ export async function fetchTushareDailyTradingLimits(symbol: string, start: stri
     if (typeof row.trade_date !== "string" || !/^\d{8}$/.test(row.trade_date)) throw new Error("Provider trading limit date invalid");
     return { tradeDate: formatDate(row.trade_date), pre_close: row.pre_close, up_limit: row.up_limit, down_limit: row.down_limit };
   });
+}
+
+async function fetchFinancialRows(apiName: string, symbol: string, params: Record<string, string>, expectedFields: string[],
+  cap: number, options: TushareOptions) {
+  const response = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(boundedTushareUrl(options), {
+    api_name: apiName, token: token(options), params: { ts_code: symbol, ...params }, fields: expectedFields.join(","),
+  }, 2 * 1024 * 1024, { signal: options.signal });
+  const fields = response?.data?.fields, items = response?.data?.items;
+  if (response?.code !== 0 || !Array.isArray(fields) || fields.length !== expectedFields.length ||
+    !expectedFields.every(field => fields.includes(field)) || !Array.isArray(items) || items.length >= cap ||
+    items.some(row => !Array.isArray(row) || row.length !== fields.length)) throw new Error("Provider financial response invalid");
+  const rows = items.map(row => Object.fromEntries(fields.map((field, index) => [field, row[index]!])));
+  assertResponseSymbol(rows, symbol);
+  return rows;
+}
+
+export function fetchTushareReportFinancialIndicators(symbol: string, startPeriod: string, endPeriod: string, options: TushareOptions) {
+  return fetchFinancialRows("fina_indicator", symbol, {
+    start_date: startPeriod.replaceAll("-", ""), end_date: endPeriod.replaceAll("-", ""),
+  }, ["ts_code", "end_date", "ann_date", "update_flag", "bps", "roe", "grossprofit_margin", "netprofit_margin",
+    "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets"], 100, options);
+}
+
+export function fetchTushareFinancialDisclosureDates(symbol: string, periodEnd: string, options: TushareOptions) {
+  return fetchFinancialRows("disclosure_date", symbol, { end_date: periodEnd.replaceAll("-", "") },
+    ["ts_code", "end_date", "ann_date", "pre_date", "actual_date", "modify_date"], 6_000, options);
 }
 
 export async function searchTushareSymbols(keyword: string, options: TushareOptions = {}): Promise<SymbolInfo[]> {
