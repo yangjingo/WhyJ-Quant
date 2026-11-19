@@ -3,6 +3,8 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { collectTradingDateObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
+import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
+import { replayTspSectorRanking } from "../../../src/runtime/data/sector-rank-replay.ts";
 
 const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
@@ -48,6 +50,42 @@ async function readRevisionFile(path: string, signal?: AbortSignal): Promise<str
 
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
+  if (action === "collect-sector-catalog" || action === "collect-sector-members") {
+    const catalog = action === "collect-sector-catalog";
+    const fields = parseOptions(options, ["--date", catalog ? "--kind" : "--sector-code"]);
+    const tradeDate = fields.get("--date"), groupKind = fields.get("--kind"), sectorCode = fields.get("--sector-code");
+    if (!tradeDate || !isDailyDate(tradeDate)) throw invalid();
+    let request: SectorCollectionRequest;
+    if (catalog) {
+      if (groupKind !== "industry" && groupKind !== "concept") throw invalid();
+      request = { kind: "dated-sector-catalog", groupKind, tradeDate };
+    } else {
+      if (!sectorCode || !/^BK\d{4,8}\.DC$/.test(sectorCode)) throw invalid();
+      request = { kind: "dated-sector-members", sectorCode, tradeDate };
+    }
+    try {
+      return await collectSectorObservations(request, { signal });
+    } catch {
+      throw Object.assign(new Error("Could not collect dated sector observations. Check the configured source and use whyj --json doctor --phase data."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-sector-rank") {
+    const fields = parseOptions(options, ["--market-revision", "--catalog-revision", "--members-file"]);
+    const market = fields.get("--market-revision"), catalog = fields.get("--catalog-revision"), path = fields.get("--members-file");
+    if (!market || !catalog || !path || !revisionPattern.test(market) || !revisionPattern.test(catalog)) throw invalid();
+    const revisions = await readRevisionFile(path, signal);
+    if (revisions.length >= 5_000) throw invalid();
+    try {
+      return await replayTspSectorRanking({
+        marketRef: { version: 1, kind: "market-cross-section", revision: market },
+        catalogRef: { version: 1, kind: "dated-sector-catalog", revision: catalog },
+        memberRefs: revisions.map(revision => ({ version: 1, kind: "dated-sector-members", revision })),
+      }, signal);
+    } catch {
+      throw Object.assign(new Error("Could not replay the requested market and sector archive revisions."), { code: "observation_archive_unavailable" });
+    }
+  }
   if (action === "collect-daily" || action === "collect-minutes") {
     const minutes = action === "collect-minutes";
     const flags = ["--symbol", "--start", "--end"];
