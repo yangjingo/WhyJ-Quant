@@ -1,5 +1,5 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
-import type { StoredTradingDateBarObservation, TradingDateArchiveRef } from "./observation.ts";
+import type { ObservationArchiveRef, StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef } from "./observation.ts";
 /**
  * The workbench's view of the Host.
  *
@@ -292,6 +292,7 @@ export interface WorkbenchClient {
   readObservationJob?(id: string): Promise<ObservationJobView>;
   cancelObservationJob?(id: string): Promise<ObservationJobView>;
   readObservationIndicators?(ref: TradingDateArchiveRef): Promise<ObservationIndicatorPreview>;
+  readObservationExchangeIndicators?(input: ObservationExchangePreviewRequest): Promise<ObservationIndicatorPreview>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
   verifyModelDraft?(id: string): Promise<ModelDraftView>;
@@ -385,14 +386,29 @@ export type ObservationJobRequest =
   | { dataset: "daily"; symbol: string; startTime: number; endTime: number; adjustment: "none" | "forward" }
   | { dataset: "daily"; timeMode: "trading-date"; symbol: string; startDate: string; endDate: string; adjustment: "none" | "forward" }
   | { dataset: "minute"; symbol: string; startTime: number; endTime: number; adjustment: "none" | "forward"; interval: "1m" | "5m" | "10m" | "15m" | "30m" | "60m" }
+  | { dataset: "daily-trading-limits"; symbol: string; startDate: string; endDate: string }
   | { dataset: "factor"; symbol: string; startTime: number; endTime: number };
 export interface ObservationJobView {
   id: string;
   request: ObservationJobRequest;
   status: "running" | "archived" | "empty" | "failed" | "cancelled";
   cancelRequested: boolean;
-  receipt: { source: string; endpoint: string; observedAt: string; rowCount: number; ref: { version: 1; revision: string } | { version: 2; revision: string } | null } | null;
+  receipt: { source: string; endpoint: string; observedAt: string; rowCount: number; ref: ObservationArchiveRef | TradingDateArchiveRef | TradingLimitArchiveRef | null } | null;
   error: "COLLECTION_FAILED" | null;
+}
+
+export interface ObservationExchangePreviewRequest {
+  archiveRef: TradingDateArchiveRef;
+  rawArchiveRef?: TradingDateArchiveRef;
+  tradingLimitArchiveRef: TradingLimitArchiveRef;
+}
+
+interface ExchangeInputEvidence<Ref> {
+  ref: Ref;
+  source: string;
+  endpoint: string;
+  observedAt: string;
+  requested: { startDate: string; endDate: string };
 }
 
 export interface ObservationIndicatorPreview {
@@ -418,5 +434,9 @@ export interface ObservationIndicatorPreview {
     formula: { id: "tsp_daily_signals"; version: number; revision: string };
     fields: readonly string[];
     rows: { date: string; values: Record<string, boolean | null> }[];
+    exchangeInputs?: {
+      raw: ExchangeInputEvidence<TradingDateArchiveRef>;
+      limits: ExchangeInputEvidence<TradingLimitArchiveRef>;
+    };
   };
 }
