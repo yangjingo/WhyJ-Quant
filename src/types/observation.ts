@@ -53,3 +53,28 @@ export interface StoredTradingDateBarObservation {
   values: { open: number; high: number; low: number; close: number; volume: number; amount: number | null };
 }
 export interface TradingDateArchiveRef { version: 2; revision: string }
+
+export interface StoredDailyTradingLimit {
+  tradeDate: string;
+  previousClose: number | null;
+  limitUp: number | null;
+  limitDown: number | null;
+}
+
+export interface StoredDailyTradingLimitBatch {
+  symbol: string;
+  market: "A";
+  source: "tushare";
+  endpoint: "stk_limit";
+  observedAt: string;
+  coverage: "unknown";
+  priceUnit: "CNY";
+  requested: { startDate: string; endDate: string };
+  rows: StoredDailyTradingLimit[];
+}
+
+export interface TradingLimitArchiveRef {
+  version: 1;
+  kind: "daily-trading-limits";
+  revision: string;
+}
