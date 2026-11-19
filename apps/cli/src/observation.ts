@@ -1,6 +1,7 @@
 import { open } from "node:fs/promises";
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol } from "../../../src/market/symbols.ts";
+import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
@@ -102,6 +103,24 @@ function parseEnvironmentManifest(value: unknown): MarketEnvironmentReplayReques
   };
 }
 
+function parseAuctionManifest(value: unknown): AuctionBenchmarkReplayRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 3) throw invalid();
+  const { auctionRevision, calendar, marketRevisions } = value as Record<string, unknown>;
+  if (typeof auctionRevision !== "string" || !revisionPattern.test(auctionRevision)
+    || !calendar || typeof calendar !== "object" || Array.isArray(calendar) || Object.keys(calendar).length !== 4) throw invalid();
+  const { revision, tradeDate, previousTradeDate, nextTradeDate } = calendar as Record<string, unknown>;
+  if (typeof revision !== "string" || !revision.trim() || typeof tradeDate !== "string" || !isDailyDate(tradeDate)
+    || (previousTradeDate !== null && (typeof previousTradeDate !== "string" || !isDailyDate(previousTradeDate) || previousTradeDate >= tradeDate))
+    || (nextTradeDate !== null && (typeof nextTradeDate !== "string" || !isDailyDate(nextTradeDate) || nextTradeDate <= tradeDate))) throw invalid();
+  const revisions = validateRevisions(marketRevisions);
+  if (revisions.length > 3) throw invalid();
+  return {
+    auctionRef: { version: 1, kind: "auction-benchmark", revision: auctionRevision },
+    calendar: { revision, tradeDate, previousTradeDate, nextTradeDate },
+    marketRefs: revisions.map(revision => ({ version: 1, kind: "market-cross-section", revision })),
+  };
+}
+
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
   if (action === "collect-benchmark" || action === "collect-limits") {
@@ -129,6 +148,25 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     try { return await replayTspMarketEnvironment(request, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested market environment archives."), { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "collect-auction") {
+    const tradeDate = parseOptions(options, ["--date"]).get("--date");
+    if (!tradeDate || !isDailyDate(tradeDate)) throw invalid();
+    try { return await collectAuctionBenchmark(tradeDate, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested auction benchmark. Check the configured Fuyao credential and date."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-auction") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseAuctionManifest(await readObservationJsonFile(path, 4096, signal));
+    try { return await replayTspAuctionBenchmark(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested auction benchmark and price archive revisions."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "collect-sector-catalog" || action === "collect-sector-members") {
