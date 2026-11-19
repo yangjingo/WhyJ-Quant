@@ -2,8 +2,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, ObservationArchiveRef, StoredDailyTradingLimitBatch,
-  StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredObservation, StoredTradingDateBarObservation,
+import type { FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, StoredDailyTradingLimitBatch,
+  StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol } from "../../market/symbols.ts";
@@ -358,5 +358,81 @@ export async function loadFinancialObservationArchive(ref: FinancialObservationA
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== kind) throw fail();
   validateFinancialBatch(data.batch);
   if (financialKinds[data.batch.endpoint] !== kind) throw fail();
+  return data.batch;
+}
+
+const marketSectionKind = "market-cross-section";
+const marketSectionDir = () => join(resolveDataDir(), "market-cross-section-archives-v1");
+const stockSymbol = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
+const finiteOrNull = (value: unknown) => value === null || (typeof value === "number" && Number.isFinite(value));
+const nonnegativeOrNull = (value: unknown) => value === null || nonnegative(value);
+
+function marketSectionPath(ref: MarketCrossSectionArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 ||
+    ref.kind !== marketSectionKind || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(marketSectionDir(), `${ref.revision}.json`);
+}
+
+function marketSlice(value: unknown, endpoint: string, tradeDate: string, keys: string[]) {
+  if (!object(value) || !exactKeys(value, ["endpoint", "tradeDate", "observedAt", "coverage", ...keys]) ||
+    value.endpoint !== endpoint || value.tradeDate !== tradeDate || value.coverage !== "unknown" ||
+    typeof value.observedAt !== "string" || !instant(value.observedAt) || tradeDate > shanghaiDate(Date.parse(value.observedAt))) throw fail();
+  return value;
+}
+
+function marketRows(rows: unknown, max: number, keys: string[], valid: (row: Record<string, unknown>) => boolean) {
+  if (!Array.isArray(rows) || rows.length > max) throw fail();
+  let previous = "";
+  for (const row of rows) {
+    if (!object(row) || !exactKeys(row, ["symbol", ...keys]) || typeof row.symbol !== "string" ||
+      !stockSymbol.test(row.symbol) || row.symbol <= previous || !valid(row)) throw fail();
+    previous = row.symbol;
+  }
+}
+
+const basicNonnegativeFields = ["close", "turnoverPct", "freeFloatTurnoverPct", "providerVolumeRatio",
+  "totalShares", "floatShares", "freeFloatShares", "totalMarketValue", "circulatingMarketValue"];
+
+function validateMarketSection(batch: unknown): asserts batch is StoredMarketCrossSection {
+  if (!object(batch) || !exactKeys(batch, ["source", "market", "tradeDate", "universe", "bars", "basics"]) ||
+    batch.source !== "tushare" || batch.market !== "A" || typeof batch.tradeDate !== "string" ||
+    !isDailyDate(batch.tradeDate) || batch.tradeDate < "2016-01-01" || batch.tradeDate > "9998-12-31") throw fail();
+
+  const { tradeDate } = batch;
+  const universe = marketSlice(batch.universe, "bak_basic", tradeDate, ["universe", "members"]);
+  if (universe.universe !== "provider-dated-stocks") throw fail();
+  marketRows(universe.members, 6999, ["name", "industry", "listedOn"], row =>
+    typeof row.name === "string" && !!row.name.trim() && (row.industry === null || typeof row.industry === "string") &&
+    (row.listedOn === null || (typeof row.listedOn === "string" && isDailyDate(row.listedOn) &&
+      row.listedOn >= "0001-01-01" && row.listedOn <= tradeDate)));
+
+  const bars = marketSlice(batch.bars, "daily", tradeDate, ["adjustment", "priceUnit", "volumeUnit", "amountUnit", "rows"]);
+  if (bars.adjustment !== "none" || bars.priceUnit !== "CNY" || bars.volumeUnit !== "hand" || bars.amountUnit !== "CNY-thousand") throw fail();
+  marketRows(bars.rows, 5999, ["open", "high", "low", "close", "exRightsPreviousClose", "returnPct", "changeCny", "volume", "amount"],
+    row => nonnegative(row.open) && nonnegative(row.high) && nonnegative(row.low) && nonnegative(row.close) && row.low > 0 &&
+      row.high >= Math.max(row.open, row.close) && row.low <= Math.min(row.open, row.close) &&
+      positiveOrNull(row.exRightsPreviousClose) && finiteOrNull(row.changeCny) &&
+      (row.returnPct === null || (typeof row.returnPct === "number" && Number.isFinite(row.returnPct) && row.returnPct >= -100)) &&
+      nonnegativeOrNull(row.volume) && nonnegativeOrNull(row.amount));
+
+  const basics = marketSlice(batch.basics, "daily_basic", tradeDate, ["priceUnit", "shareUnit", "marketValueUnit", "rows"]);
+  if (basics.priceUnit !== "CNY" || basics.shareUnit !== "ten-thousand-shares" || basics.marketValueUnit !== "CNY-ten-thousand") throw fail();
+  marketRows(basics.rows, 5999, [...basicNonnegativeFields, "pe", "peTtm", "pb"], row =>
+    basicNonnegativeFields.every(key => nonnegativeOrNull(row[key])) && [row.pe, row.peTtm, row.pb].every(finiteOrNull));
+}
+
+/** Keep each normalized response with its own capture time and native units. */
+export async function archiveMarketCrossSection(batch: StoredMarketCrossSection, signal?: AbortSignal): Promise<MarketCrossSectionArchiveRef> {
+  validateMarketSection(batch);
+  const content = canonical({ version: 1, kind: marketSectionKind, batch });
+  const ref: MarketCrossSectionArchiveRef = { version: 1, kind: marketSectionKind, revision: digest(content) };
+  await writeFixedArchive(marketSectionDir(), marketSectionPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadMarketCrossSectionArchive(ref: MarketCrossSectionArchiveRef, signal?: AbortSignal): Promise<StoredMarketCrossSection> {
+  const data = await readFixedArchive(marketSectionPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== marketSectionKind) throw fail();
+  validateMarketSection(data.batch);
   return data.batch;
 }

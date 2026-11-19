@@ -115,3 +115,6 @@ export type { StoredDailyTradingLimit, StoredDailyTradingLimitBatch, TradingLimi
 export type { HistoricalMinuteArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch } from "../types/observation.ts";
 export type { FinancialObservationArchiveRef, StoredFinancialDisclosureDate, StoredFinancialObservationBatch,
   StoredReportFinancialIndicator } from "../types/observation.ts";
+
+export { archiveMarketCrossSection, loadMarketCrossSectionArchive } from "./src/observation-archive.ts";
+export type { MarketCrossSectionArchiveRef, StoredMarketCrossSection } from "../types/observation.ts";
