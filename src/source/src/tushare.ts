@@ -88,6 +88,31 @@ export async function fetchTushareHistoricalMinutes(symbol: string, start: strin
   return rows;
 }
 
+const HISTORICAL_STOCK_FIELDS = ["trade_date", "ts_code", "name", "industry", "list_date"];
+
+export async function fetchTushareHistoricalUniverse(tradeDate: string, options: TushareOptions) {
+  const dateCode = tradeDate.replaceAll("-", "");
+  const data = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(boundedTushareUrl(options), {
+    api_name: "bak_basic", token: token(options), params: { trade_date: dateCode },
+    fields: HISTORICAL_STOCK_FIELDS.join(","),
+  }, 2 * 1024 * 1024, { signal: options.signal });
+  const fields = data?.data?.fields, items = data?.data?.items;
+  if (data?.code !== 0 || !Array.isArray(fields) || fields.length !== HISTORICAL_STOCK_FIELDS.length ||
+    !HISTORICAL_STOCK_FIELDS.every(field => fields.includes(field)) || !Array.isArray(items) || items.length >= 7_000 ||
+    items.some(row => !Array.isArray(row) || row.length !== fields.length)) {
+    throw new Error("Provider historical universe response invalid or saturated");
+  }
+  return items.map(item => {
+    const row = Object.fromEntries(fields.map((field, index) => [field, item[index]!]));
+    if (row.trade_date !== dateCode) throw new Error("Provider historical universe date mismatch");
+    const listed = row.list_date;
+    if (listed !== null && (typeof listed !== "string" || !/^\d{8}$/.test(listed))) {
+      throw new Error("Provider historical universe listing date invalid");
+    }
+    return { code: row.ts_code, name: row.name, industry: row.industry, listedOn: listed === null ? null : formatDate(listed) };
+  });
+}
+
 function barsEndpoint(symbol: string): "fund_nav" | "index_daily" | "fund_daily" | "daily" {
   return /\.OF$/i.test(symbol) ? "fund_nav" : isAIndexSymbol(symbol) ? "index_daily"
     : /^(?:5\d{5}\.SH|1[56]\d{4}\.SZ)$/i.test(symbol) ? "fund_daily" : "daily";

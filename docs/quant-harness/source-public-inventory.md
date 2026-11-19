@@ -29,6 +29,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDailyTradingLimits` | Tushare `stk_limit` supplies one A-share stock's previous close and effective limit prices in CNY over a bounded inclusive trading-date range. Availability depends on the selected account. WhyJ rule thresholds are computed separately. |
 | `fetchReportFinancialIndicators` | Tushare `fina_indicator` supplies provider ratios, per-share book value and report announcement metadata for one A-share stock and an inclusive report-period window. Retains same-period rows and rejects cap-saturated responses. |
 | `fetchFinancialDisclosureDates` | Tushare `disclosure_date` supplies plan and actual disclosure dates and correction text for one A-share stock and one report period. These dates do not identify the release of a given ratio revision. |
+| `fetchHistoricalStockUniverse` | Tushare `bak_basic` returns a provider-defined historical A-share list for one date. Preserves source and optional listing date and industry. Coverage is unknown; a saturated response fails. |
 | `fetchHistoricalMinuteBars` | Tushare `stk_mins` returns past A-share one-minute bars for one symbol with a bounded date window. It preserves original Shanghai labels, shares, CNY, and an explicit 09:30 opening-boundary flag. Coverage and finality are unknown. |
 | `searchInstruments`, `fetchInstrumentUniverse`, `fetchTradingCalendar` | Tushare A-share `stock_basic` searches by name, AKShare SH/SZ main-board rosters retain per-exchange endpoint evidence, and AKShare/Sina `tool_trade_date_hist_sina` returns dates. The roster is current and limited in scope. It is not a historical symbol master or market coverage guarantee. |
 | `fetchFundNav`, `fetchFundProfile`, `fetchFundPurchaseTerms`, `fetchFundPerformance` | AKShare/Eastmoney and Tushare `fund_nav` provide open-fund NAV. AKShare `fund_info_ths` and Snowball supply profile fields, `fund_purchase_em` supplies current purchase terms and headline fee, and Snowball achievement/risk endpoints map to separate result arrays. Raw rank and tiered fee schedules retain their provider-specific contracts. |
@@ -387,5 +388,6 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `PriceSnapshot` | type | Last price and day change | — |
 | `TradingCalendar` | type | Calendar dates and time zone | — |
 | `InstrumentUniverse` | type | Roster with per-exchange provenance | — |
+| `HistoricalStockUniverse` | type | Provider-defined A-share roster for a fixed date | — |
 | `SourceRequestError` | value | Selected request failure | — |
 | `SourceErrorCode` | type | Stable selected failure category | — |
