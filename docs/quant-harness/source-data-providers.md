@@ -24,6 +24,8 @@ Source 可通过 `getMarketDataCapabilities` 查询当前选定供应商在统�
 
 统一接口的 `fetchOrderBook({ symbol })` 可通过 TickFlow `/v1/depth` 查询单标的五档盘口。买卖价格按供应商顺序返回，零值原样保留；成交量单位、空档含义与实际账号权限尚未确认。该接口不缓存、不切换数据源，也未验证真实盘口权限；其他供应商当前明确报告未实现。
 
+`fetchDatedAuctionBenchmark(tradeDate)` 读取扶摇短线风向标的指定上海交易日。它使用独立的 `WHYJ_QUANT_FUYAO_API_KEY`，保留供应商选股顺序、标签和竞价涨幅百分点，允许空名单，并拒绝日期、标的身份或字段类型不匹配的响应。结果分别记录上海日期零点、供应商响应组装时刻和应用采集时刻。历史首发时间和覆盖范围未知。该入口独立于主行情路由，盘后收益由后续 WhyJ 计算。 [扶摇竞价接口](https://fuyao.aicubes.cn/docs/api-reference/auction/#短线风向标竞价基准)
+
 原生适配器每次调用均请求供应商，共享取数层当前仍有缓存命中与失败回退策略。[#261](https://github.com/yangjingo/WhyJ-Quant/issues/261) 单独跟踪取消普通日线查询的缓存替代，同时保留报告使用的不可变研究证据；该 issue 不等于策略已经变更。
 
 ## 回退提高可用性，也可能改变问题
