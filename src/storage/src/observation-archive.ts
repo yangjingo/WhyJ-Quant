@@ -2,8 +2,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { BenchmarkIndexArchiveRef, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef,
-  ObservationArchiveRef, SectorObservationArchiveRef, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch,
+import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef,
+  ObservationArchiveRef, SectorObservationArchiveRef, StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
   StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
@@ -542,5 +542,49 @@ export async function loadBenchmarkIndexArchive(ref: BenchmarkIndexArchiveRef, s
   const data = await readFixedArchive(benchmarkIndexPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== benchmarkIndexKind) throw fail();
   validateBenchmarkIndex(data.batch);
+  return data.batch;
+}
+
+const auctionBenchmarkKind = "auction-benchmark";
+const auctionBenchmarkDir = () => join(resolveDataDir(), "auction-benchmark-archives-v1");
+const auctionBenchmarkKeys = ["source", "endpoint", "market", "tradeDate", "calendarTimeZone", "tradeDateTimestamp",
+  "responseAssembledAt", "observedAt", "coverage", "returnUnit", "rows"];
+
+function auctionBenchmarkPath(ref: AuctionBenchmarkArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== auctionBenchmarkKind
+    || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(auctionBenchmarkDir(), `${ref.revision}.json`);
+}
+
+function validateAuctionBenchmark(batch: unknown): asserts batch is StoredAuctionBenchmark {
+  if (!object(batch) || !exactKeys(batch, auctionBenchmarkKeys) || batch.source !== "fuyao"
+    || batch.endpoint !== "/api/a-share/auction/short-term-benchmark" || batch.market !== "A" || batch.calendarTimeZone !== "Asia/Shanghai"
+    || batch.coverage !== "unknown" || batch.returnUnit !== "percentage-points" || !dailyDate(batch.tradeDate)
+    || typeof batch.tradeDateTimestamp !== "number" || batch.tradeDateTimestamp !== Date.parse(`${batch.tradeDate}T00:00:00+08:00`)
+    || typeof batch.responseAssembledAt !== "number" || !Number.isSafeInteger(batch.responseAssembledAt)
+    || batch.responseAssembledAt < batch.tradeDateTimestamp || !Number.isFinite(new Date(batch.responseAssembledAt).getTime())
+    || typeof batch.observedAt !== "string" || !instant(batch.observedAt) || !Array.isArray(batch.rows)) throw fail();
+
+  const seen = new Set<string>();
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, ["symbol", "name", "auctionReturnPct", "tags"]) || typeof row.symbol !== "string"
+      || !stockSymbol.test(row.symbol) || seen.has(row.symbol) || typeof row.name !== "string" || !row.name.trim()
+      || !finiteOrNull(row.auctionReturnPct) || !Array.isArray(row.tags) || Array.from(row.tags).some(tag => typeof tag !== "string")) throw fail();
+    seen.add(row.symbol);
+  }
+}
+
+export async function archiveAuctionBenchmark(batch: StoredAuctionBenchmark, signal?: AbortSignal): Promise<AuctionBenchmarkArchiveRef> {
+  validateAuctionBenchmark(batch);
+  const content = canonical({ version: 1, kind: auctionBenchmarkKind, batch });
+  const ref: AuctionBenchmarkArchiveRef = { version: 1, kind: auctionBenchmarkKind, revision: digest(content) };
+  await writeFixedArchive(auctionBenchmarkDir(), auctionBenchmarkPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadAuctionBenchmarkArchive(ref: AuctionBenchmarkArchiveRef, signal?: AbortSignal): Promise<StoredAuctionBenchmark> {
+  const data = await readFixedArchive(auctionBenchmarkPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== auctionBenchmarkKind) throw fail();
+  validateAuctionBenchmark(data.batch);
   return data.batch;
 }
