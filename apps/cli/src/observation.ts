@@ -1,5 +1,7 @@
+import { open } from "node:fs/promises";
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
+import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { collectTradingDateObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
 
 const dayMs = 86_400_000;
@@ -7,6 +9,8 @@ const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symb
   + 'or "whyj --json observation replay-daily|replay-intraday --revision SHA256". See whyj --help for optional flags.';
 const revisionPattern = /^[a-f0-9]{64}$/;
 const compatiblePriceBasis = "caller-confirmed-same-basis";
+const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+const maxRevisionFileBytes = 512_000;
 
 function invalid() {
   return Object.assign(new Error(usage), { code: "invalid_arguments" });
@@ -21,6 +25,25 @@ function parseOptions(args: readonly string[], allowed: readonly string[]) {
     options.set(flag, value);
   }
   return options;
+}
+
+function validateRevisions(revisions: unknown): string[] {
+  if (!Array.isArray(revisions) || revisions.length >= 7_000 || new Set(revisions).size !== revisions.length ||
+    revisions.some(revision => typeof revision !== "string" || !revisionPattern.test(revision))) throw invalid();
+  return revisions;
+}
+
+async function readRevisionFile(path: string, signal?: AbortSignal): Promise<string[]> {
+  try {
+    const file = await open(path, "r");
+    try {
+      const stat = await file.stat();
+      if (!stat.isFile() || stat.size > maxRevisionFileBytes) throw invalid();
+      const json = await file.readFile({ encoding: "utf8", signal });
+      if (Buffer.byteLength(json) > maxRevisionFileBytes) throw invalid();
+      return validateRevisions(JSON.parse(json));
+    } finally { await file.close(); }
+  } catch { throw invalid(); }
 }
 
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
@@ -39,9 +62,7 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       (adjustment !== "none" && adjustment !== "forward")) {
       throw invalid();
     }
-    if (minutes && endDate >= new Intl.DateTimeFormat("sv-SE", {
-      timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
-    }).format()) throw invalid();
+    if (minutes && endDate >= shanghaiDate.format()) throw invalid();
     try {
       if (minutes) return await collectHistoricalMinuteObservations({ symbol, startDate, endDate }, { signal });
       return await collectTradingDateObservations({ timeMode: "trading-date", symbol, assetType: "stock",
@@ -50,6 +71,32 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       const dataset = minutes ? "historical minute" : "daily";
       throw Object.assign(new Error(`Could not collect ${dataset} observations. Check the configured source and use whyj --json doctor --phase data.`),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "collect-market") {
+    const date = parseOptions(options, ["--date"]).get("--date");
+    if (!date || !isDailyDate(date) || date < "2016-01-01" || date > shanghaiDate.format()) throw invalid();
+    try { return await collectMarketCrossSection(date, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested market cross-section. Check the configured source and use whyj --json doctor --phase data."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-market") {
+    const fields = parseOptions(options, ["--revision", "--price-revisions", "--price-revisions-file", "--volume-revisions"]);
+    const revision = fields.get("--revision"), priceList = fields.get("--price-revisions"), priceFile = fields.get("--price-revisions-file");
+    if (!revision || !revisionPattern.test(revision) || (priceList && priceFile)) throw invalid();
+    const volumeRevisions = validateRevisions(fields.get("--volume-revisions")?.split(",") ?? []);
+    if (volumeRevisions.length > 5 || volumeRevisions.includes(revision)) throw invalid();
+    const priceRevisions = priceFile ? await readRevisionFile(priceFile, signal) : validateRevisions(priceList?.split(",") ?? []);
+    const history = priceRevisions.length || volumeRevisions.length ? {
+      priceArchives: priceRevisions.map(value => ({ version: 2, revision: value } as const)),
+      volumeArchives: volumeRevisions.map(value => ({ version: 1, kind: "market-cross-section", revision: value } as const)),
+    } : undefined;
+    try { return await deriveTspMarketBreadthArchive({ version: 1, kind: "market-cross-section", revision }, signal, history); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested market cross-section and its history."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-daily") {
