@@ -87,6 +87,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 市场截面通过 `archiveMarketCrossSection` 保存一个交易日的 Tushare `bak_basic` 股票池、`daily` 行情和 `daily_basic` 交易统计。各响应保存独立交易日、观察时刻和原始单位。未匹配到股票池的行情仍保留在归档，空响应和字段空值也原样保留。文件位于 `.ohquant/data/market-cross-section-archives-v1/`，通过 `loadMarketCrossSectionArchive` 按精确引用读取并验证摘要。股票池匹配、单位转换和覆盖率统计由回放层处理。观察时间记录采集时刻，历史数据的实际可得时间仍由数据使用方核实。
 
+基准指数通过 `archiveBenchmarkIndexObservations` 保存一份 Tushare `index_daily` 响应。归档记录沪深指数代码、请求范围、采集时刻、按交易日排列的收盘点位、昨收点位、点数变化和供应商涨跌幅。涨跌幅保留百分点单位，缺值和空响应均保留。文件位于 `.ohquant/data/benchmark-index-archives-v1/`，`loadBenchmarkIndexArchive` 按精确引用读取并验证摘要。每次更正和重新采集都有独立的归档版本。数据覆盖和历史发布时间仍为未知。
+
 `archiveFinancialObservations` 分别保存 Tushare `fina_indicator` 的单标的报告期范围响应，或 `disclosure_date` 的单标的单报告期响应。两类归档各自记录请求、端点和取数时间，保留同报告期多行、返回顺序、修订标记、零值和空值。空响应也有独立归档引用，覆盖标为未知。`loadFinancialObservationArchive` 按种类和内容摘要读取 `.ohquant/data/financial-observation-archives-v1/` 下的精确版本。历史回放需另外证明所用财务指标版本在判断时点已公开。
 
 `archiveSectorObservations` 按单个交易日分别归档东方财富板块目录 `dc_index` 和单板块成分 `dc_member` 的观察结果。每份归档保留其端点、分类口径、取数时间、原始行顺序和空值，成功的空响应也有精确引用。`loadSectorObservationArchive` 从 `.ohquant/data/sector-observation-archives-v1/` 按种类和摘要读取。后续排行使用归档中的提供商快照；交易日和取数时间仍分别记录，历史发布时间保持未知。
