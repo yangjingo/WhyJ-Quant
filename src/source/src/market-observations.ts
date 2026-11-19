@@ -8,7 +8,7 @@ import { SourceRequestError } from "./market-data-error.ts";
 import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
-import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation } from "./tushare.ts";
+import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareHistoricalMinutes } from "./tushare.ts";
 
 export interface MarketObservation<T> {
   source: ProviderSource;
@@ -50,6 +50,29 @@ export interface TradingCalendar {
   end: string;
   sessions: string[];
 }
+export interface HistoricalMinuteBar {
+  symbol: string;
+  tradeDate: string;
+  /** Original Shanghai wall-clock label, including the seconds the provider supplied. */
+  tradeTime: string;
+  openingBoundary: boolean;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  amount: number | null;
+}
+export interface HistoricalMinuteObservation {
+  timeZone: "Asia/Shanghai";
+  interval: "1m";
+  volumeUnit: "share";
+  amountUnit: "CNY";
+  adjustment: "unknown";
+  finality: "unknown";
+  requested: { start: string; end: string };
+  bars: HistoricalMinuteBar[];
+}
 export interface InstrumentUniverse {
   universe: "mainboard";
   source: "akshare";
@@ -65,6 +88,8 @@ export interface MarketObservationSource {
   fetchDailyTradingLimits(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyTradingLimit[]>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
+  fetchHistoricalMinuteBars(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<HistoricalMinuteObservation>>;
 }
 export type MarketObservationCapabilities = Record<keyof MarketObservationSource,
   { status: "implemented"; markets: Market[] } | { status: "not-implemented" }>;
@@ -74,7 +99,9 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchDailyTradingLimits: { tushare: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
+  fetchHistoricalMinuteBars: { tushare: "A" },
 };
+const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const CALENDAR_SCRIPT = `import json,sys,akshare as ak
 start,end=sys.argv[1:]
 days=ak.tool_trade_date_hist_sina()
@@ -89,6 +116,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchPriceSnapshot: status("fetchPriceSnapshot"), fetchDailyValuation: status("fetchDailyValuation"),
     fetchDailyTradingLimits: status("fetchDailyTradingLimits"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
+    fetchHistoricalMinuteBars: status("fetchHistoricalMinuteBars"),
   };
 }
 
@@ -182,6 +210,39 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
       if (universe !== "mainboard") throw new Error("Source instrument universe not implemented");
       const response = await readReference(options, signal => fetchMainboardUniverse({ signal }));
       return { ...response, source: "akshare", market: "A", universe, coverage: "unknown" };
+    },
+    async fetchHistoricalMinuteBars({ symbol: input, market, start, end }, options) {
+      validate("fetchHistoricalMinuteBars", market);
+      const symbol = normalizeSymbol(input, market);
+      if (!/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(symbol) ||
+        typeof start !== "string" || typeof end !== "string") throw new Error("Invalid historical minute request");
+      validateDateRange(start, end);
+      if (start < "2010-01-01" || end >= shanghaiDate.format() || Date.parse(end) - Date.parse(start) > 30 * 86_400_000) {
+        throw new Error("Historical minute bars require a past Shanghai window of at most 31 days");
+      }
+      const rows = await readReference(options, signal => fetchTushareHistoricalMinutes(symbol, start, end, { token: apiKey, baseUrl, env, signal }));
+      const seen = new Set<string>();
+      const bars = rows.map((row): HistoricalMinuteBar => {
+        const tradeTime = row.trade_time;
+        if (typeof tradeTime !== "string" || !/^\d{4}-\d{2}-\d{2} (?:09:[3-5]\d|10:[0-5]\d|11:[0-2]\d|11:30|1[34]:[0-5]\d|15:00):00$/.test(tradeTime) ||
+          seen.has(tradeTime)) throw new Error("Provider historical minute time invalid");
+        const tradeDate = tradeTime.slice(0, 10);
+        if (!isDailyDate(tradeDate) || tradeDate < start || tradeDate > end) throw new Error("Provider historical minute date invalid");
+        seen.add(tradeTime);
+        const open = nullableNumber(row.open), high = nullableNumber(row.high), low = nullableNumber(row.low), close = nullableNumber(row.close);
+        const volume = nullableNumber(row.vol), amount = nullableNumber(row.amount);
+        if (open === null || high === null || low === null || close === null || volume === null ||
+          low <= 0 || high < Math.max(open, close, low) || low > Math.min(open, close) ||
+          !Number.isSafeInteger(volume) || volume < 0 || (amount !== null && amount < 0)) {
+          throw new Error("Provider historical minute values invalid");
+        }
+        return { symbol, tradeDate, tradeTime, openingBoundary: tradeTime.endsWith("09:30:00"),
+          open, high, low, close, volume, amount };
+      }).sort((left, right) => left.tradeTime.localeCompare(right.tradeTime));
+      return result<HistoricalMinuteObservation>(market, "stk_mins", {
+        timeZone: "Asia/Shanghai", interval: "1m", volumeUnit: "share", amountUnit: "CNY",
+        adjustment: "unknown", finality: "unknown", requested: { start, end }, bars,
+      });
     },
   };
 }

@@ -59,6 +59,31 @@ function assertResponseSymbol(rows: Array<Record<string, TusharePrimitive>>, sym
   }
 }
 
+const MINUTE_FIELDS = ["ts_code", "trade_time", "open", "high", "low", "close", "vol", "amount"];
+
+export async function fetchTushareHistoricalMinutes(symbol: string, start: string, end: string, options: TushareOptions) {
+  const env = options.env ?? process.env;
+  const url = new URL(options.baseUrl ?? env.TUSHARE_BASE_URL ?? DEFAULT_TUSHARE_BASE_URL);
+  if (url.username || url.password || url.search || url.hash || (url.protocol !== "https:" &&
+    !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) {
+    throw new Error("Invalid Tushare base URL");
+  }
+  const result = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(url.href, {
+    api_name: "stk_mins", token: token(options),
+    params: { ts_code: symbol, freq: "1min", start_date: `${start} 09:00:00`, end_date: `${end} 19:00:00` },
+    fields: MINUTE_FIELDS.join(","),
+  }, 2 * 1024 * 1024, { signal: options.signal });
+  const fields = result?.data?.fields, items = result?.data?.items;
+  if (result?.code !== 0 || !Array.isArray(fields) || fields.length !== MINUTE_FIELDS.length ||
+    !MINUTE_FIELDS.every(field => fields.includes(field)) || !Array.isArray(items) || items.length >= 8_000 ||
+    items.some(row => !Array.isArray(row) || row.length !== fields.length)) {
+    throw new Error("Provider historical minute response invalid");
+  }
+  const rows = items.map(row => Object.fromEntries(fields.map((field, index) => [field, row[index]!])));
+  assertResponseSymbol(rows, symbol);
+  return rows;
+}
+
 function barsEndpoint(symbol: string): "fund_nav" | "index_daily" | "fund_daily" | "daily" {
   return /\.OF$/i.test(symbol) ? "fund_nav" : isAIndexSymbol(symbol) ? "index_daily"
     : /^(?:5\d{5}\.SH|1[56]\d{4}\.SZ)$/i.test(symbol) ? "fund_daily" : "daily";
