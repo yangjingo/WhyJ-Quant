@@ -73,6 +73,8 @@ Tushare 的开放式基金请求把 `270042.OF` 发给 `fund_nav`，将 `unit_na
 | `fetchInstrumentUniverse` | AKShare 上交所 `stock_info_sh_name_code` 与深交所 `stock_info_sz_name_code` 各自返回主板名单的取得时间、端点和行数。这是当前主板名单，覆盖和历史成员状态未知。 |
 | `fetchFundProfile`、`fetchFundPurchaseTerms`、`fetchFundPerformance` | AKShare 基金简介、申购状态和业绩分析只投影可核对字段，保留成功端点。申购表的 `手续费=0.13` 或 `0.13%` 均返回百分比数值 `0.13`，实际费率表仍由专用工具核对。 |
 
+`fetchDailyMarketBars({ market: "A", tradeDate })` 和 `fetchDailyMarketBasics({ market: "A", tradeDate })` 在选定 Tushare 后分别查询 `daily` 与 `daily_basic` 的指定日截面。日线保留未复权 OHLC、除权昨收、供应商涨跌幅（百分数）、成交量（手）和成交额（千元）。每日报表保留两类换手率（百分数）、供应商量比、股本（万股）和市值（万元）。两个端点的观察时间和覆盖状态各自独立。达到 6,000 行上限时拒绝返回，以免将截断当作覆盖。停牌、缺行和空值保持上游状态。 [Tushare 日线](https://tushare.pro/document/2?doc_id=27) · [Tushare 每日指标](https://tushare.pro/document/2?doc_id=32)
+
 估值中的 `close` 和实时报价的 `lastPrice` 各有时间含义。例子里请求 Tushare `600000.SH` 的 `2026-11-13` 估值会发出 `trade_date=20261113`，错日、重复或错标响应均失败。相同估值请求不会用报价供应商补数。映射依据见 [Tushare 每日指标](https://tushare.pro/document/2?doc_id=32) 与 [Financial Datasets OpenAPI](https://docs.financialdatasets.ai/api/openapi.json)。
 
 财务取数保留提供商给出的各行及顺序，包括同一报告期的多行。同比增长字段使用文档中的百分比值。其他比率保留供应商原尺度，每股净资产的币种标为未知。两个响应各自记录端点和采集时间，覆盖仍为未知。实际披露日期描述财报披露，历史回放还需要证明所选财务指标版本当时可用。 [财务指标](https://tushare.pro/document/2?doc_id=79) · [财报披露计划](https://tushare.pro/document/2?doc_id=162)

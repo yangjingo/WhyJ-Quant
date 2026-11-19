@@ -190,6 +190,23 @@ export async function fetchTushareDailyTradingLimits(symbol: string, start: stri
   });
 }
 
+const MARKET_BARS_FIELDS = [...DAILY_FIELDS, "pre_close", "change", "pct_chg"];
+const MARKET_BASICS_FIELDS = [...VALUATION_FIELDS, "turnover_rate", "turnover_rate_f", "volume_ratio",
+  "total_share", "float_share", "free_share"];
+
+async function boundedTable(endpoint: string, params: Record<string, string>, requestedFields: string[], maxRows: number,
+  options: TushareOptions): Promise<Array<Record<string, TusharePrimitive>>> {
+  const result = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(boundedTushareUrl(options), {
+    api_name: endpoint, token: token(options), params, fields: requestedFields.join(","),
+  }, 2 * 1024 * 1024, { signal: options.signal });
+  const fields = result?.data?.fields;
+  const items = result?.data?.items;
+  if (result?.code !== 0 || !Array.isArray(fields) || fields.length !== requestedFields.length ||
+    !requestedFields.every(field => fields.includes(field)) || !Array.isArray(items) || items.length > maxRows ||
+    items.some(row => !Array.isArray(row) || row.length !== fields.length)) throw new Error("Provider table response invalid or saturated");
+  return items.map(row => Object.fromEntries(fields.map((field, i) => [field, row[i]!])));
+}
+
 async function fetchFinancialRows(apiName: string, symbol: string, params: Record<string, string>, expectedFields: string[],
   cap: number, options: TushareOptions) {
   const response = await postJsonLimited<TushareResponse<TusharePrimitive[]>>(boundedTushareUrl(options), {
@@ -214,6 +231,14 @@ export function fetchTushareReportFinancialIndicators(symbol: string, startPerio
 export function fetchTushareFinancialDisclosureDates(symbol: string, periodEnd: string, options: TushareOptions) {
   return fetchFinancialRows("disclosure_date", symbol, { end_date: periodEnd.replaceAll("-", "") },
     ["ts_code", "end_date", "ann_date", "pre_date", "actual_date", "modify_date"], 6_000, options);
+}
+
+export async function fetchTushareMarketDate(endpoint: "daily" | "daily_basic", date: string, options: TushareOptions) {
+  const params = { trade_date: date.replaceAll("-", ""), ...(endpoint === "daily_basic" && { ts_code: "" }) };
+  // At the documented 6,000-row cap we cannot distinguish a complete response from truncation.
+  const rows = await boundedTable(endpoint, params, endpoint === "daily" ? MARKET_BARS_FIELDS : MARKET_BASICS_FIELDS, 5999, options);
+  if (rows.some(row => row.trade_date !== params.trade_date)) throw new Error("Provider market observation date mismatch");
+  return rows;
 }
 
 export async function searchTushareSymbols(keyword: string, options: TushareOptions = {}): Promise<SymbolInfo[]> {
