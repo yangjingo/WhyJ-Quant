@@ -2,8 +2,10 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, StoredDailyTradingLimitBatch,
-  StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation, StoredTradingDateBarObservation,
+import type { FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, SectorObservationArchiveRef,
+  StoredDailyTradingLimitBatch,
+  StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
+  StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol } from "../../market/symbols.ts";
@@ -434,5 +436,62 @@ export async function loadMarketCrossSectionArchive(ref: MarketCrossSectionArchi
   const data = await readFixedArchive(marketSectionPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== marketSectionKind) throw fail();
   validateMarketSection(data.batch);
+  return data.batch;
+}
+
+const sectorDir = () => join(resolveDataDir(), "sector-observation-archives-v1");
+const sectorArchiveKinds = { dc_index: "dated-sector-catalog", dc_member: "dated-sector-members" } as const;
+const sectorBatchKeys = ["market", "source", "tradeDate", "observedAt", "coverage", "taxonomy", "endpoint"];
+const sectorCodePattern = /^BK\d{4,8}\.DC$/;
+const sectorStockPattern = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:[48]\d{5}|92\d{4})\.BJ)$/;
+
+function sectorPath(ref: SectorObservationArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 ||
+    !Object.values(sectorArchiveKinds).includes(ref.kind) || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(sectorDir(), `${ref.revision}.json`);
+}
+
+function validateSectorBatch(batch: unknown): asserts batch is StoredSectorObservationBatch {
+  if (!object(batch) || batch.market !== "A" || batch.source !== "tushare" || batch.taxonomy !== "eastmoney" ||
+    batch.coverage !== "unknown" || !dailyDate(batch.tradeDate) || typeof batch.observedAt !== "string" || !instant(batch.observedAt)) throw fail();
+  const seen = new Set<string>();
+  if (batch.endpoint === "dc_index") {
+    if (!exactKeys(batch, [...sectorBatchKeys, "kind", "providerType", "groups"]) ||
+      (batch.kind !== "industry" && batch.kind !== "concept") || batch.providerType !== (batch.kind === "industry" ? "行业板块" : "概念板块") ||
+      !Array.isArray(batch.groups) || batch.groups.length >= 5_000) throw fail();
+    for (const group of batch.groups) {
+      if (!object(group) || !exactKeys(group, ["code", "name", "level"]) || typeof group.code !== "string" || !sectorCodePattern.test(group.code) ||
+        seen.has(group.code) || typeof group.name !== "string" || !group.name.trim() || !optionalText(group.level)) throw fail();
+      seen.add(group.code);
+    }
+  } else if (batch.endpoint === "dc_member") {
+    if (!exactKeys(batch, [...sectorBatchKeys, "sectorCode", "members"]) || batch.tradeDate < "2024-12-20" ||
+      typeof batch.sectorCode !== "string" || !sectorCodePattern.test(batch.sectorCode) ||
+      !Array.isArray(batch.members) || batch.members.length >= 5_000) throw fail();
+    for (const member of batch.members) {
+      if (!object(member) || !exactKeys(member, ["symbol", "name"]) || typeof member.symbol !== "string" ||
+        !sectorStockPattern.test(member.symbol) || isAIndexSymbol(member.symbol) || seen.has(member.symbol) || !optionalText(member.name)) throw fail();
+      seen.add(member.symbol);
+    }
+  } else throw fail();
+}
+
+/** Preserve one sector catalog or membership response and its own acquisition time. */
+export async function archiveSectorObservations(batch: StoredSectorObservationBatch, signal?: AbortSignal): Promise<SectorObservationArchiveRef> {
+  validateSectorBatch(batch);
+  const kind = sectorArchiveKinds[batch.endpoint];
+  const content = canonical({ version: 1, kind, batch });
+  const ref: SectorObservationArchiveRef = { version: 1, kind, revision: digest(content) };
+  await writeFixedArchive(sectorDir(), sectorPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadSectorObservationArchive(ref: SectorObservationArchiveRef, signal?: AbortSignal): Promise<StoredSectorObservationBatch> {
+  const path = sectorPath(ref);
+  const { kind, revision } = ref;
+  const data = await readFixedArchive(path, revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== kind) throw fail();
+  validateSectorBatch(data.batch);
+  if (sectorArchiveKinds[data.batch.endpoint] !== kind) throw fail();
   return data.batch;
 }

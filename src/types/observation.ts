@@ -216,3 +216,27 @@ export interface MarketCrossSectionArchiveRef {
   kind: "market-cross-section";
   revision: string;
 }
+
+export type StoredSectorObservationBatch = {
+  market: "A";
+  source: "tushare";
+  tradeDate: string;
+  observedAt: string;
+  coverage: "unknown";
+  taxonomy: "eastmoney";
+} & ({
+  endpoint: "dc_index";
+  kind: "industry" | "concept";
+  providerType: "行业板块" | "概念板块";
+  groups: { code: string; name: string; level: string | null }[];
+} | {
+  endpoint: "dc_member";
+  sectorCode: string;
+  members: { symbol: string; name: string | null }[];
+});
+
+export interface SectorObservationArchiveRef {
+  version: 1;
+  kind: "dated-sector-catalog" | "dated-sector-members";
+  revision: string;
+}
