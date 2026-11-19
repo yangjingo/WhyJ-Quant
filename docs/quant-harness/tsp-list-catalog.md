@@ -58,6 +58,10 @@ Limit-up, limit-down, broken-limit-up and limit-down recovery consume separately
 
 The WhyJ result keeps watchlist order and records the formula version, calendar and fractional return unit. The high-open marker uses the provider's auction return in percentage points with an inclusive threshold of five. Missing auction returns leave the marker unavailable. The marker identifies a threshold crossing and carries no estimate of future returns. [TSP feature guide](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/docs/features.md)
 
+## Dragon-tiger recap rankings
+
+`computeTspDragonTiger` ranks the five largest positive and negative net amounts on the all-stock board, plus up to five institution and hot-money entries by descending net amount. Amounts remain signed CNY values. Ties keep provider order. Missing amounts are excluded, and an empty observed board is distinct from an unavailable board. The result identifies each record by its board position and keeps one-day and three-day records separate. [Pinned TSP recap](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/services/dragon_tiger.py)
+
 ## Built-in research factors
 
 Quant's `computeTspResearchFactors` evaluates the 77 registered TSP built-in research factor keys for one symbol. It reuses the daily calculation for the 17 overlapping technical fields. Results use WhyJ calculations and the pinned TSP scoring definitions. The existing WhyJ factor names and their formulas retain their own conventions. [TSP registry](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/factors/registry.py#L95) · [TSP scoring expressions](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/scoring.py#L88)
