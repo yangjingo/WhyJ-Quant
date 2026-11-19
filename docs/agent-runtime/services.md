@@ -175,6 +175,10 @@ Runtime 的 `collectTradingLimitObservations` 将选定来源的每日生效限�
 
 Host 的认证采集任务支持 `{ dataset: "daily-trading-limits", symbol, startDate, endDate }`，凭证来自已保存的选定来源。非空收据包含带种类的归档引用。可选认证 RPC `readObservationExchangeIndicators` 以 `{ archiveRef, tradingLimitArchiveRef, rawArchiveRef? }` 回放，两种归档缺失或损坏均返回固定的不可用诊断。原有 `readObservationIndicators` 继续接收单份日线归档引用。旧 Host 对可选新方法返回 `METHOD_NOT_FOUND`。
 
+Runtime 的 `collectMarketCrossSection` 通过配置的数据源采集指定交易日的股票池、日线和每日交易统计。当前接口使用 Tushare 的三个独立响应。股票池为空时返回空结果，缺失的行情行保留为缺失，已经捕获的原始行和供应商单位由 Storage 按摘要保存。
+
+`deriveTspMarketBreadthArchive` 按精确引用离线关联三个响应。它将手转成股、千元转成元、供应商涨跌幅百分数转成比例，并保留各端点的采集时间、匹配数量和原始覆盖状态。WhyJ 输出市场宽度、涨跌幅分布、成交额和换手率统计及排名。没有滚动历史时，五日量比、均线宽度和新高新低保留为空；供应商量比随原数据归档。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
