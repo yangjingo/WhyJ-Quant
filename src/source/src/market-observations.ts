@@ -9,7 +9,7 @@ import type { MarketDataSource, SourceConnection, SourceRequestOptions } from ".
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
 import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareFinancialDisclosureDates,
-  fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareReportFinancialIndicators } from "./tushare.ts";
+  fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareMarketDate, fetchTushareReportFinancialIndicators } from "./tushare.ts";
 
 export interface MarketObservation<T> {
   source: ProviderSource;
@@ -69,6 +69,51 @@ export interface FinancialDisclosureDate {
   actualDisclosureDate: string | null;
   modificationRecord: string | null;
 }
+export interface DailyMarketBar {
+  symbol: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  exRightsPreviousClose: number | null;
+  changeCny: number | null;
+  returnPct: number | null;
+  volume: number | null;
+  amount: number | null;
+}
+
+export interface DailyMarketBars {
+  tradeDate: string;
+  adjustment: "none";
+  priceUnit: "CNY";
+  volumeUnit: "hand";
+  amountUnit: "CNY-thousand";
+  rows: DailyMarketBar[];
+}
+
+export interface DailyMarketBasic {
+  symbol: string;
+  close: number | null;
+  turnoverPct: number | null;
+  freeFloatTurnoverPct: number | null;
+  providerVolumeRatio: number | null;
+  totalShares: number | null;
+  floatShares: number | null;
+  freeFloatShares: number | null;
+  pe: number | null;
+  peTtm: number | null;
+  pb: number | null;
+  totalMarketValue: number | null;
+  circulatingMarketValue: number | null;
+}
+
+export interface DailyMarketBasics {
+  tradeDate: string;
+  priceUnit: "CNY";
+  shareUnit: "ten-thousand-shares";
+  marketValueUnit: "CNY-ten-thousand";
+  rows: DailyMarketBasic[];
+}
 export interface TradingCalendar {
   zone: "Asia/Shanghai";
   start: string;
@@ -126,6 +171,8 @@ export interface MarketObservationSource {
     Promise<MarketObservation<ReportFinancialIndicator[]>>;
   fetchFinancialDisclosureDates(request: { symbol: string; market: Market; periodEnd: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<FinancialDisclosureDate[]>>;
+  fetchDailyMarketBars(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyMarketBars>>;
+  fetchDailyMarketBasics(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyMarketBasics>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
   fetchHistoricalStockUniverse(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
@@ -141,6 +188,8 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchDailyTradingLimits: { tushare: "A" },
   fetchReportFinancialIndicators: { tushare: "A" },
   fetchFinancialDisclosureDates: { tushare: "A" },
+  fetchDailyMarketBars: { tushare: "A" },
+  fetchDailyMarketBasics: { tushare: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
@@ -162,6 +211,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchDailyTradingLimits: status("fetchDailyTradingLimits"),
     fetchReportFinancialIndicators: status("fetchReportFinancialIndicators"),
     fetchFinancialDisclosureDates: status("fetchFinancialDisclosureDates"),
+    fetchDailyMarketBars: status("fetchDailyMarketBars"), fetchDailyMarketBasics: status("fetchDailyMarketBasics"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
     fetchHistoricalMinuteBars: status("fetchHistoricalMinuteBars"),
@@ -187,6 +237,12 @@ function financialText(value: unknown): string | null {
   throw new Error("Provider financial revision field invalid");
 }
 
+function nonnegativeObservation(value: unknown): number | null {
+  const parsed = nullableNumber(value);
+  if (parsed !== null && parsed < 0) throw new Error("Provider market observation field invalid");
+  return parsed;
+}
+
 function isAStock(symbol: string): boolean {
   return !isAIndexSymbol(symbol) && /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:[48]\d{5}|92\d{4})\.BJ)$/.test(symbol);
 }
@@ -198,6 +254,22 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
     if (!supported || supported !== market)
       throw new SourceRequestError("unsupported", "Source observation capability not implemented for this provider and market");
   }
+  async function marketDate(endpoint: "daily" | "daily_basic", tradeDate: string, options?: SourceRequestOptions) {
+    if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate < "0001-01-01" || tradeDate > "9998-12-31") {
+      throw new Error("Invalid market observation date");
+    }
+    const rows = await readReference(options, signal => fetchTushareMarketDate(endpoint, tradeDate, { token: apiKey, baseUrl, env, signal }));
+    const seen = new Set<string>();
+    return rows.map(row => {
+      const symbol = row.ts_code;
+      if (typeof symbol !== "string" || !isAStock(symbol) || /^899\d{3}\.BJ$/.test(symbol) || seen.has(symbol)) {
+        throw new Error("Provider market observation identity invalid");
+      }
+      seen.add(symbol);
+      return { symbol, row };
+    }).sort((left, right) => left.symbol.localeCompare(right.symbol));
+  }
+
   const result = <T>(market: Market, endpoint: string, data: T, observedAt = new Date().toISOString()): MarketObservation<T> =>
     ({ source, endpoint, market, data, observedAt, coverage: "unknown" });
   return {
@@ -297,6 +369,35 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
         };
       });
       return result(market, "disclosure_date", data);
+    },
+    async fetchDailyMarketBars({ market, tradeDate }, options) {
+      validate("fetchDailyMarketBars", market);
+      const rows = (await marketDate("daily", tradeDate, options)).map(({ symbol, row }): DailyMarketBar => {
+        const open = nullableNumber(row.open), high = nullableNumber(row.high), low = nullableNumber(row.low), close = nullableNumber(row.close);
+        const exRightsPreviousClose = nullableNumber(row.pre_close), returnPct = nullableNumber(row.pct_chg);
+        if (open === null || high === null || low === null || close === null || low <= 0 ||
+          high < Math.max(open, close) || low > Math.min(open, close) ||
+          (exRightsPreviousClose !== null && exRightsPreviousClose <= 0) || (returnPct !== null && returnPct < -100)) {
+          throw new Error("Provider market daily bar invalid");
+        }
+        return { symbol, open, high, low, close, exRightsPreviousClose, returnPct, changeCny: nullableNumber(row.change),
+          volume: nonnegativeObservation(row.vol), amount: nonnegativeObservation(row.amount) };
+      });
+      return result<DailyMarketBars>(market, "daily", { tradeDate, adjustment: "none", priceUnit: "CNY",
+        volumeUnit: "hand", amountUnit: "CNY-thousand", rows });
+    },
+    async fetchDailyMarketBasics({ market, tradeDate }, options) {
+      validate("fetchDailyMarketBasics", market);
+      const rows = (await marketDate("daily_basic", tradeDate, options)).map(({ symbol, row }): DailyMarketBasic => ({
+        symbol, close: nonnegativeObservation(row.close), turnoverPct: nonnegativeObservation(row.turnover_rate),
+        freeFloatTurnoverPct: nonnegativeObservation(row.turnover_rate_f), providerVolumeRatio: nonnegativeObservation(row.volume_ratio),
+        totalShares: nonnegativeObservation(row.total_share), floatShares: nonnegativeObservation(row.float_share),
+        freeFloatShares: nonnegativeObservation(row.free_share), pe: nullableNumber(row.pe), peTtm: nullableNumber(row.pe_ttm),
+        pb: nullableNumber(row.pb), totalMarketValue: nonnegativeObservation(row.total_mv),
+        circulatingMarketValue: nonnegativeObservation(row.circ_mv),
+      }));
+      return result<DailyMarketBasics>(market, "daily_basic", { tradeDate, priceUnit: "CNY",
+        shareUnit: "ten-thousand-shares", marketValueUnit: "CNY-ten-thousand", rows });
     },
     async fetchTradingCalendar({ market, start, end }, options) {
       validate("fetchTradingCalendar", market);
