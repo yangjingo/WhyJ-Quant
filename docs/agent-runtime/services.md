@@ -181,6 +181,15 @@ Runtime 的 `collectMarketCrossSection` 通过配置的数据源采集指定交�
 
 可选的 `history.priceArchives` 提供股票池内标的的精确前复权日线归档。归档须结束于截面交易日，末日收盘与截面收盘一致时才计算 MA5/20/60 宽度及 60 根日线收盘高低点。回放记录每个归档的匹配结果，历史不足时保留空值。`history.volumeArchives` 提供至多五个严格递增的此前市场截面。只有五个输入日期都存在该股的同单位成交量，且平均成交量大于零时，才用当日成交量除以这五个观测的均值。结果保留这些输入的日期和来源；输入日期的覆盖与历史可得性仍需数据使用方确认。
 
+CLI 使用已配置的 Tushare 采集一个交易日的市场截面，将回执的 `data.ref.revision` 传给离线回放。结果保留股票池覆盖、三份响应的供应商、缺失记录和 WhyJ 公式版本。
+
+```powershell
+whyj --json observation collect-market --date 2024-01-05
+whyj --json observation replay-market --revision MARKET_SHA
+```
+
+`--price-revisions` 接受逗号分隔的前复权日线归档修订。大量标的可用 `--price-revisions-file` 提供相同修订的 JSON 字符串数组。`--volume-revisions` 接受按交易日递增的至多五个市场截面归档修订。仅传单日市场归档时，均线宽度、新高新低和五日量比保持不可用。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
