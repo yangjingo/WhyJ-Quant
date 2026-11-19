@@ -211,3 +211,13 @@ whyj --json observation replay-intraday --revision SHA256
 ```
 
 回放含 11 项指标、4 项穿越信号、原始时间标签和单列开盘边界。已有同一标的的涨跌停价归档时，可同时传入 `--previous-close-revision SHA256 --price-basis caller-confirmed-same-basis`，使用其中同日的昨收证据。只有确认两份归档价格口径相容时才声明该选项。
+
+用已配置的 Tushare 采集同一交易日的行业或概念目录，再按板块代码采集所需成分。
+
+```powershell
+whyj --json observation collect-sector-catalog --date 2025-01-02 --kind concept
+whyj --json observation collect-sector-members --date 2025-01-02 --sector-code BK1184.DC
+whyj --json observation replay-sector-rank --market-revision MARKET_SHA --catalog-revision CATALOG_SHA --members-file members.json
+```
+
+`MARKET_SHA` 取自同日 `collect-market` 回执，`CATALOG_SHA` 取自目录采集回执，均为 `data.ref.revision`。将每条成分回执的 `data.ref.revision` 保存为 `members.json` 中的 JSON 字符串数组。空数组 `[]` 可查看目录中哪些板块尚未采集。回放使用本地归档，输出 WhyJ 排行、归档修订和板块覆盖范围。
