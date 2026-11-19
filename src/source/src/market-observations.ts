@@ -8,7 +8,7 @@ import { SourceRequestError } from "./market-data-error.ts";
 import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
-import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareFinancialDisclosureDates,
+import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareDatedBenchmark, fetchTushareFinancialDisclosureDates,
   fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareMarketDate, fetchTushareReportFinancialIndicators,
   fetchTushareSectorCatalog, fetchTushareSectorMembers } from "./tushare.ts";
 
@@ -90,6 +90,22 @@ export interface DailyMarketBars {
   volumeUnit: "hand";
   amountUnit: "CNY-thousand";
   rows: DailyMarketBar[];
+}
+
+export interface DatedBenchmarkRow {
+  tradeDate: string;
+  closePoints: number;
+  previousClosePoints: number | null;
+  changePoints: number | null;
+  returnPct: number | null;
+}
+
+export interface DatedBenchmarkObservations {
+  symbol: string;
+  requested: { start: string; end: string };
+  priceUnit: "index-points";
+  returnUnit: "percentage-points";
+  rows: DatedBenchmarkRow[];
 }
 
 export interface DailyMarketBasic {
@@ -193,6 +209,8 @@ export interface MarketObservationSource {
     Promise<MarketObservation<DatedSectorCatalog>>;
   fetchDatedSectorMembers(request: { market: Market; tradeDate: string; sectorCode: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<DatedSectorMembers>>;
+  fetchDatedBenchmarkObservations(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<DatedBenchmarkObservations>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
   fetchHistoricalStockUniverse(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
@@ -212,6 +230,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchDailyMarketBasics: { tushare: "A" },
   fetchDatedSectorCatalog: { tushare: "A" },
   fetchDatedSectorMembers: { tushare: "A" },
+  fetchDatedBenchmarkObservations: { tushare: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
@@ -235,6 +254,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchFinancialDisclosureDates: status("fetchFinancialDisclosureDates"),
     fetchDailyMarketBars: status("fetchDailyMarketBars"), fetchDailyMarketBasics: status("fetchDailyMarketBasics"),
     fetchDatedSectorCatalog: status("fetchDatedSectorCatalog"), fetchDatedSectorMembers: status("fetchDatedSectorMembers"),
+    fetchDatedBenchmarkObservations: status("fetchDatedBenchmarkObservations"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
     fetchHistoricalMinuteBars: status("fetchHistoricalMinuteBars"),
@@ -461,6 +481,35 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
         return { symbol, name: name?.trim() || null };
       }).sort((left, right) => left.symbol.localeCompare(right.symbol));
       return result<DatedSectorMembers>(market, "dc_member", { tradeDate, taxonomy: "eastmoney", sectorCode, members });
+    },
+    async fetchDatedBenchmarkObservations({ market, symbol, start, end }, options) {
+      validate("fetchDatedBenchmarkObservations", market);
+      const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
+      if (!isAIndexSymbol(code) || !/\.(SH|SZ)$/.test(code)) throw new Error("Invalid exchange-qualified A-share benchmark index");
+      if (typeof start !== "string" || typeof end !== "string") throw new Error("Benchmark dates are required");
+      validateDateRange(start, end);
+      const calendarDays = (Date.parse(end) - Date.parse(start)) / 86_400_000 + 1;
+      if (calendarDays > 366) throw new Error("Benchmark window exceeds 366 calendar days");
+      const rawRows = await readReference(options, signal =>
+        fetchTushareDatedBenchmark(code, start, end, calendarDays, { token: apiKey, baseUrl, env, signal }));
+      const seen = new Set<string>();
+      const rows = rawRows.map(row => {
+        const rawDate = row.trade_date;
+        const tradeDate = typeof rawDate === "string" && /^\d{8}$/.test(rawDate)
+          ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}` : "";
+        if (!isDailyDate(tradeDate) || tradeDate < start || tradeDate > end || seen.has(tradeDate)) {
+          throw new Error("Provider benchmark observation date invalid or duplicated");
+        }
+        seen.add(tradeDate);
+        const closePoints = nullableNumber(row.close), previousClosePoints = nullableNumber(row.pre_close);
+        const changePoints = nullableNumber(row.change), returnPct = nullableNumber(row.pct_chg);
+        if (closePoints === null || closePoints <= 0 || (previousClosePoints !== null && previousClosePoints <= 0)
+          || (returnPct !== null && returnPct < -100)) throw new Error("Provider benchmark observation value invalid");
+        return { tradeDate, closePoints, previousClosePoints, changePoints, returnPct };
+      }).sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
+      return result<DatedBenchmarkObservations>(market, "index_daily", {
+        symbol: code, requested: { start, end }, priceUnit: "index-points", returnUnit: "percentage-points", rows,
+      });
     },
     async fetchTradingCalendar({ market, start, end }, options) {
       validate("fetchTradingCalendar", market);

@@ -251,6 +251,14 @@ export function fetchTushareSectorMembers(tradeDate: string, sectorCode: string,
     ["trade_date", "ts_code", "con_code", "name"], 4_999, options);
 }
 
+export async function fetchTushareDatedBenchmark(symbol: string, start: string, end: string, maxRows: number, options: TushareOptions) {
+  const rows = await boundedTable("index_daily", {
+    ts_code: symbol, start_date: start.replaceAll("-", ""), end_date: end.replaceAll("-", ""),
+  }, ["ts_code", "trade_date", "close", "pre_close", "change", "pct_chg"], maxRows, options);
+  assertResponseSymbol(rows, symbol);
+  return rows;
+}
+
 export async function searchTushareSymbols(keyword: string, options: TushareOptions = {}): Promise<SymbolInfo[]> {
   const rows = await callTushare(
     "stock_basic",
