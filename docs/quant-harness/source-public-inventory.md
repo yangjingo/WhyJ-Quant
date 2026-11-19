@@ -32,6 +32,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDailyMarketBars` | Tushare `daily` reads one raw A-share date cross-section with ex-rights previous close and native volume and amount units. |
 | `fetchDailyMarketBasics` | Tushare `daily_basic` reads one cross-section of turnover, valuation and capital fields. Retains provider volume ratio, endpoint provenance and unknown coverage. |
 | `fetchDatedBenchmarkObservations` | Tushare `index_daily` reads an exchange-qualified A-share benchmark over a dated range. It retains provider close, prior close, point change and percentage return with unknown coverage. |
+| `fetchDatedAuctionBenchmark` | The explicit Fuyao `/api/a-share/auction/short-term-benchmark` read preserves selected stock identities and order, labels and percentage-point auction returns. The response assembly timestamp is distinct from the exact Shanghai trade date and local capture time. |
 | `fetchHistoricalStockUniverse` | Tushare `bak_basic` returns a provider-defined historical A-share list for one date. Preserves source and optional listing date and industry. Coverage is unknown; a saturated response fails. |
 | `fetchDatedSectorCatalog` | Tushare `dc_index` returns the Eastmoney industry or concept catalog for one date and named vendor taxonomy. Retains group codes, names and optional hierarchy. |
 | `fetchDatedSectorMembers` | Tushare `dc_member` returns members of one Eastmoney sector for one exact historical date. Keeps stock identity and optional name. Empty and cap-saturated responses have distinct outcomes. |
@@ -114,6 +115,14 @@ Provider-specific Financial Datasets operations; facade mapping unresolved.
 | --- | --- | --- | --- |
 | `fetchFromFinancialDatasets` | value | Provider-specific operation | — |
 | `fetchFinancialDatasetsSnapshot` | value | Provider-specific operation | — |
+
+## `./src/fuyao-auction.ts`
+
+| Export | Kind | Use | Canonical route |
+| --- | --- | --- | --- |
+| `fetchDatedAuctionBenchmark` | value | Read Fuyao's selected auction list for a Shanghai trade date | Explicit supplemental observation |
+| `AuctionBenchmarkRow` | type | Stock identity, native auction return and provider tags | — |
+| `DatedAuctionBenchmark` | type | Dated snapshot, assembly and capture times, coverage and native units | — |
 
 ## `./src/akshare-global-bars.ts`
 

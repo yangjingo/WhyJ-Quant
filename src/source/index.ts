@@ -37,6 +37,8 @@ export type {
 } from "./src/akshare.ts";
 
 export { fetchFromFinancialDatasets, fetchFinancialDatasetsSnapshot } from "./src/financial-datasets.ts";
+export { fetchDatedAuctionBenchmark } from "./src/fuyao-auction.ts";
+export type { AuctionBenchmarkRow, DatedAuctionBenchmark } from "./src/fuyao-auction.ts";
 export { fetchFromAKShareGlobal, fetchFromAKShareGlobalDetailed } from "./src/akshare-global-bars.ts";
 export { createMarketDataSource, getMarketDataCapabilities } from "./src/market-data.ts";
 export type { MarketDataCapabilities, OrderBookMarketDataCapabilities, OrderBookMarketDataSource, TradingDateMarketDataCapabilities, TradingDateMarketDataSource } from "./src/market-data.ts";
