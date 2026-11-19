@@ -46,6 +46,10 @@ Limit-up, limit-down, broken-limit-up and limit-down recovery consume separately
 - Crossings use a strict current comparison and an inclusive previous comparison. The previous bar may be the last morning bar at the afternoon reopening, provided both adjoining minutes are available. First bars, gaps and missing operands make the affected signal unavailable (`null`).
 - A missing minute invalidates the affected day's cumulative values from the gap onward. A volume window can recover as consecutive complete minutes arrive. A complete opening range already calculated stays available. Provider-observed zero is kept separate from missing data. These explicit availability rules apply before projection onto any event-only consumer.
 
+## Completed-session stock price deviation
+
+`computeTspPriceDeviation` returns the 3, 10 and 30-session stock return minus its eligible index return as a fraction. The caller supplies an ordered trading calendar and closes on a consistent basis for each series. The result names the selected index and the start date used for each comparison. The five board mappings preserve the pinned primary and alternate index codes. Callers can choose and identify the alternate explicitly. Missing stock or index endpoints yield `null` at the original window; later observations cannot change an earlier result. [Pinned TSP deviation pipeline](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/indicators/pipeline.py#L1116)
+
 ## Built-in research factors
 
 Quant's `computeTspResearchFactors` evaluates the 77 registered TSP built-in research factor keys for one symbol. It reuses the daily calculation for the 17 overlapping technical fields. Results use WhyJ calculations and the pinned TSP scoring definitions. The existing WhyJ factor names and their formulas retain their own conventions. [TSP registry](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/factors/registry.py#L95) · [TSP scoring expressions](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/scoring.py#L88)
