@@ -32,6 +32,8 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDailyMarketBars` | Tushare `daily` reads one raw A-share date cross-section with ex-rights previous close and native volume and amount units. |
 | `fetchDailyMarketBasics` | Tushare `daily_basic` reads one cross-section of turnover, valuation and capital fields. Retains provider volume ratio, endpoint provenance and unknown coverage. |
 | `fetchHistoricalStockUniverse` | Tushare `bak_basic` returns a provider-defined historical A-share list for one date. Preserves source and optional listing date and industry. Coverage is unknown; a saturated response fails. |
+| `fetchDatedSectorCatalog` | Tushare `dc_index` returns the Eastmoney industry or concept catalog for one date and named vendor taxonomy. Retains group codes, names and optional hierarchy. |
+| `fetchDatedSectorMembers` | Tushare `dc_member` returns members of one Eastmoney sector for one exact historical date. Keeps stock identity and optional name. Empty and cap-saturated responses have distinct outcomes. |
 | `fetchHistoricalMinuteBars` | Tushare `stk_mins` returns past A-share one-minute bars for one symbol with a bounded date window. It preserves original Shanghai labels, shares, CNY, and an explicit 09:30 opening-boundary flag. Coverage and finality are unknown. |
 | `searchInstruments`, `fetchInstrumentUniverse`, `fetchTradingCalendar` | Tushare A-share `stock_basic` searches by name, AKShare SH/SZ main-board rosters retain per-exchange endpoint evidence, and AKShare/Sina `tool_trade_date_hist_sina` returns dates. The roster is current and limited in scope. It is not a historical symbol master or market coverage guarantee. |
 | `fetchFundNav`, `fetchFundProfile`, `fetchFundPurchaseTerms`, `fetchFundPerformance` | AKShare/Eastmoney and Tushare `fund_nav` provide open-fund NAV. AKShare `fund_info_ths` and Snowball supply profile fields, `fund_purchase_em` supplies current purchase terms and headline fee, and Snowball achievement/risk endpoints map to separate result arrays. Raw rank and tiered fee schedules retain their provider-specific contracts. |
@@ -394,6 +396,8 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `DailyMarketBars` | type | Raw market bar cross-section with native units | — |
 | `DailyMarketBasic` | type | Dated turnover, share counts, and valuation fields | — |
 | `DailyMarketBasics` | type | Daily basic cross-section with native units | — |
+| `DatedSectorCatalog` | type | Exact-date Eastmoney provider classification and optional hierarchy | — |
+| `DatedSectorMembers` | type | Exact-date Eastmoney membership for one group | — |
 | `HistoricalStockUniverse` | type | Provider-defined A-share roster for a fixed date | — |
 | `SourceRequestError` | value | Selected request failure | — |
 | `SourceErrorCode` | type | Stable selected failure category | — |
