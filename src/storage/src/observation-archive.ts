@@ -2,7 +2,8 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { ObservationArchiveRef, StoredDailyTradingLimitBatch, StoredObservation, StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
+import type { HistoricalMinuteArchiveRef, ObservationArchiveRef, StoredDailyTradingLimitBatch, StoredHistoricalMinuteBatch,
+  StoredObservation, StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol } from "../../market/symbols.ts";
 import { resolveDataDir } from "./dirs.ts";
@@ -235,5 +236,61 @@ export async function loadDailyTradingLimitArchive(ref: TradingLimitArchiveRef, 
   const data = await readFixedArchive(limitPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== limitArchiveKind) throw fail();
   validateTradingLimits(data.batch);
+  return data.batch;
+}
+
+const historicalMinuteKind = "historical-minute-bars";
+const historicalMinuteDir = () => join(resolveDataDir(), "historical-minute-archives-v1");
+const historicalMinuteBatchKeys = [
+  "symbol", "market", "source", "endpoint", "observedAt", "coverage", "finality", "adjustment", "timeZone",
+  "interval", "volumeUnit", "amountUnit", "requested", "rows",
+];
+const historicalMinuteRowKeys = ["tradeTime", "openingBoundary", "open", "high", "low", "close", "volume", "amount"];
+const historicalMinuteTime = /^(\d{4}-\d{2}-\d{2}) (09:[3-5]\d|10:[0-5]\d|11:(?:[0-2]\d|30)|1[34]:[0-5]\d|15:00):00$/;
+
+function historicalMinutePath(ref: HistoricalMinuteArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 ||
+    ref.kind !== historicalMinuteKind || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(historicalMinuteDir(), `${ref.revision}.json`);
+}
+
+function validateHistoricalMinutes(batch: unknown): asserts batch is StoredHistoricalMinuteBatch {
+  if (!object(batch) || !exactKeys(batch, historicalMinuteBatchKeys) || batch.market !== "A" ||
+    typeof batch.symbol !== "string" || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(batch.symbol) ||
+    batch.source !== "tushare" || batch.endpoint !== "stk_mins" || typeof batch.observedAt !== "string" || !instant(batch.observedAt) ||
+    batch.timeZone !== "Asia/Shanghai" || batch.interval !== "1m" || batch.volumeUnit !== "share" || batch.amountUnit !== "CNY" ||
+    batch.coverage !== "unknown" || batch.finality !== "unknown" || batch.adjustment !== "unknown" ||
+    !object(batch.requested) || !exactKeys(batch.requested, ["startDate", "endDate"]) ||
+    !Array.isArray(batch.rows) || batch.rows.length === 0 || batch.rows.length >= 8000) throw fail();
+  const { startDate, endDate } = batch.requested;
+  if (typeof startDate !== "string" || typeof endDate !== "string" || !isDailyDate(startDate) || !isDailyDate(endDate) ||
+    startDate < "2010-01-01" || endDate > "9998-12-31" || startDate > endDate ||
+    endDate >= shanghaiDate(Date.parse(batch.observedAt)) || Date.parse(endDate) - Date.parse(startDate) > 30 * 86_400_000) throw fail();
+  let previous = "";
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, historicalMinuteRowKeys) || typeof row.tradeTime !== "string" || row.tradeTime <= previous) throw fail();
+    const label = historicalMinuteTime.exec(row.tradeTime);
+    if (!label || !isDailyDate(label[1]!) || label[1]! < startDate || label[1]! > endDate ||
+      row.openingBoundary !== (label[2] === "09:30") || !nonnegative(row.open) || !nonnegative(row.high) ||
+      !nonnegative(row.low) || !nonnegative(row.close) || row.low === 0 ||
+      row.high < Math.max(row.open, row.close) || row.low > Math.min(row.open, row.close) ||
+      !nonnegative(row.volume) || !Number.isSafeInteger(row.volume) || (row.amount !== null && !nonnegative(row.amount))) throw fail();
+    previous = row.tradeTime;
+  }
+}
+
+/** Store original Shanghai time labels and units for a single historical minute response. */
+export async function archiveHistoricalMinuteObservations(batch: StoredHistoricalMinuteBatch, signal?: AbortSignal): Promise<HistoricalMinuteArchiveRef> {
+  validateHistoricalMinutes(batch);
+  const content = canonical({ version: 1, kind: historicalMinuteKind, batch });
+  const ref: HistoricalMinuteArchiveRef = { version: 1, kind: historicalMinuteKind, revision: digest(content) };
+  await writeFixedArchive(historicalMinuteDir(), historicalMinutePath(ref), content, signal);
+  return ref;
+}
+
+export async function loadHistoricalMinuteArchive(ref: HistoricalMinuteArchiveRef, signal?: AbortSignal): Promise<StoredHistoricalMinuteBatch> {
+  const data = await readFixedArchive(historicalMinutePath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== historicalMinuteKind) throw fail();
+  validateHistoricalMinutes(data.batch);
   return data.batch;
 }
