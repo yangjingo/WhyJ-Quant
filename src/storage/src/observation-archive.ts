@@ -2,8 +2,9 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { HistoricalMinuteArchiveRef, ObservationArchiveRef, StoredDailyTradingLimitBatch, StoredHistoricalMinuteBatch,
-  StoredObservation, StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
+import type { FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, ObservationArchiveRef, StoredDailyTradingLimitBatch,
+  StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredObservation, StoredTradingDateBarObservation,
+  TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol } from "../../market/symbols.ts";
 import { resolveDataDir } from "./dirs.ts";
@@ -292,5 +293,70 @@ export async function loadHistoricalMinuteArchive(ref: HistoricalMinuteArchiveRe
   const data = await readFixedArchive(historicalMinutePath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== historicalMinuteKind) throw fail();
   validateHistoricalMinutes(data.batch);
+  return data.batch;
+}
+
+const financialDir = () => join(resolveDataDir(), "financial-observation-archives-v1");
+const financialKinds = { fina_indicator: "report-financial-indicators", disclosure_date: "financial-disclosure-dates" } as const;
+const financialBatchKeys = ["symbol", "market", "source", "endpoint", "observedAt", "coverage", "requested", "rows"];
+const reportNumberFields = ["bookValuePerShare", "roe", "grossProfitMargin", "netProfitMargin", "operatingRevenueYoyPct",
+  "totalOperatingRevenueYoyPct", "parentNetProfitYoyPct", "debtToAssets"];
+const indicatorFields = ["periodEnd", "announcementDate", "updateFlag", "bookValueCurrency", "ratioUnit", ...reportNumberFields];
+const disclosureDates = ["planAnnouncementDate", "plannedDisclosureDate", "actualDisclosureDate"];
+const disclosureFields = ["periodEnd", "modificationRecord", ...disclosureDates];
+
+function financialPath(ref: FinancialObservationArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 ||
+    !Object.values(financialKinds).includes(ref.kind) || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(financialDir(), `${ref.revision}.json`);
+}
+
+const dailyDate = (value: unknown): value is string => typeof value === "string" && isDailyDate(value);
+const optionalDate = (value: unknown): boolean => value === null || dailyDate(value);
+const optionalText = (value: unknown): boolean => value === null || (typeof value === "string" && value.trim().length > 0);
+
+function validateFinancialBatch(batch: unknown): asserts batch is StoredFinancialObservationBatch {
+  if (!object(batch) || !exactKeys(batch, financialBatchKeys) || batch.market !== "A" || batch.source !== "tushare" ||
+    typeof batch.symbol !== "string" || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:[48]\d{5}|92\d{4})\.BJ)$/.test(batch.symbol) ||
+    isAIndexSymbol(batch.symbol) || batch.coverage !== "unknown" || typeof batch.observedAt !== "string" || !instant(batch.observedAt) ||
+    !object(batch.requested) || !Array.isArray(batch.rows)) throw fail();
+
+  const { requested, rows } = batch;
+  if (batch.endpoint === "fina_indicator") {
+    const { startPeriod, endPeriod } = requested;
+    if (!exactKeys(requested, ["startPeriod", "endPeriod"]) || !dailyDate(startPeriod) || !dailyDate(endPeriod) ||
+      startPeriod > endPeriod || rows.length >= 100) throw fail();
+    for (const row of rows) {
+      if (!object(row) || !exactKeys(row, indicatorFields) || !dailyDate(row.periodEnd) ||
+        row.periodEnd < startPeriod || row.periodEnd > endPeriod || !optionalDate(row.announcementDate) || !optionalText(row.updateFlag) ||
+        row.bookValueCurrency !== "unknown" || row.ratioUnit !== "provider-native" ||
+        reportNumberFields.some(field => row[field] !== null && (typeof row[field] !== "number" || !Number.isFinite(row[field])))) throw fail();
+    }
+  } else if (batch.endpoint === "disclosure_date") {
+    if (!exactKeys(requested, ["periodEnd"]) || !dailyDate(requested.periodEnd) || rows.length >= 6000) throw fail();
+    for (const row of rows) {
+      if (!object(row) || !exactKeys(row, disclosureFields) || row.periodEnd !== requested.periodEnd ||
+        !optionalText(row.modificationRecord) || disclosureDates.some(field => !optionalDate(row[field]))) throw fail();
+    }
+  } else throw fail();
+}
+
+/** Save either provider response as captured, retaining repeated periods and row order. */
+export async function archiveFinancialObservations(batch: StoredFinancialObservationBatch, signal?: AbortSignal): Promise<FinancialObservationArchiveRef> {
+  validateFinancialBatch(batch);
+  const kind = financialKinds[batch.endpoint];
+  const content = canonical({ version: 1, kind, batch });
+  const ref: FinancialObservationArchiveRef = { version: 1, kind, revision: digest(content) };
+  await writeFixedArchive(financialDir(), financialPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadFinancialObservationArchive(ref: FinancialObservationArchiveRef, signal?: AbortSignal): Promise<StoredFinancialObservationBatch> {
+  const path = financialPath(ref);
+  const { kind, revision } = ref;
+  const data = await readFixedArchive(path, revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== kind) throw fail();
+  validateFinancialBatch(data.batch);
+  if (financialKinds[data.batch.endpoint] !== kind) throw fail();
   return data.batch;
 }

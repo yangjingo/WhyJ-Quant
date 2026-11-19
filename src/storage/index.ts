@@ -109,6 +109,9 @@ export { insightCacheMtimeMs, loadInsightCache, saveInsightCache } from "./src/i
 export { archiveObservations, loadObservationArchive, archiveTradingDateObservations, loadTradingDateArchive } from "./src/observation-archive.ts";
 export { archiveDailyTradingLimits, loadDailyTradingLimitArchive } from "./src/observation-archive.ts";
 export { archiveHistoricalMinuteObservations, loadHistoricalMinuteArchive } from "./src/observation-archive.ts";
+export { archiveFinancialObservations, loadFinancialObservationArchive } from "./src/observation-archive.ts";
 export type { ObservationArchiveRef, StoredObservation, StoredBarObservation, StoredFactorObservation, StoredTradingDateBarObservation, TradingDateArchiveRef } from "../types/observation.ts";
 export type { StoredDailyTradingLimit, StoredDailyTradingLimitBatch, TradingLimitArchiveRef } from "../types/observation.ts";
 export type { HistoricalMinuteArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch } from "../types/observation.ts";
+export type { FinancialObservationArchiveRef, StoredFinancialDisclosureDate, StoredFinancialObservationBatch,
+  StoredReportFinancialIndicator } from "../types/observation.ts";
