@@ -112,3 +112,49 @@ export interface HistoricalMinuteArchiveRef {
   kind: "historical-minute-bars";
   revision: string;
 }
+
+export interface StoredReportFinancialIndicator {
+  periodEnd: string;
+  announcementDate: string | null;
+  updateFlag: string | null;
+  bookValuePerShare: number | null;
+  bookValueCurrency: "unknown";
+  roe: number | null;
+  grossProfitMargin: number | null;
+  netProfitMargin: number | null;
+  operatingRevenueYoyPct: number | null;
+  totalOperatingRevenueYoyPct: number | null;
+  parentNetProfitYoyPct: number | null;
+  debtToAssets: number | null;
+  ratioUnit: "provider-native";
+}
+
+export interface StoredFinancialDisclosureDate {
+  periodEnd: string;
+  planAnnouncementDate: string | null;
+  plannedDisclosureDate: string | null;
+  actualDisclosureDate: string | null;
+  modificationRecord: string | null;
+}
+
+export type StoredFinancialObservationBatch = {
+  symbol: string;
+  market: "A";
+  source: "tushare";
+  observedAt: string;
+  coverage: "unknown";
+} & ({
+  endpoint: "fina_indicator";
+  requested: { startPeriod: string; endPeriod: string };
+  rows: StoredReportFinancialIndicator[];
+} | {
+  endpoint: "disclosure_date";
+  requested: { periodEnd: string };
+  rows: StoredFinancialDisclosureDate[];
+});
+
+export interface FinancialObservationArchiveRef {
+  version: 1;
+  kind: "report-financial-indicators" | "financial-disclosure-dates";
+  revision: string;
+}
