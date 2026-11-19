@@ -1,5 +1,8 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
-import type { ObservationArchiveRef, StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef } from "./observation.ts";
+import type {
+  HistoricalMinuteArchiveRef, ObservationArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch,
+  StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
+} from "./observation.ts";
 /**
  * The workbench's view of the Host.
  *
@@ -293,6 +296,7 @@ export interface WorkbenchClient {
   cancelObservationJob?(id: string): Promise<ObservationJobView>;
   readObservationIndicators?(ref: TradingDateArchiveRef): Promise<ObservationIndicatorPreview>;
   readObservationExchangeIndicators?(input: ObservationExchangePreviewRequest): Promise<ObservationIndicatorPreview>;
+  readObservationIntraday?(input: ObservationIntradayRequest): Promise<ObservationIntradayPreview>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
   verifyModelDraft?(id: string): Promise<ModelDraftView>;
@@ -387,13 +391,20 @@ export type ObservationJobRequest =
   | { dataset: "daily"; timeMode: "trading-date"; symbol: string; startDate: string; endDate: string; adjustment: "none" | "forward" }
   | { dataset: "minute"; symbol: string; startTime: number; endTime: number; adjustment: "none" | "forward"; interval: "1m" | "5m" | "10m" | "15m" | "30m" | "60m" }
   | { dataset: "daily-trading-limits"; symbol: string; startDate: string; endDate: string }
+  | { dataset: "historical-minute-bars"; symbol: string; startDate: string; endDate: string }
   | { dataset: "factor"; symbol: string; startTime: number; endTime: number };
 export interface ObservationJobView {
   id: string;
   request: ObservationJobRequest;
   status: "running" | "archived" | "empty" | "failed" | "cancelled";
   cancelRequested: boolean;
-  receipt: { source: string; endpoint: string; observedAt: string; rowCount: number; ref: ObservationArchiveRef | TradingDateArchiveRef | TradingLimitArchiveRef | null } | null;
+  receipt: {
+    source: string;
+    endpoint: string;
+    observedAt: string;
+    rowCount: number;
+    ref: ObservationArchiveRef | TradingDateArchiveRef | TradingLimitArchiveRef | HistoricalMinuteArchiveRef | null;
+  } | null;
   error: "COLLECTION_FAILED" | null;
 }
 
@@ -401,6 +412,39 @@ export interface ObservationExchangePreviewRequest {
   archiveRef: TradingDateArchiveRef;
   rawArchiveRef?: TradingDateArchiveRef;
   tradingLimitArchiveRef: TradingLimitArchiveRef;
+}
+
+export interface ObservationIntradayRequest {
+  archiveRef: HistoricalMinuteArchiveRef;
+  tradeDate: string;
+  previousClose?: { ref: TradingLimitArchiveRef; priceBasis: "caller-confirmed-same-basis" };
+}
+
+export interface ObservationIntradayPreview {
+  archiveRef: HistoricalMinuteArchiveRef;
+  tradeDate: string;
+  producer: "whyj";
+  formula: { id: "tsp_intraday"; version: number; revision: string };
+  input: Omit<StoredHistoricalMinuteBatch, "rows"> & {
+    labelConvention: "tushare-stk-mins-end-time-v1";
+    previousClose: {
+      archiveRef: TradingLimitArchiveRef;
+      priceBasis: "caller-confirmed-same-basis";
+      source: "tushare";
+      endpoint: "stk_limit";
+      observedAt: string;
+      priceUnit: "CNY";
+      requested: { startDate: string; endDate: string };
+    } | null;
+  };
+  openingBoundaries: StoredHistoricalMinuteBar[];
+  rows: {
+    tradingDate: string;
+    minute: string;
+    originalTradeTime: string;
+    values: Record<string, number | null>;
+    signals: Record<string, boolean | null>;
+  }[];
 }
 
 interface ExchangeInputEvidence<Ref> {

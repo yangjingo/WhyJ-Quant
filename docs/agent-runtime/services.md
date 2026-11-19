@@ -163,7 +163,9 @@ Runtime 的 `deriveTspArchiveIndicators` 接受精确的 v2 日线归档引用�
 
 历史分时入口 `collectHistoricalMinuteObservations` 按设置选择数据源。Tushare `stk_mins` 返回的上海时间、成交股数和成交额直接保存到不可变归档。空结果不生成归档引用，覆盖范围、复权口径和数据最终状态继续保留为未知。归档引用可用于 `deriveTspArchiveIntraday` 离线重算 11 项分时特征和 4 项穿越信号。
 
-回放使用 `tushare-stk-mins-end-time-v1` 时间标签约定。该约定依据供应商文档样例，将常规右端标签映射为这一分钟的起点，例如 `09:31` → `09:30`、`15:00` → `14:59`。结果同时保留原始标签。原始 `09:30` 开盘边界单列，不参加常规分钟的成交量和 VWAP。遇到无法映射的标签立即失败；盘中缺口沿用 Quant 的显式空值语义。可选昨收来自同一标的的精确涨跌停价归档，调用方须明确确认价格口径相容。缺失昨收时，昨收收益率和零轴穿越仍为空。当前入口供 Runtime 使用，应用路由和实盘权限独立验证。
+回放使用 `tushare-stk-mins-end-time-v1` 时间标签约定。该约定依据供应商文档样例，将常规右端标签映射为这一分钟的起点，例如 `09:31` → `09:30`、`15:00` → `14:59`。结果同时保留原始标签。原始 `09:30` 开盘边界单列，不参加常规分钟的成交量和 VWAP。遇到无法映射的标签立即失败；盘中缺口沿用 Quant 的显式空值语义。可选昨收来自同一标的的精确涨跌停价归档，调用方须明确确认价格口径相容。缺失昨收时，昨收收益率和零轴穿越仍为空。
+
+认证采集任务支持 `{ dataset: "historical-minute-bars", symbol, startDate, endDate }`。日期窗口至多 31 天并早于上海当天。可选认证 RPC `readObservationIntraday` 接收 `{ archiveRef, tradeDate, previousClose? }`，只返回指定日期的指标和开盘边界。日期必须在归档请求窗口内，窗口内无记录的日期返回空行并保留未知覆盖。若补充昨收，`previousClose` 须同时含精确限价引用 `ref` 和 `priceBasis: "caller-confirmed-same-basis"`。归档受损和缺失返回同一固定诊断。旧 Host 通过 `METHOD_NOT_FOUND` 表明缺少此可选方法。
 
 `readObservationIndicators` 是可选的认证 RPC。它接收 v2 日线归档的版本和摘要，返回指标序列、公式身份及输入来源。`daily` 返回 WhyJ 生产的 37 个日线字段，包含单独的公式身份与按日取值；预热不足的值为 `null`。`input.source` 标识所归档输入的供应商，`daily.producer` 标识执行计算的 WhyJ。Desktop/Web 按类别查看归档最新日的各项指标，并分别展示供应商、公式、预热空值与数值零。旧版 Host 若只返回 RSI6/14/24 和 ATR14，界面使用对应的四项预览；缺少整个方法则显示版本提示。归档在 Host 重启后仍可按同一引用回放。无效引用返回参数错误，缺失和损坏共用固定的不可用诊断。调用只读本机归档。
 
