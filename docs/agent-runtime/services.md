@@ -253,6 +253,21 @@ Runtime 的 `replayTspMarketEmotion` 用升序交易日和固定归档回放最�
 
 个股涨跌幅用目标日与紧邻前一交易日的前复权收盘计算。五日量比只用目标日之前紧邻的五个交易日市场截面。四只核心指数分别用目标日归档的收盘和昨收点位计算百分点。缺失的归档、个股前收或板块覆盖保留在回执中。目标日市场缺失，或启用了 ST 筛选但没有目标日快照时，回执保留目标日期和缺失原因。`dashboard` 记录 WhyJ 的公式版本、输入值、结果与覆盖范围，五档盘口修正标为不可用。
 
+在 CLI 中用 `whyj --json observation replay-market-emotion --manifest emotion.json` 回放。清单中的摘要取自每条采集回执的 `data.ref.revision`。补齐目标日以前的连续交易日及对应市场截面，才能验证五日量比和连板所需历史。
+
+```json
+{
+  "sessions": ["2025-01-02", "2025-01-03"],
+  "marketRevisions": ["JAN_02_MARKET_SHA", "JAN_03_MARKET_SHA"],
+  "limitRevisions": ["LIMIT_SHA"],
+  "priceRevisions": ["ADJUSTED_PRICE_SHA"],
+  "indexRevisions": ["CORE_INDEX_SHA"],
+  "sectors": {"concept": {"catalogRevision": "CATALOG_SHA", "memberRevisions": ["MEMBER_SHA"]}}
+}
+```
+
+`sectors` 与 `riskWarningRevisions` 可省略。行业目录放在 `sectors.industry`，格式与概念相同。每只核心指数只选一份覆盖目标日的归档。缺少涨跌停、复权日线或指数输入时，可用空数组运行部分回放，JSON 会保留缺失状态。无效清单返回 `invalid_arguments`，不可读取或不匹配的归档返回 `observation_archive_unavailable`。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
