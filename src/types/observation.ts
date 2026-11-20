@@ -217,6 +217,29 @@ export interface MarketCrossSectionArchiveRef {
   revision: string;
 }
 
+export interface StoredDepthSnapshot {
+  source: "tickflow";
+  endpoint: "/v1/depth" | "/v1/depth/batch";
+  market: "A";
+  tradeDate: string;
+  observedAt: string;
+  coverage: "unknown";
+  volumeUnit: "unknown";
+  requestedSymbols: readonly string[];
+  rows: readonly {
+    symbol: string;
+    timestamp: number;
+    bids: readonly { price: number; volume: number }[];
+    asks: readonly { price: number; volume: number }[];
+  }[];
+}
+
+export interface DepthSnapshotArchiveRef {
+  version: 1;
+  kind: "depth-snapshot";
+  revision: string;
+}
+
 export type StoredSectorObservationBatch = {
   market: "A";
   source: "tushare";

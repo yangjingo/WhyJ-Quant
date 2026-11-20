@@ -3,8 +3,9 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
-import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef,
-  ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef, StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch,
+import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
+  HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
+  StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDepthSnapshot,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
   StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
@@ -437,6 +438,61 @@ export async function loadMarketCrossSectionArchive(ref: MarketCrossSectionArchi
   const data = await readFixedArchive(marketSectionPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== marketSectionKind) throw fail();
   validateMarketSection(data.batch);
+  return data.batch;
+}
+
+const depthKind = "depth-snapshot";
+const depthDir = () => join(resolveDataDir(), "depth-snapshot-archives-v1");
+const depthBatchKeys = ["source", "endpoint", "market", "tradeDate", "observedAt", "coverage", "volumeUnit", "requestedSymbols", "rows"];
+const depthLevelKeys = ["price", "volume"];
+
+function depthPath(ref: DepthSnapshotArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== depthKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(depthDir(), `${ref.revision}.json`);
+}
+
+function validDepthLevels(levels: unknown, descending: boolean): boolean {
+  if (!Array.isArray(levels) || levels.length > 5) return false;
+  let previous: number | undefined;
+  for (const level of levels) {
+    if (!object(level) || !exactKeys(level, depthLevelKeys) || !nonnegative(level.price) ||
+      !nonnegative(level.volume) || !Number.isSafeInteger(level.volume)) return false;
+    if (level.price === 0) continue;
+    if (previous !== undefined && (descending ? level.price > previous : level.price < previous)) return false;
+    previous = level.price;
+  }
+  return true;
+}
+
+function validateDepthSnapshot(batch: unknown): asserts batch is StoredDepthSnapshot {
+  if (!object(batch) || !exactKeys(batch, depthBatchKeys) || batch.source !== "tickflow" ||
+    (batch.endpoint !== "/v1/depth" && batch.endpoint !== "/v1/depth/batch") ||
+    batch.market !== "A" || batch.coverage !== "unknown" || batch.volumeUnit !== "unknown" || !dailyDate(batch.tradeDate) ||
+    typeof batch.observedAt !== "string" || !instant(batch.observedAt) || !Array.isArray(batch.requestedSymbols) ||
+    batch.requestedSymbols.length === 0 || batch.requestedSymbols.length > 6_999) throw fail();
+  const { tradeDate, requestedSymbols } = batch;
+  const capturedAt = Date.parse(batch.observedAt);
+  if (tradeDate > shanghaiDate(capturedAt) || requestedSymbols.some((symbol, index) =>
+    typeof symbol !== "string" || !stockSymbol.test(symbol) || (index > 0 && symbol <= requestedSymbols[index - 1]))) throw fail();
+  const scope = new Set(requestedSymbols);
+  marketRows(batch.rows, requestedSymbols.length, ["timestamp", "bids", "asks"], ({ symbol, timestamp, bids, asks }) =>
+    scope.has(symbol) && typeof timestamp === "number" && Number.isSafeInteger(timestamp) && timestamp > 0 &&
+    timestamp <= capturedAt && shanghaiDate(timestamp) === tradeDate && validDepthLevels(bids, true) && validDepthLevels(asks, false));
+}
+
+export async function archiveDepthSnapshot(batch: StoredDepthSnapshot, signal?: AbortSignal): Promise<DepthSnapshotArchiveRef> {
+  validateDepthSnapshot(batch);
+  const content = canonical({ version: 1, kind: depthKind, batch });
+  const ref: DepthSnapshotArchiveRef = { version: 1, kind: depthKind, revision: digest(content) };
+  await writeFixedArchive(depthDir(), depthPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadDepthSnapshotArchive(ref: DepthSnapshotArchiveRef, signal?: AbortSignal): Promise<StoredDepthSnapshot> {
+  const data = await readFixedArchive(depthPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== depthKind) throw fail();
+  validateDepthSnapshot(data.batch);
   return data.batch;
 }
 
