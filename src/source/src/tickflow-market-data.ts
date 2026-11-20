@@ -1,10 +1,10 @@
 import { fetchTickFlowFinancials } from "./tickflow-financials.ts";
 import { subscribeTickFlowQuotes } from "./tickflow-stream.ts";
-import { fetchTickFlowFactors, fetchTickFlowKlines, fetchTickFlowQuotes, fetchTickFlowOrderBook } from "./tickflow.ts";
-import type { OrderBookMarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
+import { fetchTickFlowFactors, fetchTickFlowKlines, fetchTickFlowQuotes, fetchTickFlowOrderBook, fetchTickFlowOrderBookBatch } from "./tickflow.ts";
+import type { OrderBookBatchMarketDataSource, OrderBookMarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 
 /** Translate the provider-neutral Source contract to the TickFlow REST adapter. */
-export function createTickFlowMarketDataAdapter(connection: SourceConnection): OrderBookMarketDataSource {
+export function createTickFlowMarketDataAdapter(connection: SourceConnection): OrderBookMarketDataSource & OrderBookBatchMarketDataSource {
   const options = (request?: SourceRequestOptions) => ({ apiKey: connection.apiKey, baseUrl: connection.baseUrl,
     env: connection.env, signal: request?.signal, timeoutMs: request?.timeoutMs });
   const metadata = (endpoint: string) => ({ source: "tickflow" as const, endpoint, observedAt: new Date().toISOString(), units: "unknown" as const });
@@ -32,6 +32,10 @@ export function createTickFlowMarketDataAdapter(connection: SourceConnection): O
     async fetchOrderBook(request, control) {
       const data = await fetchTickFlowOrderBook(request?.symbol, options(control));
       return { ...metadata("/v1/depth"), data };
+    },
+    async fetchOrderBookBatch(request, control) {
+      const { books, requestedSymbols, missingSymbols } = await fetchTickFlowOrderBookBatch(request?.symbols, options(control));
+      return { ...metadata("/v1/depth/batch"), data: books, requestedSymbols, missingSymbols };
     },
   };
 }

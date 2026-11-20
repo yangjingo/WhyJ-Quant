@@ -24,6 +24,8 @@ Source 可通过 `getMarketDataCapabilities` 查询当前选定供应商在统�
 
 统一接口的 `fetchOrderBook({ symbol })` 可通过 TickFlow `/v1/depth` 查询单标的五档盘口。买卖价格按供应商顺序返回，零值原样保留；成交量单位、空档含义与实际账号权限尚未确认。该接口不缓存、不切换数据源，也未验证真实盘口权限；其他供应商当前明确报告未实现。
 
+`fetchOrderBookBatch({ symbols })` 通过选定 TickFlow 的 `/v1/depth/batch` 提交一次有界请求，每批最多 100 个标的。响应保留规范化请求清单、缺少的标的、原始时间戳和盘口档位。能力元数据反映本地适配器上限，账号实际批量权限、配额和数据时效需用单独的回执确认。 [TickFlow Depth 资源](https://github.com/tickflow-org/tickflow/blob/main/tickflow/resources/depth.py)
+
 `fetchDatedAuctionBenchmark(tradeDate)` 读取扶摇短线风向标的指定上海交易日。它使用独立的 `WHYJ_QUANT_FUYAO_API_KEY`，保留供应商选股顺序、标签和竞价涨幅百分点，允许空名单，并拒绝日期、标的身份或字段类型不匹配的响应。结果分别记录上海日期零点、供应商响应组装时刻和应用采集时刻。历史首发时间和覆盖范围未知。该入口独立于主行情路由，盘后收益由后续 WhyJ 计算。 [扶摇竞价接口](https://fuyao.aicubes.cn/docs/api-reference/auction/#短线风向标竞价基准)
 
 `fetchDatedDragonTigerBoard(tradeDate, boardKind)` 用同一扶摇凭证读取指定交易日的全部榜、机构榜或游资榜。个股、机构和游资记录保留原始顺序和上榜区间，金额单位为元，涨跌幅和占比为小数。缺失交易所代码时保留原始 `ticker`，标的身份仍为空；同时保留上游计数、时间戳及实际采集时刻。响应交易日和榜单种类必须与请求一致。供应商时间戳单独记录，覆盖及发布时间未知。 [扶摇龙虎榜接口](https://fuyao.aicubes.cn/docs/api-reference/dragon-tiger-data/)

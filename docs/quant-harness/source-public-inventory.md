@@ -346,6 +346,13 @@ These exports identify pinned display columns and daily OHLCV derivations. Provi
 
 These additive types describe the selected-source `fetchOrderBook` operation. They do not change the earlier inventory snapshot or establish entitlement.
 
+| Export | Kind | Owner | Purpose |
+| --- | --- | --- | --- |
+| `OrderBookBatchMarketDataSource` | type | Market data facade | Selected-source operation for one bounded batch. |
+| `OrderBookBatchRequest` | type | Market data facade | Explicit symbol list. |
+| `OrderBookBatchResult` | type | Market data facade | Books, requested and missing symbols, and source evidence. |
+| `TICKFLOW_SYMBOL_BATCH_SIZE` | value | TickFlow adapter | Maximum symbol count for a single adapter batch. |
+
 ## Trading-date K-line facade types
 
 | Export | Kind | Classification | Static consumers |

@@ -1,4 +1,5 @@
 import { createTickFlowMarketDataAdapter } from "./tickflow-market-data.ts";
+import { TICKFLOW_SYMBOL_BATCH_SIZE } from "./tickflow.ts";
 import { SourceRequestError } from "./market-data-error.ts";
 import { createMarketObservationSource, marketObservationCapabilities, type MarketObservationCapabilities, type MarketObservationSource } from "./market-observations.ts";
 import { createMarketReferenceSource, referenceCapabilities, type MarketReferenceCapabilities, type MarketReferenceSource } from "./market-reference.ts";
@@ -34,6 +35,7 @@ export interface DailyBarsResult {
 export interface FactorRequest extends TimeWindow { symbols: readonly string[] }
 export interface QuoteRequest { symbols: readonly string[] }
 export interface OrderBookRequest { symbol: string }
+export interface OrderBookBatchRequest { symbols: readonly string[] }
 export interface OrderBookLevel { price: number; volume: number }
 /** Levels retain provider order and zero values; their units and empty-level semantics are unknown. */
 export interface OrderBook { symbol: string; timestamp: number; bids: OrderBookLevel[]; asks: OrderBookLevel[] }
@@ -43,6 +45,7 @@ export interface Quote { symbol: string; timestamp: number; lastPrice: number; p
 export interface ObservationResult<T> { data: T; source: ProviderSource; endpoint: string; observedAt: string; units: "unknown" }
 export interface KlineResult extends ObservationResult<Kline[]> { symbol: string; interval: KlineInterval; adjustment: KlineAdjustment }
 export interface QuoteResult extends ObservationResult<Quote[]> { missingSymbols: string[] }
+export interface OrderBookBatchResult extends ObservationResult<OrderBook[]> { requestedSymbols: string[]; missingSymbols: string[] }
 export interface SourceRequestOptions { signal?: AbortSignal; timeoutMs?: number }
 export type FinancialKind = "income" | "balance-sheet" | "cash-flow" | "metrics" | "shares";
 export interface FinancialRequest { symbols: readonly string[]; kind: FinancialKind; startDate?: string; endDate?: string; latest?: boolean }
@@ -63,6 +66,9 @@ export interface MarketDataSource {
 export interface OrderBookMarketDataSource extends MarketDataSource {
   fetchOrderBook(request: OrderBookRequest, options?: SourceRequestOptions): Promise<ObservationResult<OrderBook>>;
 }
+export interface OrderBookBatchMarketDataSource {
+  fetchOrderBookBatch(request: OrderBookBatchRequest, options?: SourceRequestOptions): Promise<OrderBookBatchResult>;
+}
 /** Factory facade adds the dated overload without changing legacy implementations. */
 export interface TradingDateMarketDataSource extends OrderBookMarketDataSource {
   fetchKlines(request: TradingDateKlineRequest, options?: SourceRequestOptions): Promise<TradingDateKlineResult>;
@@ -71,7 +77,7 @@ export interface TradingDateMarketDataSource extends OrderBookMarketDataSource {
 export interface DailyBarsMarketDataSource extends TradingDateMarketDataSource {
   fetchDailyBars(request: DailyBarsRequest, options?: SourceRequestOptions): Promise<DailyBarsResult>;
 }
-export interface UnifiedMarketDataSource extends DailyBarsMarketDataSource, MarketReferenceSource, MarketObservationSource {}
+export interface UnifiedMarketDataSource extends DailyBarsMarketDataSource, MarketReferenceSource, MarketObservationSource, OrderBookBatchMarketDataSource {}
 export interface SourceConnection { source: ProviderSource; apiKey?: string; baseUrl?: string; env?: Record<string, string | undefined> }
 
 /** Adapter implementation metadata, not a provider connectivity or entitlement check. */
@@ -94,6 +100,7 @@ export interface DailyBarsMarketDataCapabilities extends TradingDateMarketDataCa
 export interface UnifiedMarketDataCapabilities extends DailyBarsMarketDataCapabilities {
   reference: MarketReferenceCapabilities;
   observations: MarketObservationCapabilities;
+  orderBookBatch: { status: "implemented"; maxSymbols: number } | { status: "not-implemented" };
 }
 
 /** Describes the selected-source facade only; legacy provider APIs have separate capabilities. */
@@ -109,6 +116,7 @@ export function getMarketDataCapabilities(source: ProviderSource): UnifiedMarket
     dailyBars: { status: "implemented", markets: selectedDailyBarMarkets(source) },
     reference: referenceCapabilities(source),
     observations: marketObservationCapabilities(source),
+    orderBookBatch: source === "tickflow" ? { status: "implemented", maxSymbols: TICKFLOW_SYMBOL_BATCH_SIZE } : { status: "not-implemented" },
     dailyByTradingDate: source === "tickflow" || source === "tushare"
       ? { status: "implemented", markets: ["A"], assetTypes: ["stock"], adjustments: source === "tickflow" ? ["none", "forward"] : ["none"], maxCalendarDays: 366, timeZone: "Asia/Shanghai" }
       : { status: "not-implemented" },
@@ -119,8 +127,9 @@ export function getMarketDataCapabilities(source: ProviderSource): UnifiedMarket
 export function createMarketDataSource(connection: SourceConnection): UnifiedMarketDataSource {
   const datedConnection = { ...connection, env: connection.env ? { ...connection.env } : undefined };
   const unsupported = async (): Promise<never> => { throw new SourceRequestError("unsupported", "Source capability not implemented"); };
-  const base: OrderBookMarketDataSource = connection.source === "tickflow" ? createTickFlowMarketDataAdapter(connection)
-    : { fetchKlines: unsupported, fetchAdjustmentFactors: unsupported, fetchQuotes: unsupported, fetchOrderBook: unsupported, fetchFinancials: unsupported, subscribeQuotes: unsupported };
+  const base: OrderBookMarketDataSource & OrderBookBatchMarketDataSource = connection.source === "tickflow" ? createTickFlowMarketDataAdapter(connection)
+    : { fetchKlines: unsupported, fetchAdjustmentFactors: unsupported, fetchQuotes: unsupported, fetchOrderBook: unsupported,
+      fetchOrderBookBatch: unsupported, fetchFinancials: unsupported, subscribeQuotes: unsupported };
   function fetchKlines(request: TradingDateKlineRequest, options?: SourceRequestOptions): Promise<TradingDateKlineResult>;
   function fetchKlines(request: KlineRequest, options?: SourceRequestOptions): Promise<KlineResult>;
   function fetchKlines(request: KlineRequest | TradingDateKlineRequest, options?: SourceRequestOptions): Promise<KlineResult | TradingDateKlineResult> {
