@@ -13,6 +13,7 @@ import { replayTspMarketEmotion, type MarketEmotionReplayRequest } from "../../.
 import { replayTspMarketEnvironment, type MarketEnvironmentReplayRequest } from "../../../src/runtime/data/market-environment-replay.ts";
 import type { MarketLadderReplayRequest } from "../../../src/runtime/data/market-ladder-replay.ts";
 import { replayTspMarketMainline, type MarketMainlineReplayRequest } from "../../../src/runtime/data/market-mainline-replay.ts";
+import { collectDatedMoneyFlow, replayDatedMoneyFlow } from "../../../src/runtime/data/money-flow.ts";
 import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
 import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "../../../src/runtime/data/price-deviation-replay.ts";
 import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-warning-collection.ts";
@@ -329,6 +330,24 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       return await replayTspDragonTiger({ tradeDate, refs: revisions.map(revision => ({ version: 1, kind: "dragon-tiger-board", revision })) }, signal);
     } catch {
       throw Object.assign(new Error("Could not replay the requested dragon-tiger board archive revisions."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "collect-money-flow") {
+    const tradeDate = parseOptions(options, ["--date"]).get("--date");
+    if (!tradeDate || !isDailyDate(tradeDate) || tradeDate < "2010-01-01" || tradeDate > shanghaiDate.format()) throw invalid();
+    try { return await collectDatedMoneyFlow(tradeDate, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested money flows. Check the selected Tushare source, credential and date."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-money-flow") {
+    const revision = parseOptions(options, ["--revision"]).get("--revision");
+    if (!revision || !revisionPattern.test(revision)) throw invalid();
+    try { return await replayDatedMoneyFlow({ version: 1, kind: "dated-money-flow", revision }, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested money-flow archive revision."),
         { code: "observation_archive_unavailable" });
     }
   }
