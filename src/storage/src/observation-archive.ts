@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
+import type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../../types/money-flow.ts";
 import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
   HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
   StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDepthSnapshot,
@@ -760,5 +761,53 @@ export async function loadRiskWarningArchive(ref: RiskWarningArchiveRef, signal?
   const data = await readFixedArchive(riskWarningPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== riskWarningKind) throw fail();
   validateRiskWarningBatch(data.batch);
+  return data.batch;
+}
+
+const moneyFlowKind = "dated-money-flow";
+const moneyFlowDir = () => join(resolveDataDir(), "money-flow-archives-v1");
+const moneyFlowBuckets = ["small", "medium", "large", "extraLarge"];
+const lotsOrNull = (value: unknown) => value === null || Number.isSafeInteger(value);
+
+function moneyFlowPath(ref: MoneyFlowArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== moneyFlowKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(moneyFlowDir(), ref.revision + ".json");
+}
+
+function validMoneyFlowBucket(bucket: unknown): boolean {
+  return object(bucket) && exactKeys(bucket, ["buyVolumeHand", "buyAmount", "sellVolumeHand", "sellAmount"]) &&
+    nonnegativeOrNull(bucket.buyVolumeHand) && lotsOrNull(bucket.buyVolumeHand) &&
+    nonnegativeOrNull(bucket.sellVolumeHand) && lotsOrNull(bucket.sellVolumeHand) &&
+    nonnegativeOrNull(bucket.buyAmount) && nonnegativeOrNull(bucket.sellAmount);
+}
+
+function validateMoneyFlowBatch(batch: unknown): asserts batch is StoredMoneyFlowBatch {
+  if (!object(batch) || batch.market !== "A" || batch.source !== "tushare" || batch.volumeUnit !== "hand" ||
+    batch.amountUnit !== "CNY-ten-thousand" || !dailyDate(batch.tradeDate) || batch.tradeDate < "2010-01-01" ||
+    !Array.isArray(batch.rows) || batch.rows.length >= 6000) throw fail();
+  marketSlice(batch, "moneyflow", batch.tradeDate, ["market", "source", "volumeUnit", "amountUnit", "rows"]);
+  const seen = new Set<string>();
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, ["symbol", ...moneyFlowBuckets, "netVolumeHand", "netAmount"]) ||
+      typeof row.symbol !== "string" || !stockSymbol.test(row.symbol) || row.symbol.endsWith(".BJ") ||
+      isAIndexSymbol(row.symbol) || seen.has(row.symbol) || !lotsOrNull(row.netVolumeHand) ||
+      !finiteOrNull(row.netAmount) || !moneyFlowBuckets.every(bucket => validMoneyFlowBucket(row[bucket]))) throw fail();
+    seen.add(row.symbol);
+  }
+}
+
+export async function archiveMoneyFlow(batch: StoredMoneyFlowBatch, signal?: AbortSignal): Promise<MoneyFlowArchiveRef> {
+  validateMoneyFlowBatch(batch);
+  const content = canonical({ version: 1, kind: moneyFlowKind, batch });
+  const ref: MoneyFlowArchiveRef = { version: 1, kind: moneyFlowKind, revision: digest(content) };
+  await writeFixedArchive(moneyFlowDir(), moneyFlowPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadMoneyFlowArchive(ref: MoneyFlowArchiveRef, signal?: AbortSignal): Promise<StoredMoneyFlowBatch> {
+  const data = await readFixedArchive(moneyFlowPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== moneyFlowKind) throw fail();
+  validateMoneyFlowBatch(data.batch);
   return data.batch;
 }

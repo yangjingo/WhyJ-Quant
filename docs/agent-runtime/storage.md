@@ -103,6 +103,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 `archiveRiskWarningObservations` 将 Tushare `stock_st` 的单日风险警示名单写入 `.ohquant/data/risk-warning-archives-v1/`。归档保留交易日、采集时刻、端点、供应商股票名称和风险警示分类。同一股票的不同分类按行保存，供应商成功返回的空列表也有引用。`loadRiskWarningArchive` 校验种类和内容摘要后离线读取。历史覆盖标记为未知，股票池筛选由 Runtime 处理。
 
+`archiveMoneyFlow` 将 Tushare `moneyflow` 的单日沪深个股资金流写入 `.ohquant/data/money-flow-archives-v1/`。每个版本保留交易日、采集时刻、供应商原有顺序、四档买卖量与金额、独立报告的净流入，以及手和万元的原始单位。成功返回的空列表也有版本。`loadMoneyFlowArchive` 校验归档种类和内容摘要后读取，采集版本的覆盖范围和供应商首发时间保持未知。
+
 每日涨跌停价可通过 `archiveDailyTradingLimits` 保存为独立的 `daily-trading-limits` 归档。每批包含同一 A 股标的、请求区间、按日排序的昨收和上下限、Tushare `stk_limit` 来源及观察时间。价格单位为元，保留供应商返回的空值。归档有自己的版本和内容摘要，文件位于 `.ohquant/data/trading-limit-archives-v1/`。 `loadDailyTradingLimitArchive` 只读给定引用，校验种类、摘要和记录，损坏或缺失时直接失败。该归档保存供应商价格，阈值容差和信号由 Quant 计算。
 
 Storage 的 `archiveObservations` 接收同一标的、来源、端点、观察时间和数据类型的一批 Source v1 日线、分钟线或复权因子观察；K 线还要求同一周期和复权口径。每批必须非空、时间戳不重复。复权因子跨标的结果须按标的拆批。当前只接受无查询参数的相对端点路径，避免把凭证写入归档。数值、零值、空成交额与未知字段原样保留；不会补齐缺失数据或套用因子。
