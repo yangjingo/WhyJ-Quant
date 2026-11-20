@@ -3,6 +3,7 @@ import { computeTspDailyIndicators, computeTspMarketPhaseSeries, computeTspMarke
   type TspMarketPhaseInput, type TspMarketPhaseMode } from "../../quant/index.ts";
 import { loadBenchmarkIndexArchive, loadMarketCrossSectionArchive, loadTradingDateArchive,
   type BenchmarkIndexArchiveRef, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
+import { deriveTickFlowBenchmarkReturn } from "./benchmark-return-replay.ts";
 import { replayTspMarketLadders, type MarketLadderReplayRequest } from "./market-ladder-replay.ts";
 
 export interface MarketEnvironmentReplayRequest extends MarketLadderReplayRequest {
@@ -12,23 +13,34 @@ export interface MarketEnvironmentReplayRequest extends MarketLadderReplayReques
 }
 
 async function loadBenchmarkInputs(
-  symbol: string, refs: readonly BenchmarkIndexArchiveRef[], dates: ReadonlySet<string>, signal?: AbortSignal,
+  symbol: string, refs: readonly BenchmarkIndexArchiveRef[], dates: readonly string[], signal?: AbortSignal,
 ) {
-  const byDate = new Map<string, { ref: BenchmarkIndexArchiveRef; returnPct: number | null }>();
+  const previousByDate = new Map(dates.map((date, index) => [date, dates[index - 1] ?? null]));
+  const byDate = new Map<string, {
+    ref: BenchmarkIndexArchiveRef;
+    returnPct: number | null;
+    derivedReturn?: ReturnType<typeof deriveTickFlowBenchmarkReturn>;
+  }>();
   const evidence = [];
   const seen = new Set<string>();
   if (!isAIndexSymbol(symbol) || !/\.(SH|SZ)$/.test(symbol)) throw new Error("Invalid market environment benchmark");
   for (const ref of refs) {
     const { rows, ...capture } = await loadBenchmarkIndexArchive(ref, signal);
     if (capture.symbol !== symbol || seen.has(ref.revision) ||
-      ![...dates].some(date => date >= capture.requested.start && date <= capture.requested.end)) {
+      !dates.some(date => date >= capture.requested.start && date <= capture.requested.end)) {
       throw new Error("Duplicate or unrelated market environment benchmark archive");
     }
     seen.add(ref.revision);
-    for (const { tradeDate, returnPct } of rows) {
-      if (!dates.has(tradeDate)) continue;
+    const closes = capture.source === "tickflow" ? new Map(rows.map(row => [row.tradeDate, row.closePoints])) : null;
+    for (const { tradeDate, closePoints, returnPct } of rows) {
+      if (!previousByDate.has(tradeDate)) continue;
       if (byDate.has(tradeDate)) throw new Error("Duplicate market environment benchmark observation date");
-      byDate.set(tradeDate, { ref, returnPct });
+      if (closes) {
+        const derivedReturn = deriveTickFlowBenchmarkReturn(tradeDate, closePoints, previousByDate.get(tradeDate) ?? null, closes);
+        byDate.set(tradeDate, { ref, returnPct: derivedReturn.returnPct, derivedReturn });
+      } else {
+        byDate.set(tradeDate, { ref, returnPct });
+      }
     }
     evidence.push({ ref, ...capture, rowCount: rows.length });
   }
@@ -114,7 +126,7 @@ export async function replayTspMarketEnvironment(request: MarketEnvironmentRepla
     }
     pricesByDate.set(tradeDate, refs);
   }
-  const index = await loadBenchmarkInputs(benchmark.symbol, benchmark.refs, new Set(ladders.calendar.sessions), signal);
+  const index = await loadBenchmarkInputs(benchmark.symbol, benchmark.refs, ladders.calendar.sessions, signal);
   const phaseInput: TspMarketPhaseInput[] = [];
   const rows = [];
   for (const row of ladders.rows) {

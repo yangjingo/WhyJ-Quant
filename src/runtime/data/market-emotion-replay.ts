@@ -1,6 +1,7 @@
 import { computeTspDashboardEmotion, TSP_DASHBOARD_CORE_INDICES, type TspDashboardEmotionInput } from "../../quant/index.ts";
 import { loadBenchmarkIndexArchive, loadMarketCrossSectionArchive,
   type BenchmarkIndexArchiveRef, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
+import { deriveTickFlowBenchmarkReturn } from "./benchmark-return-replay.ts";
 import { loadMarketBreadthHistory } from "./market-breadth-history.ts";
 import { readMarketAdjustedPriceArchives } from "./market-environment-replay.ts";
 import { projectMarketLadderReplay, type MarketLadderReplayRequest } from "./market-ladder-replay.ts";
@@ -16,7 +17,8 @@ export interface MarketEmotionReplayRequest extends MarketLadderReplayRequest {
   sectors?: { concept?: SectorArchives; industry?: SectorArchives };
 }
 
-async function loadCoreIndices(tradeDate: string, refs: readonly BenchmarkIndexArchiveRef[], signal?: AbortSignal) {
+async function loadCoreIndices(tradeDate: string, previousTradingDate: string | null,
+  refs: readonly BenchmarkIndexArchiveRef[], signal?: AbortSignal) {
   if (refs.length > TSP_DASHBOARD_CORE_INDICES.length) throw new Error("Too many market emotion core index archives");
   const seen = new Set<string>();
   const indices: TspDashboardEmotionInput["indices"][number][] = [];
@@ -29,12 +31,16 @@ async function loadCoreIndices(tradeDate: string, refs: readonly BenchmarkIndexA
     }
     seen.add(symbol);
     const row = rows.find(row => row.tradeDate === tradeDate) ?? null;
+    const derivedReturn = capture.source === "tickflow" && row
+      ? deriveTickFlowBenchmarkReturn(tradeDate, row.closePoints, previousTradingDate, new Map(rows.map(row => [row.tradeDate, row.closePoints])))
+      : null;
     if (row) {
       const { closePoints, previousClosePoints } = row;
-      const returnPct = previousClosePoints === null ? null : (closePoints - previousClosePoints) / previousClosePoints * 100;
+      const returnPct = derivedReturn ? derivedReturn.returnPct
+        : previousClosePoints === null ? null : (closePoints - previousClosePoints) / previousClosePoints * 100;
       indices.push({ tradingDate: tradeDate, symbol, returnPct });
     }
-    evidence.push({ ref, ...capture, row });
+    evidence.push({ ref, ...capture, row, ...(derivedReturn ? { derivedReturn } : {}) });
   }
   return { indices, evidence };
 }
@@ -59,7 +65,7 @@ export async function replayTspMarketEmotion(request: MarketEmotionReplayRequest
         if (market && volumeDates.has(tradingDate)) volumeRefs.push(market.ref);
         return null;
       }
-      const index = await loadCoreIndices(tradingDate, indexRefs, signal);
+      const index = await loadCoreIndices(tradingDate, previousTradingDate, indexRefs, signal);
       const sectors: NonNullable<TspDashboardEmotionInput["sectors"]> = {};
       const sectorEvidence = [];
       for (const { kind, ...refs } of sectorRefs) {

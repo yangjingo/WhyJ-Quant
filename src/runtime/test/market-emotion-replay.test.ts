@@ -50,6 +50,16 @@ function benchmark(symbol: string, closePoints: number, tradeDate: string = targ
   });
 }
 
+function tickflowBenchmark(symbol: string, previous: number, current: number, priorDate: string = previousDate) {
+  return archiveBenchmarkIndexObservations({ symbol, source: "tickflow", market: "A",
+    endpoint: "/v1/klines", observedAt, coverage: "unknown", priceUnit: "index-points", returnUnit: "percentage-points",
+    requested: { start: priorDate, end: target },
+    rows: [priorDate, target].map((tradeDate, index) => ({ tradeDate,
+      closePoints: index === 0 ? previous : current, sourceTimestamp: Date.parse(tradeDate + "T00:00:00+08:00"),
+      previousClosePoints: null, changePoints: null, returnPct: null })),
+  });
+}
+
 async function sector(kind: "concept" | "industry") {
   const meta = { market: "A", source: "tushare", tradeDate: target, observedAt, coverage: "unknown", taxonomy: "eastmoney" } as const;
   const sectorCode = "BK1000.DC";
@@ -124,6 +134,27 @@ test("reports adjacent price, volume, index and risk gaps without substituting a
     .toMatchObject({ status: "missing-market", tradingDate: target, dashboard: null });
   expect(await replayTspMarketEmotion({ ...request, riskWarningRefs: [] }))
     .toMatchObject({ status: "missing-risk-warnings", input: { riskWarnings: { status: "missing" } }, dashboard: null });
+});
+
+test("uses only adjacent TickFlow index closes and retains observed zero and original null fields", async () => {
+  const request = await fixture();
+  const indexRefs = await Promise.all([tickflowBenchmark("000001.SH", 1000, 1050), tickflowBenchmark("399001.SZ", 2000, 1940),
+    tickflowBenchmark("399006.SZ", 1500, 1500), tickflowBenchmark("000680.SH", 1200, 1320, sessions[3])]);
+  const result = await replayTspMarketEmotion({ ...request, indexRefs });
+  expect(result.dashboard?.metrics.avg_index_pct).toBeCloseTo(2 / 3, 12);
+  expect(result.dashboard?.evidence.indexEvidence).toEqual([
+    { symbol: "000001.SH", present: true, returnPct: 5 },
+    { symbol: "399001.SZ", present: true, returnPct: -3 },
+    { symbol: "399006.SZ", present: true, returnPct: 0 },
+    { symbol: "000680.SH", present: true, returnPct: null },
+  ]);
+  expect(result.input.indices[0]).toMatchObject({
+    ref: indexRefs[0], row: { tradeDate: target, closePoints: 1050, previousClosePoints: null, returnPct: null },
+    derivedReturn: { tradeDate: target, previousTradingDate: previousDate, previousClosePoints: 1000, returnPct: 5, producer: "whyj" },
+  });
+  expect(result.input.indices[3]).toMatchObject({
+    ref: indexRefs[3], derivedReturn: { basis: "missing-adjacent-close", previousTradingDate: previousDate, returnPct: null },
+  });
 });
 
 test("rejects unrelated or conflicting fixed references and respects cancellation", async () => {
