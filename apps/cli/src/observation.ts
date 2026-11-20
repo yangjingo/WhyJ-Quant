@@ -8,6 +8,7 @@ import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from ".
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { replayTspMarketEnvironment, type MarketEnvironmentReplayRequest } from "../../../src/runtime/data/market-environment-replay.ts";
 import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
+import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-warning-collection.ts";
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
@@ -77,8 +78,9 @@ function parseRotationManifest(value: unknown): SectorRankReplayRequest[] {
 
 function parseEnvironmentManifest(value: unknown): MarketEnvironmentReplayRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
-  const { sessions, marketRevisions, limitRevisions, priceHistory, benchmark, phaseMode } = value as Record<string, unknown>;
-  if (Object.keys(value).length !== (Object.hasOwn(value, "phaseMode") ? 6 : 5) ||
+  const { sessions, marketRevisions, limitRevisions, priceHistory, benchmark, phaseMode, riskWarningRevisions } = value as Record<string, unknown>;
+  const hasRiskWarnings = Object.hasOwn(value, "riskWarningRevisions");
+  if (Object.keys(value).length !== 5 + Number(Object.hasOwn(value, "phaseMode")) + Number(hasRiskWarnings) ||
     !Array.isArray(sessions) || sessions.length === 0 || sessions.length >= 7_000 ||
     sessions.some((date, index) => typeof date !== "string" || !isDailyDate(date) || (index > 0 && date <= sessions[index - 1])) ||
     !Array.isArray(priceHistory) || priceHistory.length > sessions.length ||
@@ -101,6 +103,9 @@ function parseEnvironmentManifest(value: unknown): MarketEnvironmentReplayReques
     marketRefs: market.map(revision => ({ version: 1, kind: "market-cross-section", revision })),
     limitRefs: validateRevisions(limitRevisions).map(revision => ({ version: 1, kind: "daily-trading-limits", revision })),
     benchmark: { symbol, refs: validateRevisions(revisions).map(revision => ({ version: 1, kind: "benchmark-index", revision })) },
+    ...(hasRiskWarnings ? {
+      riskWarningRefs: validateRevisions(riskWarningRevisions).map(revision => ({ version: 1 as const, kind: "dated-risk-warnings" as const, revision })),
+    } : {}),
   };
 }
 
@@ -124,6 +129,15 @@ function parseAuctionManifest(value: unknown): AuctionBenchmarkReplayRequest {
 
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
+  if (action === "collect-risk-warnings") {
+    const date = parseOptions(options, ["--date"]).get("--date");
+    if (!date || !isDailyDate(date) || date < "2000-01-01" || date > shanghaiDate.format()) throw invalid();
+    try { return await collectRiskWarningObservations(date, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
+        { code: "observation_collection_failed" });
+    }
+  }
   if (action === "collect-benchmark" || action === "collect-limits") {
     const fields = parseOptions(options, ["--symbol", "--start", "--end"]);
     const symbol = fields.get("--symbol")?.toUpperCase(), start = fields.get("--start"), end = fields.get("--end");
