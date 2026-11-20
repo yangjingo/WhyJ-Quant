@@ -285,3 +285,19 @@ export interface AuctionBenchmarkArchiveRef {
   kind: "auction-benchmark";
   revision: string;
 }
+
+export interface StoredRiskWarningBatch {
+  market: "A";
+  source: "tushare";
+  endpoint: "stock_st";
+  tradeDate: string;
+  observedAt: string;
+  coverage: "unknown";
+  rows: { symbol: string; name: string; type: string; typeName: string }[];
+}
+
+export interface RiskWarningArchiveRef {
+  version: 1;
+  kind: "dated-risk-warnings";
+  revision: string;
+}
