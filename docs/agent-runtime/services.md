@@ -181,6 +181,10 @@ Runtime 的 `deriveTspArchiveIndicators` 接受精确的 v2 日线归档引用�
 
 Runtime 的 `collectTradingLimitObservations` 将选定来源的每日生效限价采集为固定引用。`deriveTspArchiveIndicators` 可额外接收限价引用和同标的未复权日线引用，以交易日精确对齐。主日线已是未复权时可复用该引用。Quant 将生效价分别减去或加上 0.005 元，得到与固定 TSP 公式一致的比较价。缺日或缺项保持 `null`，返回值保留两个输入的引用和来源。
 
+Runtime 的 `replayTspPriceDeviation` 接收标的、按升序排列的上海交易日、前复权日线归档引用和可选的基准指数归档引用。逐日返回股票收益率与指数收益率的差值，单位为比例，窗口为 3、10、30 个交易日。股票和指数使用同一组起止日。窗口端点缺少任一收盘值时保留对应日期并返回 `null`。范围内与交易日清单不一致的归档行会被拒绝。
+
+回执保留所用股票和指数归档修订、来源、采集时间、价格口径及 WhyJ 公式版本。调用方可显式选择板块的基准指数或备用指数，回放期间不会切换基准。省略基准引用可检查股票归档和窗口，但偏离值为空。回放只读本地归档。
+
 Host 的认证采集任务支持 `{ dataset: "daily-trading-limits", symbol, startDate, endDate }`，凭证来自已保存的选定来源。非空收据包含带种类的归档引用。可选认证 RPC `readObservationExchangeIndicators` 以 `{ archiveRef, tradingLimitArchiveRef, rawArchiveRef? }` 回放，两种归档缺失或损坏均返回固定的不可用诊断。原有 `readObservationIndicators` 继续接收单份日线归档引用。旧 Host 对可选新方法返回 `METHOD_NOT_FOUND`。
 
 Runtime 的 `collectMarketCrossSection` 通过配置的数据源采集指定交易日的股票池、日线和每日交易统计。当前接口使用 Tushare 的三个独立响应。股票池为空时返回空结果，缺失的行情行保留为缺失，已经捕获的原始行和供应商单位由 Storage 按摘要保存。
