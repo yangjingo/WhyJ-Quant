@@ -1,30 +1,43 @@
 import { isDailyDate } from "../../market/bars.ts";
 import { computeTspDailyLadderFlags, computeTspLimitStreaks, computeTspMarketLadder, tspTradingLimitThresholds } from "../../quant/index.ts";
 import {
-  loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, type MarketCrossSectionArchiveRef,
-  type StoredDailyTradingLimitBatch, type StoredMarketCrossSection, type TradingLimitArchiveRef,
+  loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadRiskWarningArchive, type MarketCrossSectionArchiveRef,
+  type RiskWarningArchiveRef, type StoredDailyTradingLimitBatch, type StoredMarketCrossSection, type StoredRiskWarningBatch, type TradingLimitArchiveRef,
 } from "../../storage/index.ts";
 
 export interface MarketLadderReplayRequest {
   sessions: readonly string[];
   marketRefs: readonly MarketCrossSectionArchiveRef[];
   limitRefs: readonly TradingLimitArchiveRef[];
+  /** Supplying references opts in to an exact-date risk-warning filter. */
+  riskWarningRefs?: readonly RiskWarningArchiveRef[];
 }
 
 type DailyFlags = ReturnType<typeof computeTspDailyLadderFlags>;
 type Signal = { date: string; values: DailyFlags };
 type KnownStreaks = ReturnType<typeof computeTspLimitStreaks>;
+type RiskWarningCapture = Omit<StoredRiskWarningBatch, "rows"> & { ref: RiskWarningArchiveRef; rowCount: number; symbols: Set<string> };
+type RiskWarningEvidence = { status: "missing" } |
+  (Omit<RiskWarningCapture, "symbols"> & { status: "matched"; excludedSymbols: string[] });
 
 /** Reopen dated raw market and effective-limit archives on a caller-supplied exchange calendar. */
 export async function replayTspMarketLadders(request: MarketLadderReplayRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const sessions = [...request.sessions], marketRefs = request.marketRefs.map(ref => ({ ...ref })), limitRefs = request.limitRefs.map(ref => ({ ...ref }));
+  const riskWarningRefs = request.riskWarningRefs?.map(ref => ({ ...ref }));
   for (const [index, date] of sessions.entries()) {
     if (typeof date !== "string" || !isDailyDate(date) || (index > 0 && date <= sessions[index - 1]!)) {
       throw new Error("Market ladder replay requires ordered unique exchange sessions");
     }
   }
   const calendar = new Set(sessions);
+  const riskByDate = new Map<string, RiskWarningCapture>();
+  for (const ref of riskWarningRefs ?? []) {
+    const { rows, ...capture } = await loadRiskWarningArchive(ref, signal);
+    const { tradeDate } = capture;
+    if (!calendar.has(tradeDate) || riskByDate.has(tradeDate)) throw new Error("Duplicate or off-calendar risk-warning archive");
+    riskByDate.set(tradeDate, { ...capture, ref, rowCount: rows.length, symbols: new Set(rows.map(row => row.symbol)) });
+  }
   const marketByDate = new Map<string, { ref: MarketCrossSectionArchiveRef; snapshot: StoredMarketCrossSection }>();
   const members = new Set<string>();
   for (const ref of marketRefs) {
@@ -69,22 +82,39 @@ export async function replayTspMarketLadders(request: MarketLadderReplayRequest,
     signal?.throwIfAborted();
     const previousTradingDate = sessions[index - 1] ?? null;
     const capture = marketByDate.get(tradingDate);
-    if (!capture) return { tradingDate, previousTradingDate, market: null, metrics: null };
+    const risk = riskByDate.get(tradingDate);
+    const roster = capture?.snapshot.universe.members ?? [];
+    let riskWarnings: RiskWarningEvidence | undefined;
+    if (riskWarningRefs) {
+      if (risk) {
+        const { symbols, ...source } = risk;
+        riskWarnings = { ...source, status: "matched", excludedSymbols: roster.filter(member => symbols.has(member.symbol)).map(member => member.symbol) };
+      } else riskWarnings = { status: "missing" };
+    }
+    const riskEvidence = riskWarnings ? { riskWarnings } : {};
+    if (!capture) return { tradingDate, previousTradingDate, market: null, metrics: null, ...riskEvidence };
     const { ref, snapshot } = capture;
     const { source, universe, bars } = snapshot;
+    const market = { ref, source, universeEndpoint: universe.endpoint, universeObservedAt: universe.observedAt,
+      barsEndpoint: bars.endpoint, barsObservedAt: bars.observedAt, coverage: bars.coverage, amountUnit: bars.amountUnit };
+    if (riskWarnings?.status === "missing") return { tradingDate, previousTradingDate, market, metrics: null, ...riskEvidence };
+    const included = risk ? roster.filter(member => !risk.symbols.has(member.symbol)) : roster;
+    const priorRisk = previousTradingDate === null ? undefined : riskByDate.get(previousTradingDate);
     const amounts = new Map(bars.rows.map(row => [row.symbol, row.amount]));
     const flags = flagsByDate.get(tradingDate);
-    const observations = universe.members.map(({ symbol, name }) => {
+    const observations = included.map(({ symbol, name }) => {
       const limitFlags = flags?.get(symbol), streaks = streaksBySymbol.get(symbol), amount = amounts.get(symbol);
+      const priorEligible = !riskWarningRefs || (priorRisk && !priorRisk.symbols.has(symbol));
       return { tradingDate, symbol, name, amountCny: amount == null ? null : amount * 1_000,
-        upStreak: streaks?.[index]?.consecutiveLimitUps ?? null, priorUpStreak: streaks?.[index - 1]?.consecutiveLimitUps ?? null,
+        upStreak: streaks?.[index]?.consecutiveLimitUps ?? null,
+        priorUpStreak: priorEligible ? streaks?.[index - 1]?.consecutiveLimitUps ?? null : null,
         limitUp: limitFlags?.signal_limit_up ?? null, brokenLimitUp: limitFlags?.signal_broken_limit_up ?? null };
     });
-    return { tradingDate, previousTradingDate,
-      market: { ref, source, universeEndpoint: universe.endpoint, universeObservedAt: universe.observedAt,
-        barsEndpoint: bars.endpoint, barsObservedAt: bars.observedAt, coverage: bars.coverage, amountUnit: bars.amountUnit },
-      metrics: computeTspMarketLadder({ id: `${source}:${universe.endpoint}:${universe.universe}`, revision: ref.revision, tradingDate,
-        symbols: universe.members.map(member => member.symbol) }, previousTradingDate, observations),
+    const universeId = `${source}:${universe.endpoint}:${universe.universe}`;
+    return { tradingDate, previousTradingDate, market, ...riskEvidence,
+      metrics: computeTspMarketLadder({ id: risk ? `${universeId}:exclude-observed-risk-warnings` : universeId,
+        revision: risk ? `${ref.revision}:${risk.ref.revision}` : ref.revision, tradingDate,
+        symbols: included.map(member => member.symbol) }, previousTradingDate, observations),
     };
   });
   const limits = [...limitsBySymbol.values()].map(({ ref, batch: { symbol, source, endpoint, observedAt, coverage, requested } }) => ({
