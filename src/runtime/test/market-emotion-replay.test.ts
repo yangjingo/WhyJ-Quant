@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveMarketCrossSection, archiveSectorObservations,
+  archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveDepthSnapshot, archiveMarketCrossSection, archiveRiskWarningObservations, archiveSectorObservations,
   archiveTradingDateObservations, type StoredTradingDateBarObservation,
 } from "../../storage/index.ts";
 import { replayTspMarketEmotion } from "../data/market-emotion-replay.ts";
@@ -13,7 +13,7 @@ const previousDate = sessions[4], target = sessions[5], observedAt = "2025-01-10
 const symbols = ["600001.SH", "600002.SH"] as const;
 const [leader, other] = symbols;
 
-function market(tradeDate: string) {
+function market(tradeDate: string, otherDown = false) {
   const meta = { tradeDate, observedAt, coverage: "unknown" } as const;
   return archiveMarketCrossSection({ source: "tushare", market: "A", tradeDate,
     universe: { ...meta, endpoint: "bak_basic", universe: "provider-dated-stocks",
@@ -22,8 +22,9 @@ function market(tradeDate: string) {
       rows: symbols.map(symbol => {
         const sealed = symbol === leader && tradeDate >= previousDate;
         const broke = symbol === other && tradeDate === target;
-        return { symbol, open: 10, high: sealed || broke ? 11 : 10, low: 10, close: sealed ? 11 : 10,
-          exRightsPreviousClose: 10, changeCny: sealed ? 1 : 0, returnPct: sealed ? 10 : 0,
+        const close = sealed ? 11 : otherDown && broke ? 9 : 10;
+        return { symbol, open: 10, high: sealed || broke ? 11 : 10, low: Math.min(10, close), close,
+          exRightsPreviousClose: 10, changeCny: close - 10, returnPct: (close - 10) * 10,
           volume: symbol === leader && tradeDate === target ? 200 : 100, amount: 1 };
       }) },
     basics: { ...meta, endpoint: "daily_basic", priceUnit: "CNY", shareUnit: "ten-thousand-shares", marketValueUnit: "CNY-ten-thousand", rows: [] },
@@ -71,8 +72,21 @@ async function sector(kind: "concept" | "industry") {
   return { catalogRef, memberRefs: [memberRef] };
 }
 
+const unrelated = "600003.SH";
+function depthArchive(tradeDate: string = target) {
+  const timestamp = Date.parse(tradeDate + "T15:00:00+08:00");
+  return archiveDepthSnapshot({ source: "tickflow", endpoint: "/v1/depth", market: "A", tradeDate,
+    observedAt: new Date(timestamp + 10_000).toISOString(), coverage: "unknown", volumeUnit: "unknown",
+    requestedSymbols: [leader, other, unrelated], rows: [
+      { symbol: leader, timestamp, bids: [{ price: 11, volume: 200 }], asks: [{ price: 11.01, volume: 500 }] },
+      { symbol: other, timestamp: timestamp + 5_000, bids: [{ price: 0, volume: 0 }], asks: [{ price: 9, volume: 500 }] },
+      { symbol: unrelated, timestamp, bids: [], asks: [] },
+    ],
+  });
+}
+
 async function fixture() {
-  const marketRefs = await Promise.all(sessions.map(market));
+  const marketRefs = await Promise.all(sessions.map(tradeDate => market(tradeDate)));
   const limitRefs = await Promise.all(symbols.map(symbol => archiveDailyTradingLimits({ source: "tushare", market: "A", endpoint: "stk_limit",
     symbol, observedAt, coverage: "unknown", priceUnit: "CNY", requested: { startDate: sessions[0], endDate: target },
     rows: sessions.map(tradeDate => ({ tradeDate, previousClose: 10, limitUp: 11, limitDown: 9 })),
@@ -166,4 +180,42 @@ test("rejects unrelated or conflicting fixed references and respects cancellatio
   await expect(replayTspMarketEmotion({ ...request, sectors: { industry: request.sectors.concept } }))
     .rejects.toThrow("Incompatible market emotion sector kind");
   await expect(replayTspMarketEmotion(request, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+});
+
+test("binds exact depth to eligible limit hits and retains raw streaks, excluded members and stale evidence", async () => {
+  const request = await fixture();
+  const marketRefs = [...request.marketRefs.slice(0, -1), await market(target, true)];
+  const depth = { ref: await depthArchive(), asOf: Date.parse(target + "T15:00:10+08:00"), maxAgeMs: 10_000 };
+  const corrected = await replayTspMarketEmotion({ ...request, marketRefs, depth });
+  expect(corrected.dashboard?.metrics).toMatchObject({ limit_up: 0, seal_rate: 0, max_boards: 2, tier2_count: 1 });
+  expect(corrected.dashboard?.evidence.exchange).toMatchObject({
+    seal: { observedLimitUps: 1, observedBrokenLimits: 1, denominator: 2 },
+    depthCorrection: {
+      coverage: "complete", up: { priceLimitCount: 1, correctedCount: 0 }, down: { priceLimitCount: 1, observedSealed: 1, correctedCount: 1 },
+    },
+  });
+  expect(corrected.input.depth).toMatchObject({ ref: depth.ref, source: "tickflow", endpoint: "/v1/depth",
+    requestedSymbols: [leader, other, unrelated], returnedSymbols: [leader, other, unrelated], usedSymbols: [leader, other] });
+  const stale = await replayTspMarketEmotion({ ...request, marketRefs, depth: { ...depth, maxAgeMs: 5_000 } });
+  expect(stale.dashboard?.metrics).toMatchObject({ limit_up: 1, seal_rate: 50 });
+  expect(stale.dashboard?.evidence.exchange.depthCorrection).toMatchObject({
+    coverage: "partial", rows: [{ symbol: leader, availability: "stale", sealed: null }, { symbol: other, availability: "observed", sealed: true }],
+  });
+  const risk = await archiveRiskWarningObservations({ source: "tushare", market: "A", tradeDate: target,
+    observedAt, endpoint: "stock_st", coverage: "unknown",
+    rows: [{ symbol: leader, name: "ST fixture", type: "ST", typeName: "风险警示板" }] });
+  const filtered = await replayTspMarketEmotion({ ...request, marketRefs, depth, riskWarningRefs: [risk] });
+  expect(filtered.input.depth?.usedSymbols).toEqual([other]);
+  expect(filtered.dashboard?.evidence.exchange.depthCorrection).toMatchObject({
+    up: { priceLimitCount: 0, observedUnsealed: 0 }, down: { priceLimitCount: 1, observedSealed: 1 },
+  });
+});
+
+test("rejects depth captured under a different session or after the requested cutoff", async () => {
+  const request = await fixture();
+  const asOf = Date.parse(target + "T15:00:09+08:00");
+  await expect(replayTspMarketEmotion({ ...request, depth: { ref: await depthArchive(), asOf, maxAgeMs: 10_000 } }))
+    .rejects.toThrow("Incompatible market emotion depth capture date or cutoff");
+  await expect(replayTspMarketEmotion({ ...request, depth: { ref: await depthArchive(previousDate), asOf, maxAgeMs: 10_000 } }))
+    .rejects.toThrow("Incompatible market emotion depth capture date or cutoff");
 });
