@@ -19,3 +19,17 @@ export interface DatedMoneyFlow {
     netAmount: number | null;
   }[];
 }
+
+export interface StoredMoneyFlowBatch extends DatedMoneyFlow {
+  market: "A";
+  source: "tushare";
+  endpoint: "moneyflow";
+  observedAt: string;
+  coverage: "unknown";
+}
+
+export interface MoneyFlowArchiveRef {
+  version: 1;
+  kind: "dated-money-flow";
+  revision: string;
+}

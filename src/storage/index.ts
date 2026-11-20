@@ -128,5 +128,7 @@ export { archiveDragonTigerBoard, loadDragonTigerArchive } from "./src/observati
 export type { DragonTigerArchiveRef } from "../types/dragon-tiger.ts";
 export { archiveRiskWarningObservations, loadRiskWarningArchive } from "./src/observation-archive.ts";
 export type { RiskWarningArchiveRef, StoredRiskWarningBatch } from "../types/observation.ts";
+export { archiveMoneyFlow, loadMoneyFlowArchive } from "./src/observation-archive.ts";
+export type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../types/money-flow.ts";
 export { archiveDepthSnapshot, loadDepthSnapshotArchive } from "./src/observation-archive.ts";
 export type { DepthSnapshotArchiveRef, StoredDepthSnapshot } from "../types/observation.ts";
