@@ -3,6 +3,7 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
+import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-collection.ts";
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
@@ -236,6 +237,19 @@ function parsePriceDeviationManifest(value: unknown): PriceDeviationReplayReques
 
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
+  if (action === "collect-depth") {
+    const fields = parseOptions(options, ["--date", "--symbols-file"]);
+    const tradeDate = fields.get("--date"), path = fields.get("--symbols-file");
+    if (!tradeDate || !isDailyDate(tradeDate) || tradeDate !== shanghaiDate.format() || !path) throw invalid();
+    const symbols = await readObservationJsonFile(path, maxRevisionFileBytes, signal);
+    if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length >= 7_000 || new Set(symbols).size !== symbols.length ||
+      symbols.some(symbol => typeof symbol !== "string" || !datedStock.test(symbol))) throw invalid();
+    try { return await collectDepthSnapshot({ tradeDate, symbols }, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested market depth. Check the configured source with whyj --json doctor --phase data."),
+        { code: "observation_collection_failed" });
+    }
+  }
   if (action === "collect-risk-warnings") {
     const date = parseOptions(options, ["--date"]).get("--date");
     if (!date || !isDailyDate(date) || date < "2000-01-01" || date > shanghaiDate.format()) throw invalid();
