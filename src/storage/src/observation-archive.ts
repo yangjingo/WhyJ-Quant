@@ -4,6 +4,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
 import type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../../types/money-flow.ts";
+import type { DatedPopularityList, PopularityArchiveRef } from "../../types/popularity.ts";
 import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
   HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
   StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDepthSnapshot,
@@ -809,5 +810,50 @@ export async function loadMoneyFlowArchive(ref: MoneyFlowArchiveRef, signal?: Ab
   const data = await readFixedArchive(moneyFlowPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== moneyFlowKind) throw fail();
   validateMoneyFlowBatch(data.batch);
+  return data.batch;
+}
+
+const popularityKind = "dated-popularity-list";
+const popularityDir = () => join(resolveDataDir(), "popularity-archives-v1");
+
+function popularityPath(ref: PopularityArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== popularityKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(popularityDir(), ref.revision + ".json");
+}
+
+function validatePopularityList(batch: unknown): asserts batch is DatedPopularityList {
+  if (!object(batch) || !exactKeys(batch, ["source", "endpoint", "market", "calendarDate", "calendarTimeZone",
+    "calendarDateTimestamp", "observedAt", "coverage", "rows"]) ||
+    batch.source !== "fuyao" || batch.market !== "A" || batch.endpoint !== "/api/a-share/special-data/hot-stock-list-history" ||
+    batch.calendarTimeZone !== "Asia/Shanghai" || batch.coverage !== "unknown" ||
+    !dailyDate(batch.calendarDate) || batch.calendarDate < "0001-01-01" ||
+    typeof batch.observedAt !== "string" || !instant(batch.observedAt) ||
+    !Array.isArray(batch.rows) || batch.rows.length > 30) throw fail();
+  const midnight = Date.parse(batch.calendarDate + "T00:00:00+08:00");
+  if (batch.calendarDateTimestamp !== midnight || midnight > Date.parse(batch.observedAt)) throw fail();
+
+  const seen = new Set<string>();
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, ["symbol", "ticker", "name", "rank"]) || typeof row.symbol !== "string" ||
+      !stockSymbol.test(row.symbol) || seen.has(row.symbol) || row.ticker !== row.symbol.slice(0, 6) ||
+      typeof row.name !== "string" || !row.name.trim() || typeof row.rank !== "number" ||
+      !Number.isSafeInteger(row.rank) || row.rank < 1) throw fail();
+    seen.add(row.symbol);
+  }
+}
+
+export async function archivePopularityList(batch: DatedPopularityList, signal?: AbortSignal): Promise<PopularityArchiveRef> {
+  validatePopularityList(batch);
+  const content = canonical({ version: 1, kind: popularityKind, batch });
+  const ref: PopularityArchiveRef = { version: 1, kind: popularityKind, revision: digest(content) };
+  await writeFixedArchive(popularityDir(), popularityPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadPopularityArchive(ref: PopularityArchiveRef, signal?: AbortSignal): Promise<DatedPopularityList> {
+  const data = await readFixedArchive(popularityPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== popularityKind) throw fail();
+  validatePopularityList(data.batch);
   return data.batch;
 }
