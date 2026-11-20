@@ -35,6 +35,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDatedAuctionBenchmark` | The explicit Fuyao `/api/a-share/auction/short-term-benchmark` read preserves selected stock identities and order, labels and percentage-point auction returns. The response assembly timestamp is distinct from the exact Shanghai trade date and local capture time. |
 | `fetchDatedDragonTigerBoard` | Read one explicit Fuyao all, institution or hot-money board. Preserve provider counts, CNY amounts, fractional ratios, ordered one- and three-day stock records, and nested seat positions. |
 | `fetchHistoricalStockUniverse` | Tushare `bak_basic` returns a provider-defined historical A-share list for one date. Preserves source and optional listing date and industry. Coverage is unknown; a saturated response fails. |
+| `fetchDatedRiskWarnings` | Tushare `stock_st` reads the risk-warning observations for one A-share trading date. Retains provider name and type, capture time, and unknown coverage. |
 | `fetchDatedSectorCatalog` | Tushare `dc_index` returns the Eastmoney industry or concept catalog for one date and named vendor taxonomy. Retains group codes, names and optional hierarchy. |
 | `fetchDatedSectorMembers` | Tushare `dc_member` returns members of one Eastmoney sector for one exact historical date. Keeps stock identity and optional name. Empty and cap-saturated responses have distinct outcomes. |
 | `fetchHistoricalMinuteBars` | Tushare `stk_mins` returns past A-share one-minute bars for one symbol with a bounded date window. It preserves original Shanghai labels, shares, CNY, and an explicit 09:30 opening-boundary flag. Coverage and finality are unknown. |
@@ -422,5 +423,6 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `DatedSectorCatalog` | type | Exact-date Eastmoney provider classification and optional hierarchy | — |
 | `DatedSectorMembers` | type | Exact-date Eastmoney membership for one group | — |
 | `HistoricalStockUniverse` | type | Provider-defined A-share roster for a fixed date | — |
+| `DatedRiskWarningList` | type | Date-scoped provider risk-warning symbols and classifications | — |
 | `SourceRequestError` | value | Selected request failure | — |
 | `SourceErrorCode` | type | Stable selected failure category | — |

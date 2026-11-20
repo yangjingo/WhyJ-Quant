@@ -87,6 +87,8 @@ Tushare 的开放式基金请求把 `270042.OF` 发给 `fund_nav`，将 `unit_na
 
 选定 Tushare 后，`fetchDatedBenchmarkObservations({ market: "A", symbol, start, end })` 通过 `index_daily` 读取 `000001.SH` 或 `399001.SZ` 等沪深指数。单次范围最多包含 366 个自然日。每条按交易日保留收盘点位、昨收点位、点数变化及供应商涨跌幅。涨跌幅的单位为百分点，空值保持为空。响应保留端点、采集时间、请求范围及未知覆盖状态。 [Tushare 指数日线](https://tushare.pro/document/2?doc_id=95)
 
+`fetchDatedRiskWarnings({ market: "A", tradeDate })` 通过选定的 Tushare `stock_st` 读取指定交易日的风险警示名单。请求日期从 2000-01-01 起，返回值保留供应商股票名称、类型代码和类型名称，以及实际交易日、端点与采集时刻。达到 1,000 行上限的响应会报错，空列表仍为空，覆盖状态保留为未知。 [Tushare ST 股票列表](https://tushare.pro/document/2?doc_id=397)
+
 ## 研究查询的失败与降级
 
 浏览界面需要尽量给出有用结果；连接诊断需要回答指定源是否可用。这两个目标决定了不同的失败策略：普通研究允许在兼容来源中回退，凭证检查则只能检查所选源。否则，备用源成功会掩盖首选源鉴权失败，保存配置的绿灯就失去意义。

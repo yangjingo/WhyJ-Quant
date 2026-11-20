@@ -233,6 +233,11 @@ export function fetchTushareFinancialDisclosureDates(symbol: string, periodEnd: 
     ["ts_code", "end_date", "ann_date", "pre_date", "actual_date", "modify_date"], 6_000, options);
 }
 
+export function fetchTushareDatedRiskWarnings(tradeDate: string, options: TushareOptions) {
+  return boundedTable("stock_st", { trade_date: tradeDate.replaceAll("-", "") },
+    ["ts_code", "name", "trade_date", "type", "type_name"], 999, options);
+}
+
 export async function fetchTushareMarketDate(endpoint: "daily" | "daily_basic", date: string, options: TushareOptions) {
   const params = { trade_date: date.replaceAll("-", ""), ...(endpoint === "daily_basic" && { ts_code: "" }) };
   // At the documented 6,000-row cap we cannot distinguish a complete response from truncation.
