@@ -294,6 +294,8 @@ Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必
 
 选定 TickFlow 后，用 `whyj --json observation collect-depth --date YYYY-MM-DD --symbols-file symbols.json` 采集当前上海日期的盘口。`symbols.json` 是形如 `["600000.SH", "000001.SZ"]` 的股票代码数组。将回执中的 `data.ref.revision` 传给市场情绪清单的 `depth.revision`，将采集时刻 `data.observedAt` 作为 `depth.asOf`，并按用途选择 `maxAgeMs`。采集回执会列出缺少的标的。
 
+Runtime 的 `deriveTspArchiveAnalytics` 用精确的 v2 日线引用生成归档末日的 77 个研究因子字段和 11 组图表价格位。Tushare 的手数和千元成交额按明确单位参与计算，TickFlow 成交单位未确认时，对应因子保持空值。估值财务、历史换手和连板输入需独立归档。结果标记价格位的量分布口径、原行情来源、归档范围、可用成交额计数及两个计算的公式版本。读取只使用指定归档。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
