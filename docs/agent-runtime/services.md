@@ -185,6 +185,16 @@ Runtime 的 `replayTspPriceDeviation` 接收标的、按升序排列的上海交
 
 回执保留所用股票和指数归档修订、来源、采集时间、价格口径及 WhyJ 公式版本。调用方可显式选择板块的基准指数或备用指数，回放期间不会切换基准。省略基准引用可检查股票归档和窗口，但偏离值为空。回放只读本地归档。
 
+选定 TickFlow 后，可用以下命令采集北证 50 基准和股票前复权日线，再用对应回执的 `data.ref.revision` 填写偏离回放清单。
+
+```powershell
+whyj --json observation collect-benchmark --symbol 899050.BJ --start 2025-02-10 --end 2025-03-31
+whyj --json observation collect-daily --symbol 920001.BJ --start 2025-02-10 --end 2025-03-31 --adjustment forward
+whyj --json observation replay-price-deviation --manifest deviation.json
+```
+
+清单包含 `symbol`、`sessions`、`stockRevision` 与可选的 `benchmarkRevision`。将实际交易日按升序完整列入 `sessions`。计算 30 日偏离至少需要连续 31 个交易日和两份归档各自的窗口端点。
+
 Host 的认证采集任务支持 `{ dataset: "daily-trading-limits", symbol, startDate, endDate }`，凭证来自已保存的选定来源。非空收据包含带种类的归档引用。可选认证 RPC `readObservationExchangeIndicators` 以 `{ archiveRef, tradingLimitArchiveRef, rawArchiveRef? }` 回放，两种归档缺失或损坏均返回固定的不可用诊断。原有 `readObservationIndicators` 继续接收单份日线归档引用。旧 Host 对可选新方法返回 `METHOD_NOT_FOUND`。
 
 Runtime 的 `collectMarketCrossSection` 通过配置的数据源采集指定交易日的股票池、日线和每日交易统计。当前接口使用 Tushare 的三个独立响应。股票池为空时返回空结果，缺失的行情行保留为缺失，已经捕获的原始行和供应商单位由 Storage 按摘要保存。
