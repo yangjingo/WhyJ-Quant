@@ -35,7 +35,8 @@ async function loadBenchmarkInputs(
   return { byDate, evidence };
 }
 
-async function marketPriceMetrics(ref: MarketCrossSectionArchiveRef, priceRefs: readonly TradingDateArchiveRef[], signal?: AbortSignal) {
+async function marketPriceMetrics(ref: MarketCrossSectionArchiveRef, priceRefs: readonly TradingDateArchiveRef[],
+  excluded: ReadonlySet<string>, signal?: AbortSignal) {
   const { tradeDate, universe, bars } = await loadMarketCrossSectionArchive(ref, signal);
   const roster = new Set(universe.members.map(member => member.symbol));
   const matched = new Set(bars.rows.filter(row => roster.has(row.symbol)).map(row => row.symbol));
@@ -54,6 +55,7 @@ async function marketPriceMetrics(ref: MarketCrossSectionArchiveRef, priceRefs: 
       throw new Error("Incompatible market environment price archive");
     }
     seen.add(symbol);
+    if (excluded.has(symbol)) continue;
     const { change_pct: change, ma20 } = computeTspDailyIndicators(
       records.slice(-20).map(row => ({ date: row.tradeDate, ...row.values })),
     ).at(-1)!;
@@ -65,6 +67,10 @@ async function marketPriceMetrics(ref: MarketCrossSectionArchiveRef, priceRefs: 
     priceEvidence.push({ ref: archiveRef, symbol, source, endpoint, observedAt, coverage, adjustment, barCount: records.length });
   }
 
+  for (const symbol of excluded) {
+    roster.delete(symbol);
+    matched.delete(symbol);
+  }
   returns.sort((left, right) => left - right);
   const count = returns.length;
   const lower = returns[Math.floor((count - 1) / 2)];
@@ -86,6 +92,7 @@ async function marketPriceMetrics(ref: MarketCrossSectionArchiveRef, priceRefs: 
 
 /** Replay the pinned environment formulas on the exact captured stock universe. */
 export async function replayTspMarketEnvironment(request: MarketEnvironmentReplayRequest, signal?: AbortSignal) {
+  const filterRiskWarnings = request.riskWarningRefs !== undefined;
   const priceHistory = request.priceHistory.map(({ tradeDate, refs }) => ({ tradeDate, refs: refs.map(ref => ({ ...ref })) }));
   const benchmark = { symbol: request.benchmark.symbol, refs: request.benchmark.refs.map(ref => ({ ...ref })) };
   const mode = request.phaseMode ?? "causal";
@@ -104,26 +111,30 @@ export async function replayTspMarketEnvironment(request: MarketEnvironmentRepla
   const rows = [];
   for (const row of ladders.rows) {
     signal?.throwIfAborted();
-    const { tradingDate, market, metrics: ladder } = row;
-    const price = market && await marketPriceMetrics(market.ref, pricesByDate.get(tradingDate) ?? [], signal);
+    const { tradingDate, market, metrics: ladder, riskWarnings } = row;
+    const excluded = new Set(riskWarnings?.status === "matched" ? riskWarnings.excludedSymbols : []);
+    const available = market && riskWarnings?.status !== "missing";
+    const price = available ? await marketPriceMetrics(market.ref, pricesByDate.get(tradingDate) ?? [], excluded, signal) : null;
     const indexRow = index.byDate.get(tradingDate) ?? null;
     const completeLimitUps = ladder && ladder.coverage.roster > 0 && ladder.coverage.limitUpsKnown === ladder.coverage.roster;
-    const regime = market && computeTspMarketRegime(tradingDate, {
+    const regime = available && (!filterRiskWarnings || (ladder?.coverage.roster ?? 0) > 0) ? computeTspMarketRegime(tradingDate, {
       ...price?.metrics,
       limitUpCount: completeLimitUps ? ladder.seal.observedLimitUps : null,
       sealFraction: ladder?.seal.regimeFraction ?? null,
       maxStreak: ladder?.ladder?.height ?? null,
       indexChangeFraction: indexRow?.returnPct == null ? null : indexRow.returnPct / 100,
-    });
+    }) : null;
     phaseInput.push({ tradingDate, state: regime?.state ?? null, height: ladder?.ladder?.height ?? null,
       firstBoardCount: ladder?.ladder?.firstBoardCount ?? null, twoOrMoreCount: ladder?.ladder?.twoOrMoreCount ?? null,
       promotionFraction: ladder?.promotion.fraction ?? null,
       sealFraction: ladder?.seal.fraction ?? (ladder?.seal.basis === "regime-zero-events-default" ? 0.5 : null) });
-    rows.push({ tradingDate, regime, ladder, inputs: { market, prices: price?.evidence ?? null, benchmark: indexRow } });
+    rows.push({ tradingDate, regime, ladder, inputs: { market, prices: price?.evidence ?? null, benchmark: indexRow,
+      ...(riskWarnings ? { riskWarnings } : {}) } });
   }
   const phases = computeTspMarketPhaseSeries(phaseInput, mode);
   return {
-    producer: "whyj" as const, calendar: ladders.calendar, universe: "captured-market-roster" as const,
+    producer: "whyj" as const, calendar: ladders.calendar,
+    universe: filterRiskWarnings ? "exclude-observed-risk-warnings" as const : "captured-market-roster" as const,
     inputs: { tradingLimits: ladders.input.tradingLimits, benchmark: { symbol: benchmark.symbol, archives: index.evidence } },
     phase: { mode, formula: phases.formula },
     rows: rows.map((row, index) => ({ ...row, phase: phases.rows[index]! })),

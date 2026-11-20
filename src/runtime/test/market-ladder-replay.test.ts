@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveDailyTradingLimits, archiveMarketCrossSection, type StoredMarketCrossSection } from "../../storage/index.ts";
+import { archiveDailyTradingLimits, archiveMarketCrossSection, archiveRiskWarningObservations, type StoredMarketCrossSection } from "../../storage/index.ts";
 import { replayTspMarketLadders } from "../data/market-ladder-replay.ts";
 
 const sessions = ["2025-01-02", "2025-01-03", "2025-01-06", "2025-01-07", "2025-01-08", "2025-01-09"] as const;
@@ -87,4 +87,29 @@ test("missing sessions, raw prices and upper limits preserve gaps until an obser
   await expect(replayTspMarketLadders({ ...request, limitRefs: [...limitRefs, await limits("600800.SH")] })).rejects.toThrow("Duplicate or off-roster");
   await expect(replayTspMarketLadders({ ...request, limitRefs: [...limitRefs, limitRefs[0]!] })).rejects.toThrow("Duplicate or off-roster");
   await expect(replayTspMarketLadders(request, AbortSignal.abort(new Error("Ladder cancelled")))).rejects.toThrow("Ladder cancelled");
+});
+
+test("applies each day's risk-warning roster to counts while preserving actual exchange streak histories", async () => {
+  const lookback = sessions.slice(0, 3);
+  const marketRefs = await Promise.all([market(sessions[0], 0), market(sessions[1], 12), market(sessions[2], 4, 3)]);
+  const limitRefs = await Promise.all(symbols.map(symbol => limits(symbol)));
+  const riskWarningRefs = await Promise.all(lookback.map((tradeDate, index) => archiveRiskWarningObservations({
+    market: "A", source: "tushare", endpoint: "stock_st", tradeDate, observedAt, coverage: "unknown",
+    rows: index === 1 ? [{ symbol: symbols[0]!, name: "ST 样本", type: "ST", typeName: "风险警示板" }] : [],
+  })));
+  const result = await replayTspMarketLadders({ sessions: lookback, marketRefs, limitRefs, riskWarningRefs });
+  expect(result.rows[1]).toMatchObject({
+    riskWarnings: { status: "matched", excludedSymbols: [symbols[0]] },
+    metrics: { coverage: { roster: 12 }, ladder: { firstBoardCount: 11 }, seal: { observedLimitUps: 11 } },
+  });
+  expect(result.rows[2]).toMatchObject({
+    riskWarnings: { status: "matched", excludedSymbols: [] },
+    metrics: { coverage: { roster: 13 }, ladder: { height: 2, twoOrMoreCount: 4 },
+      promotion: { basis: "partial-pool", observedCandidates: 11, observedPromotions: 3, fraction: null } },
+  });
+  const incomplete = await replayTspMarketLadders({ sessions: lookback, marketRefs, limitRefs,
+    riskWarningRefs: [riskWarningRefs[0]!, riskWarningRefs[2]!] });
+  expect(incomplete.rows[1]).toMatchObject({ market: { ref: marketRefs[1] }, riskWarnings: { status: "missing" }, metrics: null });
+  expect(incomplete.rows[2]?.metrics?.ladder?.height).toBe(2);
+  expect(incomplete.rows[2]?.metrics?.promotion).toMatchObject({ basis: "partial-pool", observedCandidates: 0, fraction: null });
 });

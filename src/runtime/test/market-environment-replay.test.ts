@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveMarketCrossSection, archiveTradingDateObservations,
+import { archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveMarketCrossSection, archiveRiskWarningObservations, archiveTradingDateObservations,
   type StoredTradingDateBarObservation } from "../../storage/index.ts";
 import { replayTspMarketEnvironment } from "../data/market-environment-replay.ts";
 
@@ -120,4 +120,35 @@ test("keeps missing histories explicit and rejects incompatible or duplicate ref
     benchmark: { ...request.benchmark, refs: [...request.benchmark.refs, await benchmark("000001.SH", 0)] } }))
     .rejects.toThrow("Duplicate market environment benchmark observation date");
   await expect(replayTspMarketEnvironment(request, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+});
+
+test("uses an exact risk-warning capture for both price and ladder denominators", async () => {
+  const request = await fixture();
+  const warnings = (tradeDate: string, excluded: string[]) => archiveRiskWarningObservations({
+    market: "A", source: "tushare", endpoint: "stock_st", tradeDate, observedAt, coverage: "unknown",
+    rows: excluded.map(symbol => ({ symbol, name: "ST " + symbol, type: "ST", typeName: "风险警示板" })),
+  });
+  const warning = await warnings(target, [symbols[0]!, "600005.SH"]);
+  const empty = await warnings(target, []);
+  const filtered = await replayTspMarketEnvironment({ ...request, riskWarningRefs: [warning] });
+  expect(filtered.universe).toBe("exclude-observed-risk-warnings");
+  const day = filtered.rows[1]!;
+  expect(day.inputs.riskWarnings).toMatchObject({ status: "matched", ref: warning, tradeDate: target,
+    endpoint: "stock_st", observedAt, coverage: "unknown", rowCount: 2, excludedSymbols: [symbols[0]] });
+  expect(day.inputs.prices).toMatchObject({ rowCount: 4, returnCount: 3, ma20Count: 2, aboveMa20: 0 });
+  expect(day.ladder?.coverage.roster).toBe(4);
+  expect(day.regime?.input.evidence.upFraction?.observed).toBe(1 / 4);
+  expect(day.regime?.input.evidence.aboveMa20Fraction?.observed).toBe(0);
+
+  const capturedEmpty = await replayTspMarketEnvironment({ ...request, riskWarningRefs: [empty] });
+  expect(capturedEmpty.rows[1]?.inputs.riskWarnings).toMatchObject({ status: "matched", rowCount: 0, excludedSymbols: [] });
+  expect(capturedEmpty.rows[1]?.ladder?.coverage.roster).toBe(5);
+  const missing = await replayTspMarketEnvironment({ ...request, riskWarningRefs: [] });
+  expect(missing.rows[1]).toMatchObject({ regime: null, ladder: null, inputs: { prices: null, riskWarnings: { status: "missing" } } });
+  const all = await replayTspMarketEnvironment({ ...request, riskWarningRefs: [await warnings(target, symbols)] });
+  expect(all.rows[1]).toMatchObject({ regime: null, ladder: { coverage: { roster: 0 } }, inputs: { prices: { rowCount: 0 } } });
+
+  await expect(replayTspMarketEnvironment({ ...request, riskWarningRefs: [warning, empty] })).rejects.toThrow("Duplicate or off-calendar");
+  await expect(replayTspMarketEnvironment({ ...request, riskWarningRefs: [await warnings("2024-08-26", [])] }))
+    .rejects.toThrow("Duplicate or off-calendar");
 });
