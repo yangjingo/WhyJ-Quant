@@ -36,7 +36,7 @@ interface LadderReplayInputs {
   } | null;
   riskWarnings?: RiskWarningEvidence;
   universe: TspBreadthUniverse | null;
-  observations: readonly TspLimitLadderObservation[];
+  observations: readonly (TspLimitLadderObservation & { limitDown: boolean | null })[];
 }
 
 /** Assemble the full per-stock inputs once, projecting each day's observations before moving forward. */
@@ -135,7 +135,8 @@ export async function projectMarketLadderReplay<T>(request: MarketLadderReplayRe
       return { tradingDate, symbol, name, amountCny: amount == null ? null : amount * 1_000,
         upStreak: streaks?.[index]?.consecutiveLimitUps ?? null,
         priorUpStreak: priorEligible ? streaks?.[index - 1]?.consecutiveLimitUps ?? null : null,
-        limitUp: limitFlags?.signal_limit_up ?? null, brokenLimitUp: limitFlags?.signal_broken_limit_up ?? null };
+        limitUp: limitFlags?.signal_limit_up ?? null, brokenLimitUp: limitFlags?.signal_broken_limit_up ?? null,
+        limitDown: limitFlags?.signal_limit_down ?? null };
     });
     const universeId = `${source}:${universe.endpoint}:${universe.universe}`;
     rows.push(await project({ tradingDate, previousTradingDate, market, ...riskEvidence, observations,
