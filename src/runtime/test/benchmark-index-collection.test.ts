@@ -77,3 +77,53 @@ test("denied, foreign, cancelled and unsupported reads commit no benchmark archi
     expect(existsSync(join(root, "data", "benchmark-index-archives-v1"))).toBe(false);
   } finally { fetcher.mockRestore(); }
 });
+
+test("collects configured TickFlow BSE 50 points, reopens native records and reports empty explicitly", async () => {
+  const settings = readSettings();
+  saveSettings({ ...settings, preferences: { ...settings.preferences, source: "tickflow" },
+    env: { WHYJ_QUANT_TICKFLOW_API_KEY: "benchmark-tickflow-fixture" } });
+  const bseQuery = { ...query, symbol: " 899050.bj " };
+  const time = Date.parse("2024-02-01T00:00:00+08:00");
+  const data = { timestamp: [time], open: [825], high: [850], low: [800], close: [830], volume: [1] };
+  const fetcher = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json({ data }))
+    .mockResolvedValueOnce(Response.json({ data: { timestamp: [], open: [], high: [], low: [], close: [], volume: [] } }));
+  try {
+    const receipt = await collectBenchmarkIndexObservations(bseQuery);
+    const [url, init] = fetcher.mock.calls[0]!;
+    expect(new URL(String(url)).searchParams.get("symbol")).toBe("899050.BJ");
+    expect(new Headers(init?.headers).get("x-api-key")).toBe("benchmark-tickflow-fixture");
+    expect(receipt).toMatchObject({ source: "tickflow", endpoint: "/v1/klines", symbol: "899050.BJ", status: "archived", rowCount: 1 });
+    expect(await loadBenchmarkIndexArchive(receipt.ref)).toMatchObject({
+      source: "tickflow", endpoint: "/v1/klines", symbol: "899050.BJ", coverage: "unknown",
+      rows: [{ tradeDate: "2024-02-01", sourceTimestamp: time, closePoints: 830, previousClosePoints: null, changePoints: null, returnPct: null }],
+    });
+    const empty = await collectBenchmarkIndexObservations(bseQuery);
+    expect(empty).toMatchObject({ status: "empty", rowCount: 0 });
+    expect((await loadBenchmarkIndexArchive(empty.ref)).rows).toEqual([]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally { fetcher.mockRestore(); }
+});
+
+test("TickFlow missing credentials, denied and foreign index reads create no archive", async () => {
+  const inherited = process.env.WHYJ_QUANT_TICKFLOW_API_KEY;
+  delete process.env.WHYJ_QUANT_TICKFLOW_API_KEY;
+  const settings = readSettings();
+  const selected = { ...settings, preferences: { ...settings.preferences, source: "tickflow" as const } };
+  const bseQuery = { ...query, symbol: "899050.BJ" };
+  const fetcher = spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response("", { status: 403 }))
+    .mockResolvedValueOnce(Response.json({ data: { symbol: "000001.SH", timestamp: [], open: [], high: [], low: [], close: [], volume: [] } }));
+  try {
+    saveSettings({ ...selected, env: {} });
+    await expect(collectBenchmarkIndexObservations(bseQuery)).rejects.toMatchObject({ code: "provider-failure" });
+    expect(fetcher).not.toHaveBeenCalled();
+    saveSettings({ ...readSettings(), env: { WHYJ_QUANT_TICKFLOW_API_KEY: "benchmark-tickflow-fixture" } });
+    await expect(collectBenchmarkIndexObservations(bseQuery)).rejects.toMatchObject({ code: "provider-failure" });
+    await expect(collectBenchmarkIndexObservations(bseQuery)).rejects.toMatchObject({ code: "provider-failure" });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(existsSync(join(root, "data", "benchmark-index-archives-v1"))).toBe(false);
+  } finally {
+    fetcher.mockRestore();
+    if (inherited !== undefined) process.env.WHYJ_QUANT_TICKFLOW_API_KEY = inherited;
+  }
+});
