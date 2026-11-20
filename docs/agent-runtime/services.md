@@ -302,6 +302,8 @@ Runtime 的 `deriveTspArchiveAnalytics` 用精确的 v2 日线引用生成归档
 
 可选的 `turnoverArchives` 指定市场截面归档。Runtime 按日线归档的实际交易日和标的代码读取 Tushare `daily_basic` 换手率（百分点），供换手因子、滚动量化和价格位的量分布衰减使用。返回值逐日保留来源、采集时间、归档引用和缺失状态，零换手仍为零。重复日期或超出日线实际日期的引用会失败。历史采集时间无法确认当日的可得时间，覆盖仍为未知。
 
+可选的 `financialArchives` 只补充日线归档末日已经可用的财务版本。返回值保留报告期、实际披露日、两类精确引用及采集时间，并带回供应商原始数值和单位。六项财务指标使用 Tushare 的 ROE、销售毛利率、销售净利率、营业收入同比、归母净利润同比和资产负债率。默认保留 PB 为空。调用方有独立币种证据时，可用 `bookValueBasis` 声明特定报告期和精确财务归档版本的每股净资产与未复权收盘价同为人民币。只有声明与实际选中的财报匹配且每股净资产为正，才计算 PB。 [Tushare 财务指标字段](https://tushare.pro/document/2?doc_id=79)
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
