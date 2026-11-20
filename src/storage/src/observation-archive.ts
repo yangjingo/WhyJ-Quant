@@ -4,9 +4,9 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
 import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef,
-  ObservationArchiveRef, SectorObservationArchiveRef, StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch,
+  ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef, StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
-  StoredSectorObservationBatch, StoredTradingDateBarObservation,
+  StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol } from "../../market/symbols.ts";
@@ -654,5 +654,44 @@ export async function loadDragonTigerArchive(ref: DragonTigerArchiveRef, signal?
   const data = await readFixedArchive(dragonTigerPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== dragonTigerKind) throw fail();
   validateDragonTigerBoard(data.batch);
+  return data.batch;
+}
+
+const riskWarningKind = "dated-risk-warnings";
+const riskWarningDir = () => join(resolveDataDir(), "risk-warning-archives-v1");
+
+function riskWarningPath(ref: RiskWarningArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== riskWarningKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(riskWarningDir(), `${ref.revision}.json`);
+}
+
+function validateRiskWarningBatch(batch: unknown): asserts batch is StoredRiskWarningBatch {
+  if (!object(batch) || batch.market !== "A" || batch.source !== "tushare" ||
+    !dailyDate(batch.tradeDate) || batch.tradeDate < "2000-01-01" || !Array.isArray(batch.rows) || batch.rows.length >= 1000) throw fail();
+  marketSlice(batch, "stock_st", batch.tradeDate, ["market", "source", "rows"]);
+  const seen = new Set<string>();
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, ["symbol", "name", "type", "typeName"]) || typeof row.symbol !== "string" ||
+      !stockSymbol.test(row.symbol) || isAIndexSymbol(row.symbol) || typeof row.name !== "string" || !row.name.trim() ||
+      typeof row.type !== "string" || !row.type.trim() || typeof row.typeName !== "string" || !row.typeName.trim()) throw fail();
+    const key = JSON.stringify([row.symbol, row.type]);
+    if (seen.has(key)) throw fail();
+    seen.add(key);
+  }
+}
+
+export async function archiveRiskWarningObservations(batch: StoredRiskWarningBatch, signal?: AbortSignal): Promise<RiskWarningArchiveRef> {
+  validateRiskWarningBatch(batch);
+  const content = canonical({ version: 1, kind: riskWarningKind, batch });
+  const ref: RiskWarningArchiveRef = { version: 1, kind: riskWarningKind, revision: digest(content) };
+  await writeFixedArchive(riskWarningDir(), riskWarningPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadRiskWarningArchive(ref: RiskWarningArchiveRef, signal?: AbortSignal): Promise<StoredRiskWarningBatch> {
+  const data = await readFixedArchive(riskWarningPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== riskWarningKind) throw fail();
+  validateRiskWarningBatch(data.batch);
   return data.batch;
 }

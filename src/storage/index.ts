@@ -126,3 +126,5 @@ export { archiveAuctionBenchmark, loadAuctionBenchmarkArchive } from "./src/obse
 export type { AuctionBenchmarkArchiveRef, StoredAuctionBenchmark } from "../types/observation.ts";
 export { archiveDragonTigerBoard, loadDragonTigerArchive } from "./src/observation-archive.ts";
 export type { DragonTigerArchiveRef } from "../types/dragon-tiger.ts";
+export { archiveRiskWarningObservations, loadRiskWarningArchive } from "./src/observation-archive.ts";
+export type { RiskWarningArchiveRef, StoredRiskWarningBatch } from "../types/observation.ts";
