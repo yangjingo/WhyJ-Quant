@@ -298,6 +298,8 @@ Runtime 的 `deriveTspArchiveAnalytics` 用精确的 v2 日线引用生成归档
 
 可选认证 RPC `readObservationAnalytics` 接收一份 v2 日线引用，返回归档末日的研究因子及价格位。调用方可读取各组的公式版本与同一份行情证据。归档缺失或损坏时返回固定诊断，旧 Host 对此可选方法返回 `METHOD_NOT_FOUND`。
 
+可选的 `turnoverArchives` 指定市场截面归档。Runtime 按日线归档的实际交易日和标的代码读取 Tushare `daily_basic` 换手率（百分点），供换手因子、滚动量化和价格位的量分布衰减使用。返回值逐日保留来源、采集时间、归档引用和缺失状态，零换手仍为零。重复日期或超出日线实际日期的引用会失败。历史采集时间无法确认当日的可得时间，覆盖仍为未知。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
