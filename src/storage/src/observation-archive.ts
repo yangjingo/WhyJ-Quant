@@ -2,6 +2,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
 import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef,
   ObservationArchiveRef, SectorObservationArchiveRef, StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
@@ -586,5 +587,72 @@ export async function loadAuctionBenchmarkArchive(ref: AuctionBenchmarkArchiveRe
   const data = await readFixedArchive(auctionBenchmarkPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== auctionBenchmarkKind) throw fail();
   validateAuctionBenchmark(data.batch);
+  return data.batch;
+}
+
+const dragonTigerKind = "dragon-tiger-board";
+const dragonTigerDir = () => join(resolveDataDir(), "dragon-tiger-archives-v1");
+const dragonTigerKeys = ["source", "endpoint", "market", "tradeDate", "boardKind", "providerTimestamp", "observedAt",
+  "calendarTimeZone", "coverage", "amountUnit", "ratioUnit", "providerRecordCount", "providerStockCount", "stocks", "seats"];
+const dragonTigerStockText = ["symbol", "ticker", "name", "limitReason"];
+const dragonTigerStockCounts = ["hotRank", "institutionalBuyCount", "institutionalSellCount"];
+const dragonTigerStockAmounts = ["changeFraction", "netValueCny", "netRate", "buyValueCny", "sellValueCny",
+  "institutionalNetValueCny", "institutionalNetRate", "amountCny", "hotMoneyNetValueCny", "hotMoneyNetRate",
+  "seatNetValueCny", "seatNetRate"];
+const dragonTigerStockKeys = [...dragonTigerStockText, ...dragonTigerStockCounts, ...dragonTigerStockAmounts, "conceptNames", "rangeDays"];
+const dragonCount = (value: unknown) => nonnegative(value) && Number.isSafeInteger(value);
+const stringOrNull = (value: unknown) => value === null || typeof value === "string";
+
+function dragonTigerPath(ref: DragonTigerArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== dragonTigerKind
+    || typeof ref.revision !== "string" || !/^[0-9a-f]{64}$/.test(ref.revision)) throw fail();
+  return join(dragonTigerDir(), `${ref.revision}.json`);
+}
+
+function validDragonTigerStock(row: unknown): boolean {
+  if (!object(row)) return false;
+  const ticker = typeof row.ticker === "string" ? row.ticker.trim() : "";
+  return exactKeys(row, dragonTigerStockKeys)
+    && dragonTigerStockText.every(key => stringOrNull(row[key]))
+    && dragonTigerStockCounts.every(key => row[key] === null || dragonCount(row[key]))
+    && dragonTigerStockAmounts.every(key => finiteOrNull(row[key]))
+    && (row.symbol === null || (typeof row.symbol === "string" && /^\d{6}\.(SH|SZ|BJ)$/.test(row.symbol)
+      && (!ticker || ticker === row.symbol || ticker === row.symbol.slice(0, 6))))
+    && (row.rangeDays === null || row.rangeDays === 1 || row.rangeDays === 3)
+    && (row.conceptNames === null || (Array.isArray(row.conceptNames) && Array.from(row.conceptNames).every(stringOrNull)));
+}
+
+function validDragonTigerSeat(row: unknown): boolean {
+  return object(row) && exactKeys(row, ["name", "netValueCny", "stocks"]) && stringOrNull(row.name) && finiteOrNull(row.netValueCny)
+    && (row.stocks === null || (Array.isArray(row.stocks) && Array.from(row.stocks).every(validDragonTigerStock)));
+}
+
+function validateDragonTigerBoard(batch: unknown): asserts batch is DatedDragonTigerBoard {
+  if (!object(batch) || !exactKeys(batch, dragonTigerKeys) || batch.source !== "fuyao"
+    || batch.endpoint !== "/api/a-share/special-data/dragon-tiger-list" || batch.market !== "A"
+    || batch.calendarTimeZone !== "Asia/Shanghai" || batch.coverage !== "unknown" || batch.amountUnit !== "CNY"
+    || batch.ratioUnit !== "fraction" || !dailyDate(batch.tradeDate) || typeof batch.observedAt !== "string" || !instant(batch.observedAt)
+    || typeof batch.providerTimestamp !== "number" || !Number.isSafeInteger(batch.providerTimestamp) || batch.providerTimestamp <= 0
+    || !Number.isFinite(new Date(batch.providerTimestamp).getTime()) || !dragonCount(batch.providerRecordCount) || !dragonCount(batch.providerStockCount)
+    || !Array.isArray(batch.stocks) || !Array.isArray(batch.seats)) throw fail();
+
+  if (batch.boardKind === "hot_money") {
+    if (batch.stocks.length || !Array.from(batch.seats).every(validDragonTigerSeat)) throw fail();
+  } else if ((batch.boardKind !== "all" && batch.boardKind !== "org") || batch.seats.length
+    || !Array.from(batch.stocks).every(validDragonTigerStock)) throw fail();
+}
+
+export async function archiveDragonTigerBoard(batch: DatedDragonTigerBoard, signal?: AbortSignal): Promise<DragonTigerArchiveRef> {
+  validateDragonTigerBoard(batch);
+  const content = canonical({ version: 1, kind: dragonTigerKind, batch });
+  const ref: DragonTigerArchiveRef = { version: 1, kind: dragonTigerKind, revision: digest(content) };
+  await writeFixedArchive(dragonTigerDir(), dragonTigerPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadDragonTigerArchive(ref: DragonTigerArchiveRef, signal?: AbortSignal): Promise<DatedDragonTigerBoard> {
+  const data = await readFixedArchive(dragonTigerPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== dragonTigerKind) throw fail();
+  validateDragonTigerBoard(data.batch);
   return data.batch;
 }
