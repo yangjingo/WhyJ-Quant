@@ -14,7 +14,7 @@ test("CLI collects market environment inputs and replays the derived series offl
     .filter(date => date.getUTCDay() % 6 !== 0).map(date => date.toISOString().slice(0, 10)).reverse().slice(-20);
   const table = (fields: string, items: (string | number | null)[][]) =>
     Response.json({ code: 0, data: { fields: fields.split(","), items } });
-  let stopped = false, denied = true;
+  let stopped = false, denied = true, emptyRisk = false;
   const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/v1/klines") {
@@ -34,6 +34,8 @@ test("CLI collects market environment inputs and replays the derived series offl
         return table("ts_code,trade_date,close,pre_close,change,pct_chg", [[index, tradeDate, 3045, 3000, 45, 1.5]]);
       case "stk_limit":
         return table("ts_code,trade_date,pre_close,up_limit,down_limit", [[stock, tradeDate, 10, 11, 9]]);
+      case "stock_st":
+        return table("ts_code,name,trade_date,type,type_name", emptyRisk ? [] : [[stock, "ST Fixture", tradeDate, "ST", "风险警示板"]]);
       case "bak_basic":
         return table("trade_date,ts_code,name,industry,list_date", [[tradeDate, stock, "Fixture", null, null]]);
       case "daily":
@@ -68,10 +70,15 @@ test("CLI collects market environment inputs and replays the derived series offl
       command: "whyj --json observation collect-benchmark|collect-limits|replay-market-environment",
       description: "Collect benchmark and exchange evidence or replay the fixed market environment",
     });
+    expect(help.output.data.commands).toContainEqual({
+      command: "whyj --json observation collect-risk-warnings",
+      description: "Collect the dated risk-warning list for historical market replay",
+    });
     const dates = ["--start", tradingDate, "--end", tradingDate];
     const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
     expect(await run("observation", "collect-benchmark", "--symbol", stock, ...dates)).toMatchObject(invalid);
     expect(await run("observation", "collect-limits", "--symbol", index, ...dates)).toMatchObject(invalid);
+    expect(await run("observation", "collect-risk-warnings", "--date", "2024-02-30")).toMatchObject(invalid);
     expect(calls).toHaveLength(0);
     const collect = () => run("observation", "collect-benchmark", "--symbol", index, ...dates);
     expect(await collect()).toMatchObject({ code: 1, output: { error: { code: "observation_collection_failed" } } });
@@ -79,16 +86,29 @@ test("CLI collects market environment inputs and replays the derived series offl
     const benchmark = await collect();
     const limits = await run("observation", "collect-limits", "--symbol", stock, ...dates);
     const market = await run("observation", "collect-market", "--date", tradingDate);
+    const collectRisk = () => run("observation", "collect-risk-warnings", "--date", tradingDate);
+    const flagged = await collectRisk();
+    emptyRisk = true;
+    const empty = await collectRisk();
+    expect(flagged).toMatchObject({ code: 0, output: { ok: true, data: {
+      status: "archived", source: "tushare", endpoint: "stock_st", tradeDate: tradingDate, coverage: "unknown", rowCount: 1,
+    } } });
+    expect(empty).toMatchObject({ code: 0, output: { ok: true, data: { status: "empty", rowCount: 0 } } });
     configure("tickflow");
+    expect(await run("observation", "collect-risk-warnings", "--date", tradingDate)).toMatchObject({
+      code: 1, output: { ok: false, error: { code: "observation_collection_failed" } },
+    });
     const prices = await run("observation", "collect-daily", "--symbol", stock, "--start", rows[0]!, "--end", tradingDate,
       "--adjustment", "forward");
     for (const capture of [benchmark, limits, market, prices]) {
       expect(capture).toMatchObject({ code: 0, output: { ok: true, data: { status: "archived" } } });
       expect(capture.output.data.ref.revision).toMatch(/^[a-f0-9]{64}$/);
     }
-    expect(calls.map(call => call.api)).toEqual(["index_daily", "index_daily", "stk_limit", "bak_basic", "daily", "daily_basic", "/v1/klines"]);
+    expect(calls.map(call => call.api)).toEqual(["index_daily", "index_daily", "stk_limit", "bak_basic", "daily", "daily_basic",
+      "stock_st", "stock_st", "/v1/klines"]);
     expect(calls[1]?.params).toEqual({ ts_code: index, start_date: tradeDate, end_date: tradeDate });
     expect(calls[2]?.params).toEqual({ ts_code: stock, start_date: tradeDate, end_date: tradeDate });
+    expect(calls[6]?.params).toEqual({ trade_date: tradeDate });
     await provider.stop(true);
     stopped = true;
 
@@ -110,6 +130,24 @@ test("CLI collects market environment inputs and replays the derived series offl
     expect(await replay(manifest)).toEqual(causal);
     expect(await replay({ ...manifest, phaseMode: "retrospective-tsp" })).toMatchObject({
       code: 0, output: { data: { phase: { mode: "retrospective-tsp" }, rows: [{ phase: { phase: "ice" } }] } },
+    });
+    expect(causal.output.data.rows[0]?.inputs.riskWarnings).toBeUndefined();
+    expect(await replay({ ...manifest, riskWarningRevisions: [revision(flagged)] })).toMatchObject({
+      code: 0, output: { data: { universe: "exclude-observed-risk-warnings", rows: [{
+        regime: null, ladder: { coverage: { roster: 0 } }, inputs: { riskWarnings: { status: "matched", excludedSymbols: [stock] } },
+      }] } },
+    });
+    expect(await replay({ ...manifest, riskWarningRevisions: [revision(empty)] })).toMatchObject({
+      code: 0, output: { data: { rows: [{ ladder: { coverage: { roster: 1 } },
+        inputs: { prices: { aboveMa20: 1 }, riskWarnings: { status: "matched", rowCount: 0 } } }] } },
+    });
+    expect(await replay({ ...manifest, riskWarningRevisions: [] })).toMatchObject({
+      code: 0, output: { data: { rows: [{ regime: null, ladder: null, inputs: { riskWarnings: { status: "missing" } } }] } },
+    });
+    expect(await replay({ ...manifest, riskWarningRevisions: [revision(flagged), revision(flagged)] })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, riskWarningRevisions: ["missing"] })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, riskWarningRevisions: [revision(market)] })).toMatchObject({
+      code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } },
     });
     expect(await replay({ ...manifest, extra: token })).toMatchObject(invalid);
     expect(await replay({ ...manifest, marketRevisions: ["f".repeat(64)] })).toMatchObject({

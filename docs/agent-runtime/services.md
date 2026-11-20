@@ -229,6 +229,8 @@ whyj --json observation replay-market-environment --manifest environment.json
 
 按升序列出实际交易日，并将占位符替换成 64 位十六进制摘要。需要保留跨日的连板和阶段状态时，清单应包含相邻交易日、每日市场截面和覆盖这些日期的涨跌停记录。允许空的价格历史、涨跌停或基准修订列表，回放会报告缺失输入。`phaseMode` 默认是 `causal`，使用 `retrospective-tsp` 时输出会标记用到的后续观测。回放在数据源离线时也可运行。
 
+如需按日剔除风险警示股，用 `whyj --json observation collect-risk-warnings --date 2024-01-05` 采集名单，并把回执摘要加入清单的可选字段 `riskWarningRevisions`，例如 `["RISK_WARNING_SHA"]`。字段省略时使用完整的归档股票池。填入空数组会显式开启筛选，但每个交易日都会标为缺少名单。名单本身为空时，填入该空名单的归档摘要以保留当日计算。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
