@@ -297,6 +297,7 @@ export interface WorkbenchClient {
   readObservationIndicators?(ref: TradingDateArchiveRef): Promise<ObservationIndicatorPreview>;
   readObservationExchangeIndicators?(input: ObservationExchangePreviewRequest): Promise<ObservationIndicatorPreview>;
   readObservationIntraday?(input: ObservationIntradayRequest): Promise<ObservationIntradayPreview>;
+  readObservationAnalytics?(ref: TradingDateArchiveRef): Promise<ObservationAnalyticsPreview>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
   verifyModelDraft?(id: string): Promise<ModelDraftView>;
@@ -482,5 +483,33 @@ export interface ObservationIndicatorPreview {
       raw: ExchangeInputEvidence<TradingDateArchiveRef>;
       limits: ExchangeInputEvidence<TradingLimitArchiveRef>;
     };
+  };
+}
+
+export interface ObservationAnalyticsPreview {
+  archiveRef: TradingDateArchiveRef;
+  input: ObservationIndicatorPreview["input"] & Pick<StoredTradingDateBarObservation, "volumeUnit" | "amountUnit"> & {
+    rowCount: number;
+    usableCnyAmounts: number;
+  };
+  researchFactors: {
+    producer: "whyj";
+    formula: { id: "tsp_research_factors"; version: number; revision: string };
+    asOf: string;
+    values: Record<string, number | null>;
+  };
+  priceLevels: {
+    producer: "whyj";
+    formula: { id: "tsp_price_levels"; version: number; revision: string };
+    asOf: string | null;
+    volumeProfileBasis: "volume-only" | "turnover-decay" | "partial-turnover";
+    levels: Record<string, {
+      value: number;
+      label: string;
+      type: string;
+      side: "resistance" | "support" | "neutral";
+      strength: "strong" | "medium" | "weak";
+      rank?: number;
+    }[]>;
   };
 }

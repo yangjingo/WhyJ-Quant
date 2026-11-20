@@ -48,7 +48,8 @@ import { TerminalHudLatency, terminalModelSettingsKey } from "./terminal-hud.ts"
 import type { HudContextUsage } from "../../types/hud.ts";
 import { terminalCommandResources, terminalReadResources } from "./resource-paths.ts";
 import { createDataDrafts } from "./data-drafts.ts";
-import { createObservationJobs, readObservationExchangeIndicators, readObservationIndicators, readObservationIntraday } from "./observation-jobs.ts";
+import { createObservationJobs, readObservationAnalytics, readObservationExchangeIndicators, readObservationIndicators,
+  readObservationIntraday } from "./observation-jobs.ts";
 import { createModelDrafts } from "./model-drafts.ts";
 import { removeDataCredential } from "./data-credentials.ts";
 import type { DataSettingsOptions } from "../../runtime/data/data-settings.ts";
@@ -1024,6 +1025,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     async readObservationJob(id) { assertOpen(); return observationJobs.read(id); },
     async cancelObservationJob(id) { assertOpen(); return observationJobs.cancel(id); },
     async readObservationIndicators(ref) { assertOpen(); return readObservationIndicators(ref); },
+    async readObservationAnalytics(ref) { assertOpen(); return readObservationAnalytics(ref); },
     async readObservationExchangeIndicators(input) { assertOpen(); return readObservationExchangeIndicators(input); },
     async readObservationIntraday(input) { assertOpen(); return readObservationIntraday(input); },
     async editDataDraft(input) { assertOpen(); return dataDrafts.edit(input); },
