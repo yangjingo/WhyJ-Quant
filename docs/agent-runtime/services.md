@@ -383,3 +383,7 @@ whyj --json observation collect-dragon-tiger --date 2026-07-01 --board org
 whyj --json observation collect-dragon-tiger --date 2026-07-01 --board hot_money
 whyj --json observation replay-dragon-tiger --date 2026-07-01 --revisions ALL_SHA256,ORG_SHA256,HOT_MONEY_SHA256
 ```
+
+### 财务数据的历史时点
+
+`replayFinancialResearchInputs` 读取指定标的的财务指标及实际披露日期精确引用。每个上海交易日只考虑此前已独立采集的两类记录。实际披露日须已发生，财务指标采集日不能早于实际披露日。对同报告期采用交易日前最近的有效采集版本。同一时点存在不同指标行或互相冲突的实际披露日期时，该报告期不可用。新一期满足条件前可以继续使用此前已知的报告期。结果保留具体选用的报告、披露日及两类归档引用和采集时间；缺失与歧义可区分。此接口保留供应商原始单位和未知币种，供研究因子计算使用。
