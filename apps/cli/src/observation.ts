@@ -186,10 +186,21 @@ function parseMainlineManifest(value: unknown): MarketMainlineReplayRequest {
   return { ...scope, sectorHistory: history, filter: hasFilter ? parseMainlineFilter(filter) : undefined };
 }
 
+function parseEmotionDepth(value: unknown): NonNullable<MarketEmotionReplayRequest["depth"]> {
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 3) throw invalid();
+  const { revision, asOf, maxAgeMs } = value as Record<string, unknown>;
+  if (typeof revision !== "string" || !revisionPattern.test(revision) || typeof asOf !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(asOf) ||
+    !isDailyDate(asOf.slice(0, 10)) || typeof maxAgeMs !== "number" || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 0) throw invalid();
+  const cutoff = Date.parse(asOf);
+  if (!Number.isSafeInteger(cutoff) || cutoff <= 0) throw invalid();
+  return { ref: { version: 1, kind: "depth-snapshot", revision }, asOf: cutoff, maxAgeMs };
+}
+
 function parseEmotionManifest(value: unknown): MarketEmotionReplayRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
   const manifest = value as Record<string, unknown>;
-  const allowed = ["sessions", "marketRevisions", "limitRevisions", "riskWarningRevisions", "priceRevisions", "indexRevisions", "sectors"];
+  const allowed = ["sessions", "marketRevisions", "limitRevisions", "riskWarningRevisions", "priceRevisions", "indexRevisions", "sectors", "depth"];
   if (Object.keys(manifest).some(key => !allowed.includes(key))) throw invalid();
   const scope = parseMarketReplayScope(manifest);
   const sectors: NonNullable<MarketEmotionReplayRequest["sectors"]> = {};
@@ -203,7 +214,7 @@ function parseEmotionManifest(value: unknown): MarketEmotionReplayRequest {
       sectors[kind] = parseSectorRefs(catalogRevision, memberRevisions);
     }
   }
-  return { ...scope, sectors,
+  return { ...scope, sectors, ...(Object.hasOwn(manifest, "depth") ? { depth: parseEmotionDepth(manifest.depth) } : {}),
     priceRefs: validateRevisions(manifest.priceRevisions).map(revision => ({ version: 2, revision })),
     indexRefs: validateRevisions(manifest.indexRevisions).map(revision => ({ version: 1, kind: "benchmark-index", revision })) };
 }

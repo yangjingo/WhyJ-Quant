@@ -288,6 +288,8 @@ Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必
 
 `sectors` 与 `riskWarningRevisions` 可省略。行业目录放在 `sectors.industry`，格式与概念相同。每只核心指数只选一份覆盖目标日的归档。缺少涨跌停、复权日线或指数输入时，可用空数组运行部分回放，JSON 会保留缺失状态。无效清单返回 `invalid_arguments`，不可读取或不匹配的归档返回 `observation_archive_unavailable`。
 
+已有固定盘口归档时，可加入 `"depth": {"revision": "DEPTH_SHA", "asOf": "2025-01-03T15:00:05+08:00", "maxAgeMs": 5000}`。截止时间须带时区，并与目标交易日一致。`maxAgeMs` 是盘口相对截止时间允许的最大年龄。归档基于其原始采集时间绑定到该截止时间，回执保留实际匹配的股票和封板修正依据。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
