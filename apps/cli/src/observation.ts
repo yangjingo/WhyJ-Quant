@@ -3,6 +3,7 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol } from "../../../src/market/symbols.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
+import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { replayTspMarketEnvironment, type MarketEnvironmentReplayRequest } from "../../../src/runtime/data/market-environment-replay.ts";
@@ -166,6 +167,29 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     try { return await replayTspAuctionBenchmark(request, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested auction benchmark and price archive revisions."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "collect-dragon-tiger") {
+    const fields = parseOptions(options, ["--date", "--board"]);
+    const tradeDate = fields.get("--date"), board = fields.get("--board");
+    if (!tradeDate || !isDailyDate(tradeDate) || (board !== "all" && board !== "org" && board !== "hot_money")) throw invalid();
+    try { return await collectDragonTigerBoard(tradeDate, board, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested dragon-tiger board. Check the configured Fuyao credential and date."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-dragon-tiger") {
+    const fields = parseOptions(options, ["--date", "--revisions"]);
+    const tradeDate = fields.get("--date"), csv = fields.get("--revisions");
+    if (!tradeDate || !isDailyDate(tradeDate) || !csv) throw invalid();
+    const revisions = validateRevisions(csv.split(","));
+    if (revisions.length > 3) throw invalid();
+    try {
+      return await replayTspDragonTiger({ tradeDate, refs: revisions.map(revision => ({ version: 1, kind: "dragon-tiger-board", revision })) }, signal);
+    } catch {
+      throw Object.assign(new Error("Could not replay the requested dragon-tiger board archive revisions."),
         { code: "observation_archive_unavailable" });
     }
   }
