@@ -197,6 +197,8 @@ whyj --json observation replay-price-deviation --manifest deviation.json
 
 `collectDepthSnapshot({ tradeDate, symbols })` 对当前上海日期的明确 A 股标的清单发起 TickFlow 批量盘口采集。Runtime 按 Source 的请求上限依次读取各批，成功后生成一个固定归档。回执保留请求范围、批次数、实际归档行数、缺少的标的，以及因日期或接收时刻不匹配而排除的标的。所有批次成功但没有有效盘口时仍生成空归档。批次失败或采集取消时保留已有归档。
 
+Runtime 的 `collectFinancialObservations` 通过本机配置采集单只 A 股。`report-financial-indicators` 接受起止报告期，`financial-disclosure-dates` 接受一个精确报告期。收据包含实际来源、端点、采集时间、记录数和精确归档引用。Tushare 明确返回空响应时，状态为 `empty` 且仍保存捕获证据。无权限、取消或不支持时直接失败。采集与归档保留两类响应的独立时间，回放使用的财务版本需另行校验其可用时点。
+
 Host 的认证采集任务支持 `{ dataset: "daily-trading-limits", symbol, startDate, endDate }`，凭证来自已保存的选定来源。非空收据包含带种类的归档引用。可选认证 RPC `readObservationExchangeIndicators` 以 `{ archiveRef, tradingLimitArchiveRef, rawArchiveRef? }` 回放，两种归档缺失或损坏均返回固定的不可用诊断。原有 `readObservationIndicators` 继续接收单份日线归档引用。旧 Host 对可选新方法返回 `METHOD_NOT_FOUND`。
 
 Runtime 的 `collectMarketCrossSection` 通过配置的数据源采集指定交易日的股票池、日线和每日交易统计。当前接口使用 Tushare 的三个独立响应。股票池为空时返回空结果，缺失的行情行保留为缺失，已经捕获的原始行和供应商单位由 Storage 按摘要保存。
