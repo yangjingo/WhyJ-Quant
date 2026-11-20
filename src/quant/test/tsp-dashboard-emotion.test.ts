@@ -96,6 +96,24 @@ test("distinguishes an observed zero from missing inputs or an empty snapshot", 
   }).metrics).toMatchObject({ limit_up: null, seal_rate: null, max_boards: null, tier2_count: null });
 });
 
+test("applies Depth5 to the dashboard headline and seal rate while retaining the exchange ladder", () => {
+  const asOf = Date.parse(tradingDate + "T15:00:05+08:00");
+  const result = computeTspDashboardEmotion({
+    ...input,
+    stocks: stocks.map(row => ({ ...row, limitDown: row.symbol === third })),
+    depth: { asOf, maxAgeMs: 5_000,
+      quotes: [{ symbol: first, timestamp: asOf - 5_000, bestBidVolume: 100, bestAskVolume: 500 }] },
+  });
+  expect(result.metrics).toMatchObject({ limit_up: 0, seal_rate: 0, max_boards: 2, tier2_count: 1 });
+  expect(result.evidence.exchange).toMatchObject({
+    seal: { denominator: 2, observedLimitUps: 1, observedBrokenLimits: 1 },
+    depthCorrection: {
+      coverage: "partial", up: { priceLimitCount: 1, observedUnsealed: 1, correctedCount: 0 },
+      down: { priceLimitCount: 1, missing: 1, correctedCount: 1 },
+    },
+  });
+});
+
 test("rejects wrong dates, identities, duplicate rows and nonfinite evidence", () => {
   const row = input.indices[0]!;
   for (const indices of [[row, row], [{ ...row, tradingDate: "2025-01-06" }], [{ ...row, returnPct: Infinity }]]) {
