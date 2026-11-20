@@ -1,10 +1,12 @@
 import { open } from "node:fs/promises";
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
+import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
 import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-collection.ts";
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
+import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { replayTspMarketEmotion, type MarketEmotionReplayRequest } from "../../../src/runtime/data/market-emotion-replay.ts";
@@ -20,10 +22,12 @@ import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotati
 
 const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
-  + 'or "whyj --json observation replay-daily|replay-intraday --revision SHA256". See whyj --help for optional flags.';
+  + 'or "whyj --json observation replay-daily|replay-intraday|replay-analytics --revision SHA256". '
+  + 'See whyj --help for financial collection and optional flags.';
 const revisionPattern = /^[a-f0-9]{64}$/;
 const datedStock = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 const compatiblePriceBasis = "caller-confirmed-same-basis";
+const compatibleBookValueBasis = "caller-confirmed-unadjusted-CNY";
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const maxRevisionFileBytes = 512_000;
 const maxObservationManifestBytes = 24 * 1_024 * 1_024;
@@ -450,6 +454,57 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     try { return await deriveTspMarketBreadthArchive({ version: 1, kind: "market-cross-section", revision }, signal, history); }
     catch {
       throw Object.assign(new Error("Could not replay the requested market cross-section and its history."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "collect-financial-indicators" || action === "collect-disclosure-dates") {
+    const indicators = action === "collect-financial-indicators";
+    const fields = parseOptions(options, indicators ? ["--symbol", "--start", "--end"] : ["--symbol", "--period"]);
+    const symbol = fields.get("--symbol");
+    if (!symbol || !datedStock.test(symbol)) throw invalid();
+    let request: FinancialCollectionRequest;
+    if (indicators) {
+      const startPeriod = fields.get("--start"), endPeriod = fields.get("--end");
+      if (!startPeriod || !endPeriod || !isDailyDate(startPeriod) || !isDailyDate(endPeriod) || startPeriod > endPeriod) throw invalid();
+      request = { kind: "report-financial-indicators", symbol, startPeriod, endPeriod };
+    } else {
+      const periodEnd = fields.get("--period");
+      if (!periodEnd || !isDailyDate(periodEnd)) throw invalid();
+      request = { kind: "financial-disclosure-dates", symbol, periodEnd };
+    }
+    try { return await collectFinancialObservations(request, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested financial observations. Check the configured source and use whyj --json doctor --phase data."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-analytics") {
+    const fields = parseOptions(options, ["--revision", "--financial-report-revisions", "--financial-disclosure-revisions",
+      "--turnover-revisions", "--confirm-unadjusted-cny-book-value"]);
+    const revision = fields.get("--revision");
+    if (!revision || !revisionPattern.test(revision)) throw invalid();
+    const reportRevisions = validateRevisions(fields.get("--financial-report-revisions")?.split(",") ?? []);
+    const disclosureRevisions = validateRevisions(fields.get("--financial-disclosure-revisions")?.split(",") ?? []);
+    const turnoverRevisions = validateRevisions(fields.get("--turnover-revisions")?.split(",") ?? []);
+    if (turnoverRevisions.length > 366 || disclosureRevisions.some(value => reportRevisions.includes(value))) throw invalid();
+    const confirmation = fields.get("--confirm-unadjusted-cny-book-value");
+    let bookValueBasis;
+    if (confirmation !== undefined) {
+      const [reportRevision, periodEnd, ...extra] = confirmation.split(",");
+      if (!reportRevision || !reportRevisions.includes(reportRevision) || !periodEnd || !isDailyDate(periodEnd) || extra.length) throw invalid();
+      bookValueBasis = { reportRevision, periodEnd, basis: compatibleBookValueBasis } as const;
+    }
+    try {
+      return await deriveTspArchiveAnalytics({ version: 2, revision }, signal, {
+        financialArchives: [
+          ...reportRevisions.map(value => ({ version: 1, kind: "report-financial-indicators", revision: value } as const)),
+          ...disclosureRevisions.map(value => ({ version: 1, kind: "financial-disclosure-dates", revision: value } as const)),
+        ],
+        turnoverArchives: turnoverRevisions.map(value => ({ version: 1, kind: "market-cross-section", revision: value })),
+        bookValueBasis,
+      });
+    } catch {
+      throw Object.assign(new Error("Could not replay the requested daily analytics archive and its inputs."),
         { code: "observation_archive_unavailable" });
     }
   }
