@@ -89,6 +89,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 基准指数通过 `archiveBenchmarkIndexObservations` 保存一份 Tushare `index_daily` 响应。归档记录沪深指数代码、请求范围、采集时刻、按交易日排列的收盘点位、昨收点位、点数变化和供应商涨跌幅。涨跌幅保留百分点单位，缺值和空响应均保留。文件位于 `.ohquant/data/benchmark-index-archives-v1/`，`loadBenchmarkIndexArchive` 按精确引用读取并验证摘要。每次更正和重新采集都有独立的归档版本。数据覆盖和历史发布时间仍为未知。
 
+同一归档族也接收 TickFlow `/v1/klines` 的沪深指数和北证 50 `899050.BJ`。TickFlow 行必须保留原始毫秒时间戳，与上海交易日一致。昨收点位、点数变化和涨跌幅保留为空，后续计算使用独立的 WhyJ 结果。已有 Tushare 归档保持原有结构和摘要。
+
 短线风向标通过 `archiveAuctionBenchmark` 保存一份扶摇观察。归档保留交易日、上海零点、响应组装时刻、实际采集时刻、名单顺序、标签和竞价涨幅百分点，空名单也有独立引用。`loadAuctionBenchmarkArchive` 从 `.ohquant/data/auction-benchmark-archives-v1/` 按种类和摘要读取。变化的名单或采集时刻形成独立版本，历史首发时间及覆盖范围保持未知。
 
 `archiveDragonTigerBoard` 分别保存扶摇全部榜、机构榜和游资榜的单日响应。归档保留榜单类型、返回顺序、上榜区间、席位关联股票、元和小数比例、空榜及缺项。不同榜单、采集时间和修订各有独立引用。`loadDragonTigerArchive` 从 `.ohquant/data/dragon-tiger-archives-v1/` 按精确种类和摘要读取。供应商时间戳和采集时间分别保存。

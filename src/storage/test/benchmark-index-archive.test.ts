@@ -30,6 +30,12 @@ afterEach(() => {
 });
 const archiveDir = () => join(root, "data", "benchmark-index-archives-v1");
 
+function bse50(): StoredBenchmarkIndexBatch {
+  return { ...sample(), symbol: "899050.BJ", source: "tickflow", endpoint: "/v1/klines",
+    rows: [{ tradeDate: "2024-02-01", sourceTimestamp: Date.parse("2024-02-01T00:00:00+08:00"),
+      closePoints: 841.492, previousClosePoints: null, changePoints: null, returnPct: null }] };
+}
+
 test("replays exact captured index points and returns, including empty snapshots and independent corrections", async () => {
   const input = sample();
   const [first, duplicate] = await Promise.all([archiveBenchmarkIndexObservations(input), archiveBenchmarkIndexObservations(sample())]);
@@ -79,4 +85,37 @@ test("rejects forged references and corrupt files", async () => {
   await expect(loadBenchmarkIndexArchive(ref, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
   writeFileSync(join(archiveDir(), ref.revision + ".json"), "{}");
   await expect(loadBenchmarkIndexArchive(ref)).rejects.toThrow("Observation archive is damaged");
+});
+
+test("retains TickFlow BSE 50 native timestamps, empty responses and independent revisions", async () => {
+  const input = bse50();
+  const original = await archiveBenchmarkIndexObservations(input);
+  expect(await loadBenchmarkIndexArchive(original)).toEqual(input);
+  const recapture = { ...input, observedAt: "2024-02-08T00:00:00Z", rows: [] };
+  const next = await archiveBenchmarkIndexObservations(recapture);
+  expect(next.revision).not.toBe(original.revision);
+  expect(await loadBenchmarkIndexArchive(next)).toEqual(recapture);
+  expect(await loadBenchmarkIndexArchive(original)).toEqual(input);
+});
+
+test("rejects mismatched provider identity, Shanghai dates and inferred fields in a benchmark capture", async () => {
+  const input = bse50();
+  const row = input.rows[0]!;
+  const { sourceTimestamp: _timestamp, ...withoutTimestamp } = row;
+  const cases = [
+    { ...input, endpoint: "index_daily" },
+    { ...input, source: "tushare", endpoint: "index_daily", rows: [withoutTimestamp] },
+    { ...input, symbol: "920001.BJ" },
+    { ...input, rows: [withoutTimestamp] },
+    { ...input, rows: [{ ...row, sourceTimestamp: Date.parse("2024-02-01T16:00:00Z") }] },
+    { ...input, rows: [{ ...row, sourceTimestamp: Infinity }] },
+    { ...input, rows: [{ ...row, previousClosePoints: 810 }] },
+    { ...input, rows: [{ ...row, changePoints: 31.492 }] },
+    { ...input, rows: [{ ...row, returnPct: 3.9 }] },
+    { ...sample(), rows: [{ ...sample().rows[0], sourceTimestamp: row.sourceTimestamp }] },
+  ];
+  for (const batch of cases) {
+    await expect(archiveBenchmarkIndexObservations(batch as StoredBenchmarkIndexBatch)).rejects.toThrow("Invalid observation archive");
+  }
+  expect(existsSync(archiveDir())).toBe(false);
 });
