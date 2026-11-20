@@ -16,3 +16,9 @@ export interface DatedPopularityList {
   coverage: "unknown";
   rows: PopularityRankRow[];
 }
+
+export interface PopularityArchiveRef {
+  version: 1;
+  kind: "dated-popularity-list";
+  revision: string;
+}

@@ -130,5 +130,7 @@ export { archiveRiskWarningObservations, loadRiskWarningArchive } from "./src/ob
 export type { RiskWarningArchiveRef, StoredRiskWarningBatch } from "../types/observation.ts";
 export { archiveMoneyFlow, loadMoneyFlowArchive } from "./src/observation-archive.ts";
 export type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../types/money-flow.ts";
+export { archivePopularityList, loadPopularityArchive } from "./src/observation-archive.ts";
+export type { PopularityArchiveRef } from "../types/popularity.ts";
 export { archiveDepthSnapshot, loadDepthSnapshotArchive } from "./src/observation-archive.ts";
 export type { DepthSnapshotArchiveRef, StoredDepthSnapshot } from "../types/observation.ts";
