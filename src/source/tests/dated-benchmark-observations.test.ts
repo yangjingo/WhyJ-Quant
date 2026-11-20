@@ -39,7 +39,7 @@ test("preserves native dated index returns and points from the selected Tushare 
     expect(getMarketDataCapabilities("tushare").observations.fetchDatedBenchmarkObservations)
       .toEqual({ status: "implemented", markets: ["A"] });
     expect(getMarketDataCapabilities("tickflow").observations.fetchDatedBenchmarkObservations)
-      .toEqual({ status: "not-implemented" });
+      .toEqual({ status: "implemented", markets: ["A"] });
     fetcher.mockResolvedValueOnce(response([]));
     expect((await source.fetchDatedBenchmarkObservations(query)).data.rows).toEqual([]);
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -68,11 +68,58 @@ test("rejects invalid, duplicate, wrong-index and denied observations without fa
     await expect(source.fetchDatedBenchmarkObservations({ ...query, symbol: "000001.SZ" })).rejects.toThrow("Invalid");
     await expect(source.fetchDatedBenchmarkObservations({ ...query, end: "2025-02-02" })).rejects.toThrow("366");
     await expect(source.fetchDatedBenchmarkObservations({ ...query, market: "US" })).rejects.toMatchObject({ code: "unsupported" });
-    await expect(createMarketDataSource({ source: "tickflow" }).fetchDatedBenchmarkObservations(query))
+    await expect(createMarketDataSource({ source: "llmquant-data" }).fetchDatedBenchmarkObservations(query))
       .rejects.toMatchObject({ code: "unsupported" });
     const abort = new AbortController();
     abort.abort();
     await expect(source.fetchDatedBenchmarkObservations(query, { signal: abort.signal })).rejects.toMatchObject({ name: "AbortError" });
     expect(fetcher).toHaveBeenCalledTimes(malformed.length + 1);
+  } finally { fetcher.mockRestore(); }
+});
+
+test("preserves TickFlow BSE 50 closing points and timestamps from the exact Shanghai date range", async () => {
+  const fetcher = spyOn(globalThis, "fetch");
+  const times = ["2024-02-01", "2024-02-02"].map(date => Date.parse(date + "T00:00:00+08:00"));
+  const request = { ...query, symbol: " 899050.bj " };
+  const data = { symbol: "899050.BJ", timestamp: times, open: [825, 831], high: [850, 850], low: [800, 820],
+    close: [830, 840], volume: [1, 2] };
+  try {
+    fetcher.mockResolvedValueOnce(Response.json({ data }));
+    const selected = createMarketDataSource({ source: "tickflow", apiKey: "fixture", env: {} });
+    const result = await selected.fetchDatedBenchmarkObservations(request);
+    const [rawUrl, init] = fetcher.mock.calls[0]!;
+    const url = new URL(String(rawUrl));
+    expect(url.origin + url.pathname).toBe("https://api.tickflow.org/v1/klines");
+    expect(url.searchParams.get("symbol")).toBe("899050.BJ");
+    expect(url.searchParams.get("period")).toBe("1d");
+    expect(url.searchParams.get("adjust")).toBe("none");
+    expect(Number(url.searchParams.get("start_time"))).toBe(times[0]!);
+    expect(Number(url.searchParams.get("end_time"))).toBe(Date.parse("2024-02-07T00:00:00+08:00") - 1);
+    expect(new Headers(init?.headers).get("x-api-key")).toBe("fixture");
+    expect(result).toMatchObject({
+      source: "tickflow", endpoint: "/v1/klines", market: "A", coverage: "unknown",
+      data: { symbol: "899050.BJ", requested: { start: request.start, end: request.end },
+        priceUnit: "index-points", returnUnit: "percentage-points",
+        rows: ["2024-02-01", "2024-02-02"].map((tradeDate, index) => ({
+          tradeDate, sourceTimestamp: times[index], closePoints: data.close[index],
+          previousClosePoints: null, returnPct: null, changePoints: null,
+        })) },
+    });
+
+    for (const invalid of [
+      { ...data, symbol: "000001.SH" },
+      { ...data, timestamp: [times[0], times[0]! + 1000] },
+      { ...data, timestamp: [times[0], Date.parse("2024-02-07T00:00:00+08:00")] },
+      { ...data, close: [0, 840] },
+    ]) {
+      fetcher.mockResolvedValueOnce(Response.json({ data: invalid }));
+      await expect(selected.fetchDatedBenchmarkObservations(request)).rejects.toMatchObject({ code: "provider-failure" });
+    }
+    fetcher.mockResolvedValueOnce(Response.json({ data: { symbol: "899050.BJ", timestamp: [],
+      open: [], high: [], low: [], close: [], volume: [] } }));
+    expect((await selected.fetchDatedBenchmarkObservations(request)).data.rows).toEqual([]);
+    await expect(selected.fetchDatedBenchmarkObservations({ ...request, symbol: "920001.BJ" })).rejects.toThrow("benchmark index");
+    await expect(selected.fetchDatedBenchmarkObservations(request, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetcher).toHaveBeenCalledTimes(6);
   } finally { fetcher.mockRestore(); }
 });

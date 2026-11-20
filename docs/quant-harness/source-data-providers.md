@@ -87,6 +87,8 @@ Tushare 的开放式基金请求把 `270042.OF` 发给 `fund_nav`，将 `unit_na
 
 选定 Tushare 后，`fetchDatedBenchmarkObservations({ market: "A", symbol, start, end })` 通过 `index_daily` 读取 `000001.SH` 或 `399001.SZ` 等沪深指数。单次范围最多包含 366 个自然日。每条按交易日保留收盘点位、昨收点位、点数变化及供应商涨跌幅。涨跌幅的单位为百分点，空值保持为空。响应保留端点、采集时间、请求范围及未知覆盖状态。 [Tushare 指数日线](https://tushare.pro/document/2?doc_id=95)
 
+选定 TickFlow 时，同一接口通过 `/v1/klines` 读取沪深指数及北证 50 `899050.BJ` 的未复权日收盘点位。请求使用上海交易日边界，响应保留供应商原始时间戳。接口返回的昨收、点数变化及涨跌幅均为空，调用方可根据固定的相邻交易日点位计算所需收益。公开日线样本确认了北证 50 的指数身份与日期映射，配置账号的权限与历史覆盖仍需独立验证。 [TickFlow 官方 SDK](https://github.com/tickflow-org/tickflow)
+
 `fetchDatedRiskWarnings({ market: "A", tradeDate })` 通过选定的 Tushare `stock_st` 读取指定交易日的风险警示名单。请求日期从 2000-01-01 起，返回值保留供应商股票名称、类型代码和类型名称，以及实际交易日、端点与采集时刻。达到 1,000 行上限的响应会报错，空列表仍为空，覆盖状态保留为未知。 [Tushare ST 股票列表](https://tushare.pro/document/2?doc_id=397)
 
 ## 研究查询的失败与降级

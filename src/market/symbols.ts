@@ -34,3 +34,8 @@ export function inferMarket(symbol: string): Market {
 export function isAIndexSymbol(symbol: string): boolean {
   return /^(?:000\d{3}\.SH|399\d{3}(?:\.SZ)?|000300)$/i.test(symbol.trim());
 }
+
+/** Dated benchmark archives use an exact exchange-qualified identity. */
+export function isDatedBenchmarkIndexSymbol(symbol: string): boolean {
+  return /^(?:000\d{3}\.SH|399\d{3}\.SZ|899050\.BJ)$/.test(symbol);
+}

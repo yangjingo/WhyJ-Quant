@@ -34,7 +34,7 @@ function validate(request: TradingDateKlineRequest, options?: SourceRequestOptio
     || request.startDate < "0001-01-01" || request.startDate > request.endDate || request.endDate > "9998-12-31" || Date.parse(request.endDate) - Date.parse(request.startDate) > 365 * DAY
     || (options?.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) || options.timeoutMs < 1 || options.timeoutMs > 120_000))) throw invalid();
 }
-function validateRows(rows: TradingDateKline[], request: TradingDateKlineRequest): TradingDateKline[] {
+function validateRows<T extends TradingDateKline>(rows: T[], request: Pick<TradingDateKlineRequest, "startDate" | "endDate">): T[] {
   if (rows.length > 366) throw badResponse();
   const seen = new Set<string>();
   for (const r of rows) {
@@ -45,6 +45,14 @@ function validateRows(rows: TradingDateKline[], request: TradingDateKlineRequest
     seen.add(r.tradeDate);
   }
   return rows.sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+}
+
+export async function fetchTickFlowTradingDateRows(request: Pick<TradingDateKlineRequest, "symbol" | "startDate" | "endDate" | "adjustment">,
+  connection: SourceConnection, options?: SourceRequestOptions) {
+  const result = await fetchTickFlowKlines(request.symbol, { period: "1d", adjustment: request.adjustment,
+    startTime: localMidnight(request.startDate), endTime: localMidnight(nextDate(request.endDate)) - 1 },
+    { apiKey: connection.apiKey, baseUrl: connection.baseUrl, env: connection.env, signal: options?.signal, timeoutMs: options?.timeoutMs });
+  return validateRows(result.rows.map(({ timestamp, ...row }) => ({ tradeDate: tradingDate(timestamp), sourceTimestamp: timestamp, ...row })), request);
 }
 
 async function tushare(request: TradingDateKlineRequest, connection: SourceConnection, options?: SourceRequestOptions): Promise<TradingDateKline[]> {
@@ -85,14 +93,7 @@ export async function fetchTradingDateKlines(request: TradingDateKlineRequest, c
   validate(input, control);
   control?.signal?.throwIfAborted();
   if (selected.source !== "tickflow" && selected.source !== "tushare") throw new Error(`Source capability not implemented: ${selected.source}`);
-  let data: TradingDateKline[];
-  if (selected.source === "tushare") data = await tushare(input, selected, control);
-  else {
-    const result = await fetchTickFlowKlines(input.symbol, { period: "1d", adjustment: input.adjustment,
-      startTime: localMidnight(input.startDate), endTime: localMidnight(nextDate(input.endDate)) - 1 },
-    { apiKey: selected.apiKey, baseUrl: selected.baseUrl, env: selected.env, signal: control?.signal, timeoutMs: control?.timeoutMs });
-    data = validateRows(result.rows.map(({ timestamp, ...row }) => ({ tradeDate: tradingDate(timestamp), sourceTimestamp: timestamp, ...row })), input);
-  }
+  const data = selected.source === "tushare" ? await tushare(input, selected, control) : await fetchTickFlowTradingDateRows(input, selected, control);
   control?.signal?.throwIfAborted();
   return { timeMode: "trading-date", symbol: input.symbol, market: "A", assetType: "stock", calendarTimeZone: "Asia/Shanghai",
     requested: { startDate: input.startDate, endDate: input.endDate }, interval: "1d", adjustment: input.adjustment, source: selected.source,

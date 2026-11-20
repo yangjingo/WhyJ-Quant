@@ -71,7 +71,7 @@ test("denied, foreign, cancelled and unsupported reads commit no benchmark archi
     await expect(collectBenchmarkIndexObservations(query)).rejects.toMatchObject({ code: "provider-failure" });
     await expect(collectBenchmarkIndexObservations(query, { signal: cancel.signal })).rejects.toMatchObject({ name: "AbortError" });
     const settings = readSettings();
-    saveSettings({ ...settings, preferences: { ...settings.preferences, source: "tickflow" } });
+    saveSettings({ ...settings, preferences: { ...settings.preferences, source: "llmquant-data" } });
     await expect(collectBenchmarkIndexObservations(query)).rejects.toMatchObject({ code: "unsupported" });
     expect(fetcher).toHaveBeenCalledTimes(3);
     expect(existsSync(join(root, "data", "benchmark-index-archives-v1"))).toBe(false);
