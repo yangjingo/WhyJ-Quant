@@ -291,3 +291,9 @@ whyj --json observation replay-auction --manifest auction.json
   "marketRevisions": ["MARKET_SHA256"]
 }
 ```
+
+### 龙虎榜采集和回放
+
+`collectDragonTigerBoard(tradeDate, boardKind)` 读取一个指定交易日的扶摇全部榜、机构榜或游资榜。成功回执包含供应商时间戳、采集时间、两组计数和归档引用。成功的空榜也可保存与读取。
+
+`replayTspDragonTiger({ tradeDate, refs })` 只加载一至三份精确归档，同一榜种只接受一份同日捕获。返回的 `input` 包含供应商记录和归档来源，`metrics` 保存 WhyJ 的四组排名。缺失榜种返回 `null`，空榜保留为空。不同榜种各有采集时间，历史发布时间及覆盖范围仍未知。
