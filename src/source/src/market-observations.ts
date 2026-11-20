@@ -8,7 +8,8 @@ import { SourceRequestError } from "./market-data-error.ts";
 import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
-import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareDatedBenchmark, fetchTushareFinancialDisclosureDates,
+import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareDatedBenchmark, fetchTushareDatedRiskWarnings,
+  fetchTushareFinancialDisclosureDates,
   fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareMarketDate, fetchTushareReportFinancialIndicators,
   fetchTushareSectorCatalog, fetchTushareSectorMembers } from "./tushare.ts";
 
@@ -195,6 +196,16 @@ export interface HistoricalStockUniverse {
   }[];
 }
 
+export interface DatedRiskWarningList {
+  tradeDate: string;
+  rows: {
+    symbol: string;
+    name: string;
+    type: string;
+    typeName: string;
+  }[];
+}
+
 export interface MarketObservationSource {
   fetchPriceSnapshot(request: { symbol: string; market: Market }, options?: SourceRequestOptions): Promise<MarketObservation<PriceSnapshot | null>>;
   fetchDailyValuation(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions): Promise<MarketObservation<DailyValuation | null>>;
@@ -215,6 +226,8 @@ export interface MarketObservationSource {
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
   fetchHistoricalStockUniverse(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<HistoricalStockUniverse>>;
+  fetchDatedRiskWarnings(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<DatedRiskWarningList>>;
   fetchHistoricalMinuteBars(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<HistoricalMinuteObservation>>;
 }
@@ -234,6 +247,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
+  fetchDatedRiskWarnings: { tushare: "A" },
   fetchHistoricalMinuteBars: { tushare: "A" },
 };
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -257,6 +271,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchDatedBenchmarkObservations: status("fetchDatedBenchmarkObservations"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
+    fetchDatedRiskWarnings: status("fetchDatedRiskWarnings"),
     fetchHistoricalMinuteBars: status("fetchHistoricalMinuteBars"),
   };
 }
@@ -545,6 +560,26 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
         return { symbol, name: name.trim(), industry: industry?.trim() || null, listedOn };
       }).sort((left, right) => left.symbol.localeCompare(right.symbol));
       return result<HistoricalStockUniverse>(market, "bak_basic", { universe: "provider-dated-stocks", tradeDate, members });
+    },
+    async fetchDatedRiskWarnings({ market, tradeDate }, options) {
+      validate("fetchDatedRiskWarnings", market);
+      if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate < "2000-01-01") {
+        throw new Error("Invalid risk-warning trade date");
+      }
+      const rows = await readReference(options, signal => fetchTushareDatedRiskWarnings(tradeDate, { token: apiKey, baseUrl, env, signal }));
+      const compactDate = tradeDate.replaceAll("-", "");
+      const seen = new Set<string>();
+      const warnings = rows.map(row => {
+        const { ts_code: symbol, name, type, type_name: typeName } = row;
+        if (row.trade_date !== compactDate || typeof symbol !== "string" || !isAStock(symbol) || /^899\d{3}\.BJ$/.test(symbol)
+          || typeof name !== "string" || !name.trim() || typeof type !== "string" || !type.trim()
+          || typeof typeName !== "string" || !typeName.trim()) throw new Error("Provider risk-warning observation invalid");
+        const key = JSON.stringify([symbol, type]);
+        if (seen.has(key)) throw new Error("Duplicate provider risk-warning observation");
+        seen.add(key);
+        return { symbol, name, type, typeName };
+      }).sort((left, right) => left.symbol.localeCompare(right.symbol) || left.type.localeCompare(right.type));
+      return result<DatedRiskWarningList>(market, "stock_st", { tradeDate, rows: warnings });
     },
     async fetchHistoricalMinuteBars({ symbol: input, market, start, end }, options) {
       validate("fetchHistoricalMinuteBars", market);
