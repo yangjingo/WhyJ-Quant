@@ -34,6 +34,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDatedBenchmarkObservations` | Tushare `index_daily` retains close, prior close, point change and percentage return. TickFlow `/v1/klines` supplies dated unadjusted index closes and the provider timestamp, including the BSE 50. Missing return operands remain unavailable. Both preserve unknown coverage. |
 | `fetchDatedAuctionBenchmark` | The explicit Fuyao `/api/a-share/auction/short-term-benchmark` read preserves selected stock identities and order, labels and percentage-point auction returns. The response assembly timestamp is distinct from the exact Shanghai trade date and local capture time. |
 | `fetchDatedDragonTigerBoard` | Read one explicit Fuyao all, institution or hot-money board. Preserve provider counts, CNY amounts, fractional ratios, ordered one- and three-day stock records, and nested seat positions. |
+| `fetchDatedPopularityList` | Read the Fuyao historical top stock list for one Shanghai calendar date. Preserve native ranks and order, Shanghai midnight and capture time. |
 | `fetchHistoricalStockUniverse` | Tushare `bak_basic` returns a provider-defined historical A-share list for one date. Preserves source and optional listing date and industry. Coverage is unknown; a saturated response fails. |
 | `fetchDatedRiskWarnings` | Tushare `stock_st` reads the risk-warning observations for one A-share trading date. Retains provider name and type, capture time, and unknown coverage. |
 | `fetchDatedMoneyFlow` | Tushare `moneyflow` reads one date of Shanghai and Shenzhen equity flows. Preserves the four order-size groups, signed net figures, lots and amounts in ten thousand yuan. |
@@ -136,6 +137,14 @@ Provider-specific Financial Datasets operations; facade mapping unresolved.
 | `DragonTigerBoardKind` | type | Provider board variants | — |
 | `DragonTigerStockRow` | type | Stock observation with provider window, amounts and ratios | — |
 | `DragonTigerSeatRow` | type | Provider seat aggregate and nested stock observations | — |
+
+## `./src/fuyao-popularity.ts`
+
+| Export | Kind | Entry point or purpose | Notes |
+| --- | --- | --- | --- |
+| `fetchDatedPopularityList` | value | Read Fuyao history for one Shanghai calendar date | Explicit supplemental observation |
+| `DatedPopularityList` | type | Date-scoped stock ranks and observation provenance | — |
+| `PopularityRankRow` | type | Stock identity and the provider's calendar-date rank | — |
 
 ## `./src/akshare-global-bars.ts`
 
