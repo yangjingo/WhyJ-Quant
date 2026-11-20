@@ -52,8 +52,10 @@ export { computeTspMarketPhaseSeries, TSP_MARKET_PHASE_FORMULA_VERSION } from ".
 export type { TspMarketPhaseInput, TspMarketPhaseMode, TspMarketPhase } from "./tsp-market-phase.ts";
 export { computeTspMarketMainline, TSP_MARKET_MAINLINE_FORMULA_VERSION } from "./tsp-market-mainline.ts";
 export type { TspMainlineFilter, TspMainlineInput } from "./tsp-market-mainline.ts";
-export { computeTspDashboardEmotion, TSP_DASHBOARD_CORE_INDICES, TSP_DASHBOARD_EMOTION_FORMULA_VERSION } from "./tsp-dashboard-emotion.ts";
+export { computeTspDashboardEmotion, tspDashboardDepthCandidates, TSP_DASHBOARD_CORE_INDICES, TSP_DASHBOARD_EMOTION_FORMULA_VERSION } from "./tsp-dashboard-emotion.ts";
 export type { TspDashboardEmotionInput } from "./tsp-dashboard-emotion.ts";
+export { computeTspDepthSeal, TSP_DEPTH_SEAL_FORMULA_VERSION } from "./tsp-depth-seal.ts";
+export type { TspDepthLimitCandidate, TspDepthQuote, TspDepthSealInput, TspDepthSnapshot } from "./tsp-depth-seal.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";
 export { runDcaBacktest, validateDcaOptions, buildDcaSchedule, calculateXirr } from "./fund-dca.ts";

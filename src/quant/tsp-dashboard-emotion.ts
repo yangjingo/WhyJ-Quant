@@ -1,4 +1,5 @@
 import { computeTspMarketBreadth, isTspMarketBreadthEligible, type TspBreadthMemberObservation, type TspBreadthUniverse } from "./tsp-market-breadth.ts";
+import { computeTspDepthSeal, type TspDepthLimitCandidate, type TspDepthSnapshot } from "./tsp-depth-seal.ts";
 import { computeTspMarketEmotion, TSP_MARKET_EMOTION_FORMULA_VERSION, type TspEmotionMetrics, type TspEmotionOverrides } from "./tsp-market-emotion.ts";
 import { TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
 import { computeTspMarketLadder, type TspLimitLadderObservation } from "./tsp-market-ladder.ts";
@@ -13,9 +14,24 @@ const coreIndices = new Set<string>(TSP_DASHBOARD_CORE_INDICES);
 export interface TspDashboardEmotionInput {
   universe: TspBreadthUniverse;
   stocks: readonly (Pick<TspBreadthMemberObservation, "tradingDate" | "symbol" | "name" | "close" | "changeFraction" |
-    "volumeShares" | "volumeRatio5d" | "amountCny"> & Pick<TspLimitLadderObservation, "limitUp" | "brokenLimitUp" | "upStreak">)[];
+    "volumeShares" | "volumeRatio5d" | "amountCny"> & Pick<TspLimitLadderObservation, "limitUp" | "brokenLimitUp" | "upStreak"> &
+    { limitDown?: boolean | null })[];
   indices: readonly { tradingDate: string; symbol: CoreIndex; returnPct: number | null }[];
   sectors?: { concept?: DatedSector; industry?: DatedSector };
+  depth?: TspDepthSnapshot;
+}
+
+/** Match depth to the same price-limited, eligible members used by the dashboard. */
+export function tspDashboardDepthCandidates(stocks: TspDashboardEmotionInput["stocks"]): TspDepthLimitCandidate[] {
+  const candidates: TspDepthLimitCandidate[] = [];
+  for (const stock of stocks) {
+    if (!isTspMarketBreadthEligible(stock)) continue;
+    const { symbol, limitUp, upStreak, limitDown } = stock;
+    if (limitDown != null && typeof limitDown !== "boolean") throw new Error("Invalid dashboard limit-down observation");
+    if (limitUp === true || (upStreak ?? 0) > 0) candidates.push({ symbol, side: "up" });
+    if (limitDown === true) candidates.push({ symbol, side: "down" });
+  }
+  return candidates;
 }
 
 function dashboardLeaders(
@@ -88,6 +104,16 @@ export function computeTspDashboardEmotion(input: TspDashboardEmotionInput, over
   const percentOfRows = (count: number, knownCount: number) => total && knownCount ? count / total * 100 : null;
   const returnsKnown = breadth.breadth.observedReturns;
   const { seal, coverage } = ladder;
+  const depthCorrection = input.depth && computeTspDepthSeal({
+    ...input.depth, tradingDate: date, candidates: tspDashboardDepthCandidates(stocks),
+  });
+  const rawLimitUp = total !== 0 && coverage.limitUpsKnown === total ? seal.observedLimitUps : null;
+  const limitUp = rawLimitUp === null ? null : depthCorrection?.up.correctedCount ?? rawLimitUp;
+  let sealRate: number | null = null;
+  if (limitUp !== null && seal.denominator !== null) {
+    const sealPool = limitUp + seal.observedBrokenLimits;
+    sealRate = sealPool ? limitUp / sealPool * 100 : 0;
+  }
   const metrics: TspEmotionMetrics = {
     avg_index_pct: indexMean,
     up_pct: percentOfRows(breadth.breadth.up.count, returnsKnown),
@@ -96,8 +122,8 @@ export function computeTspDashboardEmotion(input: TspDashboardEmotionInput, over
     strong_diff_pct: percentOfRows(breadth.breadth.strongUp.count - breadth.breadth.strongDown.count, returnsKnown),
     avg_vol_ratio: breadth.activity.volumeRatio.average,
     high_vol_pct: percentOfRows(breadth.activity.highVolume.count, breadth.activity.highVolume.denominator),
-    limit_up: total !== 0 && coverage.limitUpsKnown === total ? seal.observedLimitUps : null,
-    seal_rate: seal.denominator === null ? null : seal.denominator ? seal.observedLimitUps / seal.denominator * 100 : 0,
+    limit_up: limitUp,
+    seal_rate: sealRate,
     max_boards: ladder.ladder?.height ?? null,
     tier2_count: ladder.ladder?.twoOrMoreCount ?? null,
     down_pct: percentOfRows(breadth.breadth.down.count, returnsKnown),
@@ -113,7 +139,7 @@ export function computeTspDashboardEmotion(input: TspDashboardEmotionInput, over
       scoreVersion: TSP_MARKET_EMOTION_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
     metrics, emotion: computeTspMarketEmotion(metrics, overrides),
     evidence: { stocks: breadth.coverage, returnsKnown, volumeRatiosKnown: breadth.activity.volumeRatio.denominator,
-      exchange: { coverage, seal, depthCorrection: "unavailable" as const }, indexEvidence, leaders,
+      exchange: { coverage, seal, depthCorrection: depthCorrection ?? ("unavailable" as const) }, indexEvidence, leaders,
       sectorMembership: rankedSectors.map(sector => sector.membership) },
   };
 }
