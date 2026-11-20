@@ -95,6 +95,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 `archiveDragonTigerBoard` 分别保存扶摇全部榜、机构榜和游资榜的单日响应。归档保留榜单类型、返回顺序、上榜区间、席位关联股票、元和小数比例、空榜及缺项。不同榜单、采集时间和修订各有独立引用。`loadDragonTigerArchive` 从 `.ohquant/data/dragon-tiger-archives-v1/` 按精确种类和摘要读取。供应商时间戳和采集时间分别保存。
 
+`archiveDepthSnapshot` 将同一上海交易日的 TickFlow 单标的或批量盘口观测（`/v1/depth`、`/v1/depth/batch`）保存到 `.ohquant/data/depth-snapshot-archives-v1/`。归档保留实际端点、已请求标的、每条盘口的原始时间戳、买卖档价格与数量、显式零和空档。未返回的标的可由请求清单和实际响应对照，数量单位和全市场覆盖仍为未知。`loadDepthSnapshotArchive` 只接受精确版本引用。时效筛选和封板判定使用 WhyJ 的回放逻辑。
+
 `archiveFinancialObservations` 分别保存 Tushare `fina_indicator` 的单标的报告期范围响应，或 `disclosure_date` 的单标的单报告期响应。两类归档各自记录请求、端点和取数时间，保留同报告期多行、返回顺序、修订标记、零值和空值。空响应也有独立归档引用，覆盖标为未知。`loadFinancialObservationArchive` 按种类和内容摘要读取 `.ohquant/data/financial-observation-archives-v1/` 下的精确版本。历史回放需另外证明所用财务指标版本在判断时点已公开。
 
 `archiveSectorObservations` 按单个交易日分别归档东方财富板块目录 `dc_index` 和单板块成分 `dc_member` 的观察结果。每份归档保留其端点、分类口径、取数时间、原始行顺序和空值，成功的空响应也有精确引用。`loadSectorObservationArchive` 从 `.ohquant/data/sector-observation-archives-v1/` 按种类和摘要读取。后续排行使用归档中的提供商快照；交易日和取数时间仍分别记录，历史发布时间保持未知。
