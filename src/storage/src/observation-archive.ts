@@ -9,7 +9,7 @@ import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, FinancialObs
   StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
-import { isAIndexSymbol } from "../../market/symbols.ts";
+import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../market/symbols.ts";
 import { resolveDataDir } from "./dirs.ts";
 import { atomicWriteTextAsync, withFileLockAsync } from "./atomic-file.ts";
 
@@ -509,24 +509,35 @@ function benchmarkIndexPath(ref: BenchmarkIndexArchiveRef): string {
 }
 
 function validateBenchmarkIndex(batch: unknown): asserts batch is StoredBenchmarkIndexBatch {
-  if (!object(batch) || !exactKeys(batch, benchmarkIndexKeys) || batch.source !== "tushare" || batch.market !== "A" ||
-    batch.endpoint !== "index_daily" || batch.coverage !== "unknown" || batch.priceUnit !== "index-points" ||
-    batch.returnUnit !== "percentage-points" || typeof batch.symbol !== "string" || !/^(?:000\d{3}\.SH|399\d{3}\.SZ)$/.test(batch.symbol) ||
+  if (!object(batch) || !exactKeys(batch, benchmarkIndexKeys) || batch.market !== "A" ||
+    batch.coverage !== "unknown" || batch.priceUnit !== "index-points" ||
+    batch.returnUnit !== "percentage-points" || typeof batch.symbol !== "string" || !isDatedBenchmarkIndexSymbol(batch.symbol) ||
     typeof batch.observedAt !== "string" || !instant(batch.observedAt) || !object(batch.requested) ||
     !exactKeys(batch.requested, ["start", "end"]) || !Array.isArray(batch.rows)) throw fail();
+  const tickflow = batch.source === "tickflow" && batch.endpoint === "/v1/klines";
+  const tushare = batch.source === "tushare" && batch.endpoint === "index_daily" && !batch.symbol.endsWith(".BJ");
+  if (!tickflow && !tushare) throw fail();
   const { start, end } = batch.requested;
   if (!dailyDate(start) || !dailyDate(end) || start > end) throw fail();
   const days = (Date.parse(end) - Date.parse(start)) / 86_400_000 + 1;
   if (days > 366 || batch.rows.length > days) throw fail();
 
-  const observedDate = shanghaiDate(Date.parse(batch.observedAt));
+  const capturedAt = Date.parse(batch.observedAt);
+  const observedDate = shanghaiDate(capturedAt);
+  const rowKeys = tickflow ? [...benchmarkIndexRowKeys, "sourceTimestamp"] : benchmarkIndexRowKeys;
   let previousDate = "";
   for (const row of batch.rows) {
-    if (!object(row) || !exactKeys(row, benchmarkIndexRowKeys) || !dailyDate(row.tradeDate) || row.tradeDate < start ||
+    if (!object(row) || !exactKeys(row, rowKeys) || !dailyDate(row.tradeDate) || row.tradeDate < start ||
       row.tradeDate > end || row.tradeDate > observedDate || row.tradeDate <= previousDate ||
       !nonnegative(row.closePoints) || row.closePoints === 0 || !positiveOrNull(row.previousClosePoints) ||
       !finiteOrNull(row.changePoints) || (row.returnPct !== null &&
         (typeof row.returnPct !== "number" || !Number.isFinite(row.returnPct) || row.returnPct < -100))) throw fail();
+    if (tickflow) {
+      const { sourceTimestamp } = row;
+      if (typeof sourceTimestamp !== "number" || !Number.isSafeInteger(sourceTimestamp) || sourceTimestamp <= 0 || sourceTimestamp > capturedAt ||
+        shanghaiDate(sourceTimestamp) !== row.tradeDate || row.previousClosePoints !== null || row.changePoints !== null ||
+        row.returnPct !== null) throw fail();
+    }
     previousDate = row.tradeDate;
   }
 }

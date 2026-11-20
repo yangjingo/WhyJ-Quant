@@ -241,11 +241,9 @@ export interface SectorObservationArchiveRef {
   revision: string;
 }
 
-export interface StoredBenchmarkIndexBatch {
+export type StoredBenchmarkIndexBatch = {
   symbol: string;
-  source: "tushare";
   market: "A";
-  endpoint: "index_daily";
   observedAt: string;
   coverage: "unknown";
   requested: { start: string; end: string };
@@ -253,12 +251,13 @@ export interface StoredBenchmarkIndexBatch {
   returnUnit: "percentage-points";
   rows: {
     tradeDate: string;
+    sourceTimestamp?: number;
     closePoints: number;
     previousClosePoints: number | null;
     changePoints: number | null;
     returnPct: number | null;
   }[];
-}
+} & ({ source: "tushare"; endpoint: "index_daily" } | { source: "tickflow"; endpoint: "/v1/klines" });
 
 export interface BenchmarkIndexArchiveRef {
   version: 1;
