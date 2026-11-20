@@ -31,6 +31,15 @@ function benchmark(symbol = "000001.SH", returnPct: number | null = -1.5) {
   });
 }
 
+function tickflowBenchmark(levels: readonly { tradeDate: string; closePoints: number }[]) {
+  return archiveBenchmarkIndexObservations({ symbol: "000001.SH", source: "tickflow", market: "A",
+    endpoint: "/v1/klines", observedAt, coverage: "unknown", priceUnit: "index-points", returnUnit: "percentage-points",
+    requested: { start: sessions[0], end: sessions[2] },
+    rows: levels.map(row => ({ ...row, sourceTimestamp: Date.parse(row.tradeDate + "T00:00:00+08:00"),
+      previousClosePoints: null, changePoints: null, returnPct: null })),
+  });
+}
+
 async function fixture() {
   const meta = { tradeDate: target, observedAt, coverage: "unknown" } as const;
   const marketRef = await archiveMarketCrossSection({ source: "tushare", market: "A", tradeDate: target,
@@ -120,6 +129,31 @@ test("keeps missing histories explicit and rejects incompatible or duplicate ref
     benchmark: { ...request.benchmark, refs: [...request.benchmark.refs, await benchmark("000001.SH", 0)] } }))
     .rejects.toThrow("Duplicate market environment benchmark observation date");
   await expect(replayTspMarketEnvironment(request, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+});
+
+test("derives TickFlow benchmark return on the same adjacent exchange sessions without joining separate revisions", async () => {
+  const request = await fixture();
+  const prior = { tradeDate: sessions[0], closePoints: 3000 };
+  const current = { tradeDate: target, closePoints: 2955 };
+  const ref = await tickflowBenchmark([prior, current]);
+  const fixed = await replayTspMarketEnvironment({ ...request, benchmark: { symbol: "000001.SH", refs: [ref] } });
+  expect(fixed.rows[1]?.inputs.benchmark).toEqual({
+    ref, returnPct: -1.5, derivedReturn: {
+      producer: "whyj", basis: "adjacent-session-closes", tradeDate: target, previousTradingDate: sessions[0],
+      closePoints: 2955, previousClosePoints: 3000, returnPct: -1.5,
+    },
+  });
+  expect(fixed.rows[1]?.regime?.input.evidence.indexChangeFraction?.observed).toBe(-0.015);
+  expect(fixed.rows[0]?.inputs.benchmark?.derivedReturn).toMatchObject({
+    previousTradingDate: null, basis: "missing-adjacent-close", returnPct: null,
+  });
+  const split = await replayTspMarketEnvironment({ ...request, benchmark: {
+    symbol: "000001.SH", refs: [await tickflowBenchmark([prior]), await tickflowBenchmark([current])],
+  } });
+  expect(split.rows[1]?.inputs.benchmark).toMatchObject({
+    returnPct: null, derivedReturn: { previousTradingDate: sessions[0], previousClosePoints: null, basis: "missing-adjacent-close" },
+  });
+  expect(split.rows[1]?.regime?.input.evidence.indexChangeFraction?.observed).toBeNull();
 });
 
 test("uses an exact risk-warning capture for both price and ladder denominators", async () => {
