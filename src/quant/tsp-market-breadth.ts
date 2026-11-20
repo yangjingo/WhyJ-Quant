@@ -56,6 +56,10 @@ function statistics(values: readonly number[]) {
 const known = (value: number | null): value is number => value !== null;
 const stockSymbol = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 
+export function isTspMarketBreadthEligible(row: Pick<TspBreadthMemberObservation, "volumeShares" | "changeFraction">): boolean {
+  return (row.volumeShares !== null && row.volumeShares > 0) || (row.changeFraction !== null && row.changeFraction !== 0);
+}
+
 function compare(close: number | null, reference: number | null, direction: "up" | "down"): boolean | null {
   if (close === null || reference === null) return null;
   return direction === "up" ? close >= reference : close <= reference;
@@ -86,7 +90,7 @@ export function computeTspMarketBreadth(universe: TspBreadthUniverse, observatio
       throw new Error("Invalid market breadth member observation");
     }
     seen.add(row.symbol);
-    if ((row.volumeShares !== null && row.volumeShares > 0) || (row.changeFraction !== null && row.changeFraction !== 0)) {
+    if (isTspMarketBreadthEligible(row)) {
       eligible.push(row);
     } else if (row.volumeShares === 0 && row.changeFraction === 0) {
       suspendedByRule++;
