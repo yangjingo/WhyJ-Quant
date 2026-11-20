@@ -1,5 +1,5 @@
 import { isDailyDate, validateDateRange } from "../../market/bars.ts";
-import { isAIndexSymbol, normalizeSymbol } from "../../market/symbols.ts";
+import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, normalizeSymbol } from "../../market/symbols.ts";
 import type { Market } from "../../types/data.ts";
 import { runPython } from "./akshare-python.ts";
 import { fetchFinancialDatasetsSnapshot } from "./financial-datasets.ts";
@@ -8,6 +8,7 @@ import { SourceRequestError } from "./market-data-error.ts";
 import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
+import { fetchTickFlowTradingDateRows } from "./trading-date-klines.ts";
 import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareDatedBenchmark, fetchTushareDatedRiskWarnings,
   fetchTushareFinancialDisclosureDates,
   fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareMarketDate, fetchTushareReportFinancialIndicators,
@@ -95,6 +96,7 @@ export interface DailyMarketBars {
 
 export interface DatedBenchmarkRow {
   tradeDate: string;
+  sourceTimestamp?: number;
   closePoints: number;
   previousClosePoints: number | null;
   changePoints: number | null;
@@ -243,7 +245,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchDailyMarketBasics: { tushare: "A" },
   fetchDatedSectorCatalog: { tushare: "A" },
   fetchDatedSectorMembers: { tushare: "A" },
-  fetchDatedBenchmarkObservations: { tushare: "A" },
+  fetchDatedBenchmarkObservations: { tushare: "A", tickflow: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
@@ -500,11 +502,25 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
     async fetchDatedBenchmarkObservations({ market, symbol, start, end }, options) {
       validate("fetchDatedBenchmarkObservations", market);
       const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
-      if (!isAIndexSymbol(code) || !/\.(SH|SZ)$/.test(code)) throw new Error("Invalid exchange-qualified A-share benchmark index");
+      if (!isDatedBenchmarkIndexSymbol(code) || (source === "tushare" && code.endsWith(".BJ"))) {
+        throw new Error("Invalid exchange-qualified A-share benchmark index for the selected source");
+      }
       if (typeof start !== "string" || typeof end !== "string") throw new Error("Benchmark dates are required");
       validateDateRange(start, end);
       const calendarDays = (Date.parse(end) - Date.parse(start)) / 86_400_000 + 1;
       if (calendarDays > 366) throw new Error("Benchmark window exceeds 366 calendar days");
+      if (source === "tickflow") {
+        const captured = await readReference(options, signal => fetchTickFlowTradingDateRows({
+          symbol: code, startDate: start, endDate: end, adjustment: "none",
+        }, connection, { signal }));
+        const rows = captured.map(({ tradeDate, sourceTimestamp, close }) => ({
+          tradeDate, sourceTimestamp, closePoints: close,
+          previousClosePoints: null, changePoints: null, returnPct: null,
+        }));
+        return result<DatedBenchmarkObservations>(market, "/v1/klines", {
+          symbol: code, requested: { start, end }, priceUnit: "index-points", returnUnit: "percentage-points", rows,
+        });
+      }
       const rawRows = await readReference(options, signal =>
         fetchTushareDatedBenchmark(code, start, end, calendarDays, { token: apiKey, baseUrl, env, signal }));
       const seen = new Set<string>();
