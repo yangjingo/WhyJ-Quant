@@ -35,26 +35,34 @@ async function loadBenchmarkInputs(
   return { byDate, evidence };
 }
 
-async function marketPriceMetrics(ref: MarketCrossSectionArchiveRef, priceRefs: readonly TradingDateArchiveRef[],
-  excluded: ReadonlySet<string>, signal?: AbortSignal) {
-  const { tradeDate, universe, bars } = await loadMarketCrossSectionArchive(ref, signal);
-  const roster = new Set(universe.members.map(member => member.symbol));
-  const matched = new Set(bars.rows.filter(row => roster.has(row.symbol)).map(row => row.symbol));
+export async function* readMarketAdjustedPriceArchives(tradeDate: string, matched: ReadonlySet<string>,
+  priceRefs: readonly TradingDateArchiveRef[], signal?: AbortSignal) {
   if (priceRefs.length > matched.size) throw new Error("Too many market environment price archives");
   const seen = new Set<string>();
-  const returns: number[] = [];
-  let ma20Count = 0, aboveMa20 = 0;
-  const priceEvidence = [];
   for (const archiveRef of priceRefs) {
     const records = await loadTradingDateArchive(archiveRef, signal);
     records.sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
     const last = records.at(-1)!;
-    const { symbol, source, endpoint, observedAt, adjustment, coverage } = last;
+    const { symbol, adjustment } = last;
     if (!matched.has(symbol) || seen.has(symbol) || last.tradeDate !== tradeDate ||
       last.requested.endDate !== tradeDate || adjustment !== "forward" || last.market !== "A") {
       throw new Error("Incompatible market environment price archive");
     }
     seen.add(symbol);
+    yield { archiveRef, records, last };
+  }
+}
+
+async function marketPriceMetrics(ref: MarketCrossSectionArchiveRef, priceRefs: readonly TradingDateArchiveRef[],
+  excluded: ReadonlySet<string>, signal?: AbortSignal) {
+  const { tradeDate, universe, bars } = await loadMarketCrossSectionArchive(ref, signal);
+  const roster = new Set(universe.members.map(member => member.symbol));
+  const matched = new Set(bars.rows.filter(row => roster.has(row.symbol)).map(row => row.symbol));
+  const returns: number[] = [];
+  let ma20Count = 0, aboveMa20 = 0;
+  const priceEvidence = [];
+  for await (const { archiveRef, records, last } of readMarketAdjustedPriceArchives(tradeDate, matched, priceRefs, signal)) {
+    const { symbol, source, endpoint, observedAt, adjustment, coverage } = last;
     if (excluded.has(symbol)) continue;
     const { change_pct: change, ma20 } = computeTspDailyIndicators(
       records.slice(-20).map(row => ({ date: row.tradeDate, ...row.values })),
