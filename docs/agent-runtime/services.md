@@ -296,6 +296,8 @@ Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必
 
 Runtime 的 `deriveTspArchiveAnalytics` 用精确的 v2 日线引用生成归档末日的 77 个研究因子字段和 11 组图表价格位。Tushare 的手数和千元成交额按明确单位参与计算，TickFlow 成交单位未确认时，对应因子保持空值。估值财务、历史换手和连板输入需独立归档。结果标记价格位的量分布口径、原行情来源、归档范围、可用成交额计数及两个计算的公式版本。读取只使用指定归档。
 
+可选认证 RPC `readObservationAnalytics` 接收一份 v2 日线引用，返回归档末日的研究因子及价格位。调用方可读取各组的公式版本与同一份行情证据。归档缺失或损坏时返回固定诊断，旧 Host 对此可选方法返回 `METHOD_NOT_FOUND`。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell

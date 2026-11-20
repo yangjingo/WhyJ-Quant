@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
+import { deriveTspArchiveAnalytics } from "../../runtime/data/archive-analytics.ts";
 import { collectObservations, collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators,
   type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
 import { isDailyDate } from "../../market/bars.ts";
-import type { ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
+import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
   ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
 import type { TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
@@ -42,6 +43,15 @@ async function replayIndicators(ref: TradingDateArchiveRef, exchange?: DailySign
 
 export async function readObservationIndicators(value: unknown): Promise<ObservationIndicatorPreview> {
   return replayIndicators(dailyReference(value));
+}
+
+export async function readObservationAnalytics(value: unknown): Promise<ObservationAnalyticsPreview> {
+  const ref = dailyReference(value);
+  try {
+    return await deriveTspArchiveAnalytics(ref, AbortSignal.timeout(30_000));
+  } catch {
+    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的日线归档。请核对归档引用后重试。", 404);
+  }
 }
 
 export async function readObservationExchangeIndicators(value: unknown): Promise<ObservationIndicatorPreview> {
