@@ -47,3 +47,9 @@ export interface DatedDragonTigerBoard {
   stocks: DragonTigerStockRow[];
   seats: DragonTigerSeatRow[];
 }
+
+export interface DragonTigerArchiveRef {
+  version: 1;
+  kind: "dragon-tiger-board";
+  revision: string;
+}

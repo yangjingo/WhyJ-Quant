@@ -124,3 +124,5 @@ export { archiveBenchmarkIndexObservations, loadBenchmarkIndexArchive } from "./
 export type { BenchmarkIndexArchiveRef, StoredBenchmarkIndexBatch } from "../types/observation.ts";
 export { archiveAuctionBenchmark, loadAuctionBenchmarkArchive } from "./src/observation-archive.ts";
 export type { AuctionBenchmarkArchiveRef, StoredAuctionBenchmark } from "../types/observation.ts";
+export { archiveDragonTigerBoard, loadDragonTigerArchive } from "./src/observation-archive.ts";
+export type { DragonTigerArchiveRef } from "../types/dragon-tiger.ts";
