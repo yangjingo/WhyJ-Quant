@@ -1,5 +1,6 @@
 import { isDailyDate } from "../../market/bars.ts";
-import { computeTspDailyLadderFlags, computeTspLimitStreaks, computeTspMarketLadder, tspTradingLimitThresholds } from "../../quant/index.ts";
+import { computeTspDailyLadderFlags, computeTspLimitStreaks, computeTspMarketLadder, tspTradingLimitThresholds,
+  type TspBreadthUniverse, type TspLimitLadderObservation } from "../../quant/index.ts";
 import {
   loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadRiskWarningArchive, type MarketCrossSectionArchiveRef,
   type RiskWarningArchiveRef, type StoredDailyTradingLimitBatch, type StoredMarketCrossSection, type StoredRiskWarningBatch, type TradingLimitArchiveRef,
@@ -20,8 +21,27 @@ type RiskWarningCapture = Omit<StoredRiskWarningBatch, "rows"> & { ref: RiskWarn
 type RiskWarningEvidence = { status: "missing" } |
   (Omit<RiskWarningCapture, "symbols"> & { status: "matched"; excludedSymbols: string[] });
 
-/** Reopen dated raw market and effective-limit archives on a caller-supplied exchange calendar. */
-export async function replayTspMarketLadders(request: MarketLadderReplayRequest, signal?: AbortSignal) {
+interface LadderReplayInputs {
+  tradingDate: string;
+  previousTradingDate: string | null;
+  market: {
+    ref: MarketCrossSectionArchiveRef;
+    source: StoredMarketCrossSection["source"];
+    universeEndpoint: StoredMarketCrossSection["universe"]["endpoint"];
+    universeObservedAt: string;
+    barsEndpoint: StoredMarketCrossSection["bars"]["endpoint"];
+    barsObservedAt: string;
+    coverage: "unknown";
+    amountUnit: StoredMarketCrossSection["bars"]["amountUnit"];
+  } | null;
+  riskWarnings?: RiskWarningEvidence;
+  universe: TspBreadthUniverse | null;
+  observations: readonly TspLimitLadderObservation[];
+}
+
+/** Assemble the full per-stock inputs once, projecting each day's observations before moving forward. */
+export async function projectMarketLadderReplay<T>(request: MarketLadderReplayRequest,
+  project: (input: LadderReplayInputs) => T | Promise<T>, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const sessions = [...request.sessions], marketRefs = request.marketRefs.map(ref => ({ ...ref })), limitRefs = request.limitRefs.map(ref => ({ ...ref }));
   const riskWarningRefs = request.riskWarningRefs?.map(ref => ({ ...ref }));
@@ -78,7 +98,8 @@ export async function replayTspMarketLadders(request: MarketLadderReplayRequest,
     streaksBySymbol.set(symbol, computeTspLimitStreaks(sessions, observations));
   }
 
-  const rows = sessions.map((tradingDate, index) => {
+  const rows: T[] = [];
+  for (const [index, tradingDate] of sessions.entries()) {
     signal?.throwIfAborted();
     const previousTradingDate = sessions[index - 1] ?? null;
     const capture = marketByDate.get(tradingDate);
@@ -92,12 +113,18 @@ export async function replayTspMarketLadders(request: MarketLadderReplayRequest,
       } else riskWarnings = { status: "missing" };
     }
     const riskEvidence = riskWarnings ? { riskWarnings } : {};
-    if (!capture) return { tradingDate, previousTradingDate, market: null, metrics: null, ...riskEvidence };
+    if (!capture) {
+      rows.push(await project({ tradingDate, previousTradingDate, market: null, universe: null, observations: [], ...riskEvidence }));
+      continue;
+    }
     const { ref, snapshot } = capture;
     const { source, universe, bars } = snapshot;
     const market = { ref, source, universeEndpoint: universe.endpoint, universeObservedAt: universe.observedAt,
       barsEndpoint: bars.endpoint, barsObservedAt: bars.observedAt, coverage: bars.coverage, amountUnit: bars.amountUnit };
-    if (riskWarnings?.status === "missing") return { tradingDate, previousTradingDate, market, metrics: null, ...riskEvidence };
+    if (riskWarnings?.status === "missing") {
+      rows.push(await project({ tradingDate, previousTradingDate, market, universe: null, observations: [], ...riskEvidence }));
+      continue;
+    }
     const included = risk ? roster.filter(member => !risk.symbols.has(member.symbol)) : roster;
     const priorRisk = previousTradingDate === null ? undefined : riskByDate.get(previousTradingDate);
     const amounts = new Map(bars.rows.map(row => [row.symbol, row.amount]));
@@ -111,14 +138,23 @@ export async function replayTspMarketLadders(request: MarketLadderReplayRequest,
         limitUp: limitFlags?.signal_limit_up ?? null, brokenLimitUp: limitFlags?.signal_broken_limit_up ?? null };
     });
     const universeId = `${source}:${universe.endpoint}:${universe.universe}`;
-    return { tradingDate, previousTradingDate, market, ...riskEvidence,
-      metrics: computeTspMarketLadder({ id: risk ? `${universeId}:exclude-observed-risk-warnings` : universeId,
+    rows.push(await project({ tradingDate, previousTradingDate, market, ...riskEvidence, observations,
+      universe: { id: risk ? `${universeId}:exclude-observed-risk-warnings` : universeId,
         revision: risk ? `${ref.revision}:${risk.ref.revision}` : ref.revision, tradingDate,
-        symbols: included.map(member => member.symbol) }, previousTradingDate, observations),
-    };
-  });
+        symbols: included.map(member => member.symbol) },
+    }));
+  }
+  signal?.throwIfAborted();
   const limits = [...limitsBySymbol.values()].map(({ ref, batch: { symbol, source, endpoint, observedAt, coverage, requested } }) => ({
     ref, symbol, source, endpoint, observedAt, coverage, requested,
   })).sort((left, right) => left.symbol.localeCompare(right.symbol));
   return { calendar: { zone: "Asia/Shanghai" as const, sessions }, input: { tradingLimits: limits }, rows };
+}
+
+/** Reopen dated market and exchange-limit archives and calculate the displayed ladder. */
+export function replayTspMarketLadders(request: MarketLadderReplayRequest, signal?: AbortSignal) {
+  return projectMarketLadderReplay(request, ({ universe, observations, ...row }) => ({
+    ...row,
+    metrics: universe ? computeTspMarketLadder(universe, row.previousTradingDate, observations) : null,
+  }), signal);
 }
