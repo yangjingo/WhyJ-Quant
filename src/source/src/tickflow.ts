@@ -5,6 +5,7 @@ import { getText } from "./http.ts";
 import type { OrderBook, OrderBookLevel } from "./market-data.ts";
 
 export const DEFAULT_TICKFLOW_BASE_URL = "https://api.tickflow.org";
+export const TICKFLOW_SYMBOL_BATCH_SIZE = 100;
 export interface TickFlowOptions {
   apiKey?: string;
   baseUrl?: string;
@@ -51,7 +52,7 @@ function nativeSymbol(input: string): string {
   return symbol;
 }
 export function symbolsFor(inputs: readonly string[]): string[] {
-  if (!Array.isArray(inputs) || !inputs.length || inputs.length > 100) throw new Error("TickFlow requires 1 to 100 symbols");
+  if (!Array.isArray(inputs) || !inputs.length || inputs.length > TICKFLOW_SYMBOL_BATCH_SIZE) throw new Error("TickFlow requires 1 to 100 symbols");
   return [...new Set(inputs.map(nativeSymbol))];
 }
 function timeQuery(window: TickFlowWindow): Record<string, string> {
@@ -168,10 +169,7 @@ export async function fetchTickFlowQuotes(inputs: readonly string[], options: Ti
   return { quotes, missingSymbols: symbols.filter(symbol => !seen.has(symbol)) };
 }
 
-/** Preserve each reported level, including zero values, without inferring volume units. */
-export async function fetchTickFlowOrderBook(input: string, options: TickFlowOptions = {}): Promise<OrderBook> {
-  if (typeof input !== "string") throw new Error("Invalid order book request");
-  const symbol = nativeSymbol(input), payload = await request("/v1/depth", { symbol }, options), row = payload.data;
+function orderBook(symbol: string, row: unknown): OrderBook {
   if (!record(row) || row.symbol !== symbol || row.region !== "CN") throw new Error("Provider identity mismatch");
   if (!timestamp(row.timestamp)) throw invalid();
   const levels = (prices: unknown, volumes: unknown, descending: boolean): OrderBookLevel[] => {
@@ -188,4 +186,28 @@ export async function fetchTickFlowOrderBook(input: string, options: TickFlowOpt
     });
   };
   return { symbol, timestamp: row.timestamp, bids: levels(row.bid_prices, row.bid_volumes, true), asks: levels(row.ask_prices, row.ask_volumes, false) };
+}
+
+/** Preserve each reported level, including zero values, without inferring volume units. */
+export async function fetchTickFlowOrderBook(input: string, options: TickFlowOptions = {}): Promise<OrderBook> {
+  if (typeof input !== "string") throw new Error("Invalid order book request");
+  const symbol = nativeSymbol(input), payload = await request("/v1/depth", { symbol }, options);
+  return orderBook(symbol, payload.data);
+}
+
+/** Read one native batch and keep missing requested identities explicit. */
+export async function fetchTickFlowOrderBookBatch(inputs: readonly string[], options: TickFlowOptions = {}) {
+  const requestedSymbols = symbolsFor(inputs);
+  const payload = await request("/v1/depth/batch", { symbols: requestedSymbols.join(",") }, options);
+  if (!record(payload.data)) throw invalid();
+  const wanted = new Set(requestedSymbols);
+  const books = new Map<string, OrderBook>();
+  for (const [symbol, row] of Object.entries(payload.data)) {
+    if (!wanted.has(symbol)) throw new Error("Provider identity mismatch");
+    books.set(symbol, orderBook(symbol, row));
+  }
+  return { requestedSymbols, books: requestedSymbols.flatMap(symbol => {
+    const book = books.get(symbol);
+    return book ? [book] : [];
+  }), missingSymbols: requestedSymbols.filter(symbol => !books.has(symbol)) };
 }

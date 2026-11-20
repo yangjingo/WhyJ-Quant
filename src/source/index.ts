@@ -44,6 +44,8 @@ export type { DatedDragonTigerBoard, DragonTigerBoardKind, DragonTigerSeatRow, D
 export { fetchFromAKShareGlobal, fetchFromAKShareGlobalDetailed } from "./src/akshare-global-bars.ts";
 export { createMarketDataSource, getMarketDataCapabilities } from "./src/market-data.ts";
 export type { MarketDataCapabilities, OrderBookMarketDataCapabilities, OrderBookMarketDataSource, TradingDateMarketDataCapabilities, TradingDateMarketDataSource } from "./src/market-data.ts";
+export type { OrderBookBatchMarketDataSource, OrderBookBatchRequest, OrderBookBatchResult } from "./src/market-data.ts";
+export { TICKFLOW_SYMBOL_BATCH_SIZE } from "./src/tickflow.ts";
 export type { DailyBarsMarketDataCapabilities, DailyBarsMarketDataSource, DailyBarsRequest, DailyBarsResult } from "./src/market-data.ts";
 export type { UnifiedMarketDataCapabilities, UnifiedMarketDataSource } from "./src/market-data.ts";
 export { SourceRequestError } from "./src/market-data-error.ts";
