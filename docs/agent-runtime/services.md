@@ -233,6 +233,22 @@ whyj --json observation replay-market-environment --manifest environment.json
 
 如需按日剔除风险警示股，用 `whyj --json observation collect-risk-warnings --date 2024-01-05` 采集名单，并把回执摘要加入清单的可选字段 `riskWarningRevisions`，例如 `["RISK_WARNING_SHA"]`。字段省略时使用完整的归档股票池。填入空数组会显式开启筛选，但每个交易日都会标为缺少名单。名单本身为空时，填入该空名单的归档摘要以保留当日计算。
 
+运行 `whyj --json observation replay-market-mainline --manifest mainline.json` 可用归档回放行业或概念主线。将市场截面和涨跌停回执填入清单，并在 `sectorHistory` 逐日填入对应的目录和成分摘要。一份清单使用同一分类维度、数据源和分类体系。可按需加入 `riskWarningRevisions` 和板块成员数筛选。
+
+```json
+{
+  "sessions": ["2024-01-04", "2024-01-05"],
+  "marketRevisions": ["MARKET_PREVIOUS_SHA", "MARKET_SHA"],
+  "limitRevisions": ["LIMIT_SHA"],
+  "sectorHistory": [
+    {"tradeDate": "2024-01-05", "catalogRevision": "CATALOG_SHA", "memberRevisions": ["MEMBERS_SHA"]}
+  ],
+  "filter": {"minMembers": 4, "maxMembers": 600, "blacklist": []}
+}
+```
+
+较早的市场截面可为连板提供预热。某日缺少可用的目录、成分或风险名单时，回放会注明缺少的输入及已有引用。部分成分已归档时，结果同时报告实际参与评分的板块和未采集的板块代码。
+
 CLI 可用当前已保存的数据源凭证采集和回放同一份归档。配置来源后，用 `whyj --json doctor --phase data` 检查凭证是否可用，再运行以下命令。用第一条返回的 `data.ref.revision` 替换第二条的 `SHA256`。
 
 ```powershell
