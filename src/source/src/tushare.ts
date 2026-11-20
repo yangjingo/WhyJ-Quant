@@ -238,6 +238,18 @@ export function fetchTushareDatedRiskWarnings(tradeDate: string, options: Tushar
     ["ts_code", "name", "trade_date", "type", "type_name"], 999, options);
 }
 
+const MONEY_FLOW_FIELDS = [
+  "ts_code", "trade_date", ...["sm", "md", "lg", "elg"].flatMap(size => [
+    "buy_" + size + "_vol", "buy_" + size + "_amount", "sell_" + size + "_vol", "sell_" + size + "_amount",
+  ]),
+  "net_mf_vol", "net_mf_amount",
+];
+
+export function fetchTushareDatedMoneyFlow(tradeDate: string, options: TushareOptions) {
+  // A response at the documented cap could be truncated.
+  return boundedTable("moneyflow", { trade_date: tradeDate.replaceAll("-", "") }, MONEY_FLOW_FIELDS, 5999, options);
+}
+
 export async function fetchTushareMarketDate(endpoint: "daily" | "daily_basic", date: string, options: TushareOptions) {
   const params = { trade_date: date.replaceAll("-", ""), ...(endpoint === "daily_basic" && { ts_code: "" }) };
   // At the documented 6,000-row cap we cannot distinguish a complete response from truncation.

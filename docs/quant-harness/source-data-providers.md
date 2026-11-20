@@ -93,6 +93,8 @@ Tushare 的开放式基金请求把 `270042.OF` 发给 `fund_nav`，将 `unit_na
 
 `fetchDatedRiskWarnings({ market: "A", tradeDate })` 通过选定的 Tushare `stock_st` 读取指定交易日的风险警示名单。请求日期从 2000-01-01 起，返回值保留供应商股票名称、类型代码和类型名称，以及实际交易日、端点与采集时刻。达到 1,000 行上限的响应会报错，空列表仍为空，覆盖状态保留为未知。 [Tushare ST 股票列表](https://tushare.pro/document/2?doc_id=397)
 
+`fetchDatedMoneyFlow({ market: "A", tradeDate })`通过选定的 Tushare `moneyflow`读取指定交易日的沪深个股资金流。自 2010 年起，保留小单、中单、大单和特大单的买卖量与金额，原始单位分别为手和万元。净流入量与金额保留供应商报告值，不从四档合计推算。`null`表示缺值，零保留为观测值。响应达到 6,000 行上限时拒绝，空列表保留且覆盖状态未知。账户权限仍取决于 Tushare。 [Tushare 个股资金流向](https://tushare.pro/document/2?doc_id=170)
+
 ## 研究查询的失败与降级
 
 浏览界面需要尽量给出有用结果；连接诊断需要回答指定源是否可用。这两个目标决定了不同的失败策略：普通研究允许在兼容来源中回退，凭证检查则只能检查所选源。否则，备用源成功会掩盖首选源鉴权失败，保存配置的绿灯就失去意义。

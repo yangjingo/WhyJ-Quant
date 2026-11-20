@@ -1,6 +1,7 @@
 import { isDailyDate, validateDateRange } from "../../market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, normalizeSymbol } from "../../market/symbols.ts";
 import type { Market } from "../../types/data.ts";
+import type { DatedMoneyFlow } from "../../types/money-flow.ts";
 import { runPython } from "./akshare-python.ts";
 import { fetchFinancialDatasetsSnapshot } from "./financial-datasets.ts";
 import { fetchMainboardUniverse } from "./mainboard-universe.ts";
@@ -9,7 +10,8 @@ import type { MarketDataSource, SourceConnection, SourceRequestOptions } from ".
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
 import { fetchTickFlowTradingDateRows } from "./trading-date-klines.ts";
-import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareDatedBenchmark, fetchTushareDatedRiskWarnings,
+import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareDatedBenchmark, fetchTushareDatedMoneyFlow,
+  fetchTushareDatedRiskWarnings,
   fetchTushareFinancialDisclosureDates,
   fetchTushareHistoricalUniverse, fetchTushareHistoricalMinutes, fetchTushareMarketDate, fetchTushareReportFinancialIndicators,
   fetchTushareSectorCatalog, fetchTushareSectorMembers } from "./tushare.ts";
@@ -230,6 +232,8 @@ export interface MarketObservationSource {
     Promise<MarketObservation<HistoricalStockUniverse>>;
   fetchDatedRiskWarnings(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<DatedRiskWarningList>>;
+  fetchDatedMoneyFlow(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<DatedMoneyFlow>>;
   fetchHistoricalMinuteBars(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<HistoricalMinuteObservation>>;
 }
@@ -250,6 +254,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
   fetchDatedRiskWarnings: { tushare: "A" },
+  fetchDatedMoneyFlow: { tushare: "A" },
   fetchHistoricalMinuteBars: { tushare: "A" },
 };
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -274,6 +279,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
     fetchDatedRiskWarnings: status("fetchDatedRiskWarnings"),
+    fetchDatedMoneyFlow: status("fetchDatedMoneyFlow"),
     fetchHistoricalMinuteBars: status("fetchHistoricalMinuteBars"),
   };
 }
@@ -300,6 +306,12 @@ function financialText(value: unknown): string | null {
 function nonnegativeObservation(value: unknown): number | null {
   const parsed = nullableNumber(value);
   if (parsed !== null && parsed < 0) throw new Error("Provider market observation field invalid");
+  return parsed;
+}
+
+function nullableVolume(value: unknown, signed = false): number | null {
+  const parsed = signed ? nullableNumber(value) : nonnegativeObservation(value);
+  if (parsed !== null && !Number.isSafeInteger(parsed)) throw new Error("Provider money-flow volume invalid");
   return parsed;
 }
 
@@ -596,6 +608,35 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
         return { symbol, name, type, typeName };
       }).sort((left, right) => left.symbol.localeCompare(right.symbol) || left.type.localeCompare(right.type));
       return result<DatedRiskWarningList>(market, "stock_st", { tradeDate, rows: warnings });
+    },
+    async fetchDatedMoneyFlow({ market, tradeDate }, options) {
+      validate("fetchDatedMoneyFlow", market);
+      if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate < "2010-01-01" || tradeDate > shanghaiDate.format()) {
+        throw new Error("Invalid money-flow trade date");
+      }
+      const rows = await readReference(options, signal => fetchTushareDatedMoneyFlow(tradeDate, { token: apiKey, baseUrl, env, signal }));
+      const compactDate = tradeDate.replaceAll("-", "");
+      const seen = new Set<string>();
+      const moneyFlow = rows.map(row => {
+        const { ts_code: symbol, trade_date: date } = row;
+        if (date !== compactDate || typeof symbol !== "string" || !isAStock(symbol) || symbol.endsWith(".BJ") || seen.has(symbol)) {
+          throw new Error("Provider money-flow identity invalid");
+        }
+        seen.add(symbol);
+        const bucket = (size: "sm" | "md" | "lg" | "elg") => ({
+          buyVolumeHand: nullableVolume(row["buy_" + size + "_vol"]),
+          buyAmount: nonnegativeObservation(row["buy_" + size + "_amount"]),
+          sellVolumeHand: nullableVolume(row["sell_" + size + "_vol"]),
+          sellAmount: nonnegativeObservation(row["sell_" + size + "_amount"]),
+        });
+        return {
+          symbol, small: bucket("sm"), medium: bucket("md"), large: bucket("lg"), extraLarge: bucket("elg"),
+          netVolumeHand: nullableVolume(row.net_mf_vol, true), netAmount: nullableNumber(row.net_mf_amount),
+        };
+      });
+      return result<DatedMoneyFlow>(market, "moneyflow", {
+        tradeDate, volumeUnit: "hand", amountUnit: "CNY-ten-thousand", rows: moneyFlow,
+      });
     },
     async fetchHistoricalMinuteBars({ symbol: input, market, start, end }, options) {
       validate("fetchHistoricalMinuteBars", market);
