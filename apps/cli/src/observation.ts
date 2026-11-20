@@ -1,6 +1,6 @@
 import { open } from "node:fs/promises";
 import { isDailyDate } from "../../../src/market/bars.ts";
-import { isAIndexSymbol } from "../../../src/market/symbols.ts";
+import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
@@ -11,6 +11,7 @@ import { replayTspMarketEnvironment, type MarketEnvironmentReplayRequest } from 
 import type { MarketLadderReplayRequest } from "../../../src/runtime/data/market-ladder-replay.ts";
 import { replayTspMarketMainline, type MarketMainlineReplayRequest } from "../../../src/runtime/data/market-mainline-replay.ts";
 import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
+import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "../../../src/runtime/data/price-deviation-replay.ts";
 import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-warning-collection.ts";
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
@@ -20,6 +21,7 @@ const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
   + 'or "whyj --json observation replay-daily|replay-intraday --revision SHA256". See whyj --help for optional flags.';
 const revisionPattern = /^[a-f0-9]{64}$/;
+const datedStock = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 const compatiblePriceBasis = "caller-confirmed-same-basis";
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const maxRevisionFileBytes = 512_000;
@@ -79,12 +81,17 @@ function parseRotationManifest(value: unknown): SectorRankReplayRequest[] {
   });
 }
 
-function parseMarketReplayScope(value: Record<string, unknown>): MarketLadderReplayRequest {
-  const { sessions, marketRevisions, limitRevisions, riskWarningRevisions } = value;
+function parseExchangeSessions(sessions: unknown): string[] {
   if (!Array.isArray(sessions) || sessions.length === 0 || sessions.length >= 7_000 ||
     sessions.some((date, index) => typeof date !== "string" || !isDailyDate(date) || (index > 0 && date <= sessions[index - 1]))) {
     throw invalid();
   }
+  return sessions;
+}
+
+function parseMarketReplayScope(value: Record<string, unknown>): MarketLadderReplayRequest {
+  const sessions = parseExchangeSessions(value.sessions);
+  const { marketRevisions, limitRevisions, riskWarningRevisions } = value;
   const market = validateRevisions(marketRevisions);
   if (market.length > sessions.length) throw invalid();
   return {
@@ -201,6 +208,21 @@ function parseEmotionManifest(value: unknown): MarketEmotionReplayRequest {
     indexRefs: validateRevisions(manifest.indexRevisions).map(revision => ({ version: 1, kind: "benchmark-index", revision })) };
 }
 
+function parsePriceDeviationManifest(value: unknown): PriceDeviationReplayRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+  const manifest = value as Record<string, unknown>;
+  const { symbol, stockRevision, benchmarkRevision } = manifest;
+  if (Object.keys(manifest).some(key => !["symbol", "sessions", "stockRevision", "benchmarkRevision"].includes(key)) ||
+    typeof symbol !== "string" || !datedStock.test(symbol) ||
+    typeof stockRevision !== "string" || !revisionPattern.test(stockRevision) ||
+    (Object.hasOwn(manifest, "benchmarkRevision") &&
+      (typeof benchmarkRevision !== "string" || !revisionPattern.test(benchmarkRevision)))) throw invalid();
+  return { symbol, sessions: parseExchangeSessions(manifest.sessions), stockRef: { version: 2, revision: stockRevision },
+    ...(typeof benchmarkRevision === "string" ? {
+      benchmarkRef: { version: 1, kind: "benchmark-index", revision: benchmarkRevision },
+    } : {}) };
+}
+
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
   if (action === "collect-risk-warnings") {
@@ -217,8 +239,8 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     const symbol = fields.get("--symbol")?.toUpperCase(), start = fields.get("--start"), end = fields.get("--end");
     const benchmark = action === "collect-benchmark";
     if (!symbol || (benchmark
-      ? !/^(?:000\d{3}\.SH|399\d{3}\.SZ)$/.test(symbol)
-      : isAIndexSymbol(symbol) || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(symbol)) ||
+      ? !isDatedBenchmarkIndexSymbol(symbol)
+      : isAIndexSymbol(symbol) || !datedStock.test(symbol)) ||
       !start || !end || !isDailyDate(start) || !isDailyDate(end) || start > end || Date.parse(end) - Date.parse(start) > 365 * dayMs) {
       throw invalid();
     }
@@ -299,6 +321,15 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       throw Object.assign(new Error("Could not replay the requested market emotion archives."), { code: "observation_archive_unavailable" });
     }
   }
+  if (action === "replay-price-deviation") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parsePriceDeviationManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspPriceDeviation(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested price deviation archives."), { code: "observation_archive_unavailable" });
+    }
+  }
   if (action === "collect-sector-catalog" || action === "collect-sector-members") {
     const catalog = action === "collect-sector-catalog";
     const fields = parseOptions(options, ["--date", catalog ? "--kind" : "--sector-code"]);
@@ -353,7 +384,7 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     const fields = parseOptions(options, flags);
     const symbol = fields.get("--symbol"), startDate = fields.get("--start"), endDate = fields.get("--end");
     const adjustment = fields.get("--adjustment") ?? "none";
-    if (!symbol || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(symbol) ||
+    if (!symbol || !datedStock.test(symbol) ||
       !startDate || !endDate || !isDailyDate(startDate) || !isDailyDate(endDate) ||
       startDate < (minutes ? "2010-01-01" : "0001-01-01") || endDate > "9998-12-31" || startDate > endDate ||
       Date.parse(endDate) - Date.parse(startDate) > (minutes ? 30 : 365) * dayMs ||
