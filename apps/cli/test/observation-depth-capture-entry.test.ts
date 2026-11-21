@@ -36,7 +36,11 @@ test("CLI collects a configured native depth batch and replays its fixed receipt
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     requests.push(new URL(request.url));
     if (!providerAvailable || request.headers.get("x-api-key") !== "depth-cli-fixture") return new Response("", { status: 403 });
-    return Response.json({ data: { [symbol]: { symbol, region: "CN", timestamp: Date.now(),
+    const responseTime = Date.now();
+    const dayStart = Date.parse(shanghai.format(responseTime) + "T00:00:00+08:00");
+    // Keep the provider sample away from the child process's receipt boundary.
+    const timestamp = Math.max(dayStart, responseTime - 1_000);
+    return Response.json({ data: { [symbol]: { symbol, region: "CN", timestamp,
       bid_prices: [10.99], bid_volumes: [100], ask_prices: [11], ask_volumes: [200] } } });
   } });
   const run = async (...args: string[]) => {
