@@ -343,6 +343,12 @@ whyj --json observation replay-sector-rank --market-revision MARKET_SHA --catalo
 
 默认显示最新 12 个有可比排名的交易日，窗口限制为 7–30 个比较日。发生缺口的日期及其归档仍出现在 `input.sessions` 中。同一板块在上一已提供交易日缺少可比排名时，`rankMovement` 保持 `null`。
 
+### 自定义盘中信号回放
+
+`replayTspIntradaySignal` 在固定分钟归档上计算自定义条件。沿用分钟回放的上海时间、收盘标签及可选昨收证据。结果保留供应商原始时间、WHYJ 分钟起始标签、公式版本、归档引用及命中时的特征。事件 ID 由标的、规则与公式修订、交易日和分钟共同决定，同一事件在扩展归档中保持原 ID。
+
+回放为只读，输出已检查的完成分钟数、交易日数和开盘边界数。事件可以供后续监控判断重复。条件、最少分钟数和断档行为见[指标目录](../quant-harness/tsp-list-catalog.md#custom-minute-signal-events)。
+
 ### 竞价风向标采集和回放
 
 `collectAuctionBenchmark(tradeDate)` 使用扶摇专用凭证读取一个上海交易日，返回采集元数据、行数和不可变归档引用。空名单也会归档。调用失败或提交前取消时不会返回成功引用。
