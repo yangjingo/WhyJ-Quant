@@ -43,6 +43,8 @@ export { computeTspLimitStreaks, TSP_LIMIT_STREAK_FORMULA_VERSION } from "./tsp-
 export { computeTspMarketLadder, TSP_MARKET_LADDER_FORMULA_VERSION } from "./tsp-market-ladder.ts";
 export type { TspLimitLadderObservation } from "./tsp-market-ladder.ts";
 export { computeTspIntraday, TSP_INTRADAY_FORMULA_VERSION } from "./tsp-intraday.ts";
+export { computeTspIndexMinuteReturns, TSP_INDEX_MINUTE_RETURN_FORMULA_VERSION } from "./tsp-index-minute-returns.ts";
+export type { TspIndexMinutePrice } from "./tsp-index-minute-returns.ts";
 export type { TspCompletedMinuteBar, TspIntradayRow, TspIntradaySignals, TspIntradayValues } from "./tsp-intraday.ts";
 export { calculatePositionScenarios } from "./position-scenarios.ts";
 export { computeTspMarketBreadth, TSP_MARKET_BREADTH_FORMULA_VERSION } from "./tsp-market-breadth.ts";
