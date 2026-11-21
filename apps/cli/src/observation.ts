@@ -6,6 +6,7 @@ import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchma
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
 import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-collection.ts";
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
+import { replayTspFactorEvaluation, type FactorEvaluationReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
 import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
@@ -94,6 +95,84 @@ function parseExchangeSessions(sessions: unknown): string[] {
     throw invalid();
   }
   return sessions;
+}
+
+function factorManifestObject(value: unknown, keys: readonly string[]): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value) ||
+    Object.keys(value).some(key => !keys.includes(key))) throw invalid();
+  return value as Record<string, unknown>;
+}
+
+function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRequest {
+  const { sessions: dates, evaluationStart, factorId, rebalance, symbols: rawSymbols, turnoverRevisions, groups: rawGroups } =
+    factorManifestObject(value, ["sessions", "evaluationStart", "factorId", "rebalance", "symbols", "turnoverRevisions", "groups"]);
+  const sessions = parseExchangeSessions(dates);
+  if (typeof factorId !== "string" || !/^[a-z][a-z0-9_]{0,80}$/.test(factorId) ||
+    (rebalance !== "daily" && rebalance !== "weekly" && rebalance !== "monthly") ||
+    (evaluationStart !== undefined && (typeof evaluationStart !== "string" || !sessions.includes(evaluationStart))) ||
+    !Array.isArray(rawSymbols) || !rawSymbols.length) throw invalid();
+
+  const symbols = rawSymbols.map((raw: unknown): FactorEvaluationReplayRequest["symbols"][number] => {
+    const { symbol, dailyRevisions, financialReportRevisions, financialDisclosureRevisions, exchange, bookValueBasis } =
+      factorManifestObject(raw, ["symbol", "dailyRevisions", "financialReportRevisions", "financialDisclosureRevisions", "exchange", "bookValueBasis"]);
+    const daily = validateRevisions(dailyRevisions);
+    const reports = financialReportRevisions === undefined ? [] : validateRevisions(financialReportRevisions);
+    const disclosures = financialDisclosureRevisions === undefined ? [] : validateRevisions(financialDisclosureRevisions);
+    if (typeof symbol !== "string" || !datedStock.test(symbol) || isAIndexSymbol(symbol) || !daily.length ||
+      new Set([...reports, ...disclosures]).size !== reports.length + disclosures.length ||
+      (bookValueBasis !== undefined && !Array.isArray(bookValueBasis))) throw invalid();
+
+    let exchangeRefs: FactorEvaluationReplayRequest["symbols"][number]["exchange"];
+    if (exchange !== undefined) {
+      const { rawRevisions, limitRevisions } = factorManifestObject(exchange, ["rawRevisions", "limitRevisions"]);
+      const limits = validateRevisions(limitRevisions);
+      const rawDays = rawRevisions === undefined ? undefined : validateRevisions(rawRevisions);
+      if (!limits.length || (rawDays && !rawDays.length)) throw invalid();
+      exchangeRefs = {
+        limitRefs: limits.map(revision => ({ version: 1, kind: "daily-trading-limits", revision })),
+        rawRefs: rawDays?.map(revision => ({ version: 2, revision })),
+      };
+    }
+
+    const confirmations = (bookValueBasis ?? []).map((rawBasis: unknown) => {
+      const { reportRevision, periodEnd, basis } = factorManifestObject(rawBasis, ["reportRevision", "periodEnd", "basis"]);
+      if (typeof reportRevision !== "string" || !reports.includes(reportRevision) || typeof periodEnd !== "string" ||
+        !isDailyDate(periodEnd) || basis !== "caller-confirmed-unadjusted-CNY") throw invalid();
+      return { reportRevision, periodEnd, basis } as const;
+    });
+
+    return {
+      symbol,
+      dailyRefs: daily.map(revision => ({ version: 2, revision })),
+      financialRefs: [
+        ...reports.map(revision => ({ version: 1, kind: "report-financial-indicators", revision }) as const),
+        ...disclosures.map(revision => ({ version: 1, kind: "financial-disclosure-dates", revision }) as const),
+      ],
+      exchange: exchangeRefs,
+      bookValueBasis: confirmations,
+    };
+  });
+  if (new Set(symbols.map(entry => entry.symbol)).size !== symbols.length) throw invalid();
+
+  let groups: FactorEvaluationReplayRequest["groups"];
+  if (rawGroups !== undefined) {
+    const costs = ["feesFraction", "commissionFraction", "stampTaxFraction", "slippageBps"] as const;
+    const settings = factorManifestObject(rawGroups, ["groupCount", "weight", ...costs]);
+    const { groupCount, weight } = settings;
+    if ((groupCount !== undefined && (typeof groupCount !== "number" || !Number.isSafeInteger(groupCount) || groupCount < 1)) ||
+      (weight !== undefined && weight !== "equal" && weight !== "factor_weight") || costs.some(key => {
+        const cost = settings[key];
+        if (cost === undefined || (key === "commissionFraction" && cost === null)) return false;
+        return typeof cost !== "number" || !Number.isFinite(cost) || cost < 0;
+      })) throw invalid();
+    groups = settings;
+  }
+
+  return {
+    factorId, rebalance, sessions, evaluationStart, symbols, groups,
+    turnoverRefs: turnoverRevisions === undefined ? undefined : validateRevisions(turnoverRevisions)
+      .map(revision => ({ version: 1, kind: "market-cross-section", revision })),
+  };
 }
 
 function parseMarketReplayScope(value: Record<string, unknown>): MarketLadderReplayRequest {
@@ -514,6 +593,16 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the requested financial observations. Check the configured source and use whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-factor-evaluation") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseFactorEvaluationManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspFactorEvaluation(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested factor evidence. Verify the factor key, archive revisions and observation scope."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-analytics") {
