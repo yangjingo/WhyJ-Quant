@@ -7,6 +7,8 @@ export { computeTspBacktestRobustness, TSP_BACKTEST_ROBUSTNESS_FORMULA_VERSION }
 export type { TspBacktestRobustnessInput } from "./tsp-backtest-robustness.ts";
 export { planTspWalkForward, computeTspWalkForward, TSP_WALK_FORWARD_FORMULA_VERSION } from "./tsp-walk-forward.ts";
 export type { TspWalkForwardSchedule, TspWalkForwardWindow, TspWalkForwardFoldEvidence, TspWalkForwardInput } from "./tsp-walk-forward.ts";
+export { computeTspParameterRobustness, planTspParameterValidation, TSP_PARAMETER_OBJECTIVES, TSP_PARAMETER_ROBUSTNESS_FORMULA_VERSION } from "./tsp-parameter-robustness.ts";
+export type { TspParameterRobustnessInput, TspParameterCandidateEvidence, TspParameterSegmentEvidence, TspParameterValidationWindow } from "./tsp-parameter-robustness.ts";
 export { mean, sampleDeviation, validateReturns, calendarYears, annualReturn, maxDrawdown, maxDdDuration,
   sharpe, downsideDeviation, sortino, calmar, winRate, profitLossRatio, report } from "./performance.ts";
 export type { PerformanceOptions, BacktestReport } from "./performance.ts";
