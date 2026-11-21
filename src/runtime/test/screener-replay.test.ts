@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveDailyTradingLimits, archiveMarketCrossSection, archiveTradingDateObservations,
   type StoredMarketCrossSection, type StoredTradingDateBarObservation } from "../../storage/index.ts";
-import { replayTspScreener, type ScreenerReplayRequest } from "../data/screener-replay.ts";
+import { replayTspScreener, replayTspScreenerUnion, type ScreenerReplayRequest } from "../data/screener-replay.ts";
 
 const tradeDate = "2024-01-15";
 const sessions = ["2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12", tradeDate];
@@ -73,6 +73,37 @@ test("scores only matched dated stocks and preserves raw-provider and missing ev
     expect(both.ranking.selected).toEqual([]);
     expect(both.ranking.candidateRevision).not.toBe(replay.ranking.candidateRevision);
 
+    const volume = {
+      strategy: request.strategy,
+      weights: [],
+      signalGate: singleSignal.signalGate,
+      orderBy: "vol_ratio_5d",
+    };
+    const value = {
+      strategy: { id: "value", revision: "b".repeat(64) },
+      weights: [{ field: "raw_close", weight: 1 }],
+    };
+    const unionRequest = { marketRef, adjustment: request.adjustment, histories: request.histories,
+      strategies: [volume, value] };
+    const union = await replayTspScreenerUnion(unionRequest);
+    expect(union.market).toMatchObject({ ref: marketRef, tradeDate });
+    expect(union.replays.map(item => item.ranking.strategy)).toEqual([volume.strategy, value.strategy]);
+    expect(union.rows).toEqual([
+      { symbol: symbols[2], score: 50, scoreStrategyId: "value", hits: [{ strategyId: "value", score: 50 }] },
+      { symbol: symbols[3], score: 50, scoreStrategyId: "value", hits: [{ strategyId: "value", score: 50 }] },
+      { symbol: symbols[1], score: null, scoreStrategyId: "daily-volume",
+        hits: [{ strategyId: "daily-volume", score: null }, { strategyId: "value", score: 50 }] },
+      { symbol: symbols[0], score: null, scoreStrategyId: "daily-volume",
+        hits: [{ strategyId: "daily-volume", score: null }, { strategyId: "value", score: 50 }] },
+    ]);
+    expect(await replayTspScreenerUnion(unionRequest)).toEqual(union);
+    const reversed = await replayTspScreenerUnion({ ...unionRequest, strategies: [value, volume] });
+    expect(reversed.rows.map(row => [row.symbol, row.score, row.scoreStrategyId]))
+      .toEqual(symbols.slice(0, 4).map(symbol => [symbol, 50, "value"]));
+    await expect(replayTspScreenerUnion({ ...unionRequest, strategies: [volume, volume] })).rejects.toThrow("unique");
+    await expect(replayTspScreenerUnion({ ...unionRequest, strategies: [] })).rejects.toThrow("at least one");
+    await expect(replayTspScreenerUnion(unionRequest, AbortSignal.abort())).rejects.toThrow();
+
     const [rawArchiveRef, tradingLimitArchiveRef] = await Promise.all([
       history(symbols[2]!, 100, sessions, "none"),
       archiveDailyTradingLimits({
@@ -99,6 +130,8 @@ test("scores only matched dated stocks and preserves raw-provider and missing ev
       .rejects.toThrow("mismatched symbol");
     const future = await history(symbols[0]!, 400, [...sessions, "2024-01-16"]);
     await expect(replayTspScreener({ ...request, histories: [{ symbol: symbols[0]!, ref: future }] }))
+      .rejects.toThrow("future trade date");
+    await expect(replayTspScreenerUnion({ ...unionRequest, histories: [{ symbol: symbols[0]!, ref: future }] }))
       .rejects.toThrow("future trade date");
     await expect(replayTspScreener(request, AbortSignal.abort())).rejects.toThrow();
   } finally {

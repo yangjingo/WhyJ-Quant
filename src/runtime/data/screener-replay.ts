@@ -16,6 +16,13 @@ export interface ScreenerReplayRequest extends ScoreSettings {
   signalGate?: { mode: "any" | "all"; signals: readonly TspDailySignalId[] };
 }
 
+export interface ScreenerUnionReplayRequest {
+  marketRef: ScreenerReplayRequest["marketRef"];
+  adjustment: ScreenerReplayRequest["adjustment"];
+  histories: ScreenerReplayRequest["histories"];
+  strategies: readonly Pick<ScreenerReplayRequest, "strategy" | "weights" | "signalGate" | "orderBy" | "descending">[];
+}
+
 const marketFields = {
   raw_close: { producer: "tushare", endpoint: "daily", unit: "CNY" },
   amount: { producer: "tushare", endpoint: "daily", unit: "CNY", nativeUnit: "CNY-thousand" },
@@ -120,5 +127,45 @@ export async function replayTspScreener(request: ScreenerReplayRequest, signal?:
     fieldSources: Object.fromEntries(fields.map(field => [field, Object.hasOwn(marketFields, field)
       ? marketFields[field as keyof typeof marketFields] : { producer: "whyj", formula: "tsp_daily_ohlcv" }])),
     ranking,
+  };
+}
+
+/** Project ordered strategy replays into the TSP all-strategies view. */
+export async function replayTspScreenerUnion(request: ScreenerUnionReplayRequest, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const { strategies, ...shared } = structuredClone(request);
+  if (!strategies.length || new Set(strategies.map(item => item.strategy.id)).size !== strategies.length) {
+    throw new Error("Screener union requires at least one strategy and unique strategy IDs");
+  }
+
+  const replays = [];
+  const rows = new Map<string, {
+    symbol: string;
+    score: number | null;
+    scoreStrategyId: string;
+    hits: { strategyId: string; score: number | null }[];
+  }>();
+  for (const settings of strategies) {
+    const replay = await replayTspScreener({ ...settings, ...shared, displayLimit: null }, signal);
+    replays.push(replay);
+    const strategyId = replay.ranking.strategy.id;
+    for (const { symbol, score } of replay.ranking.selected) {
+      const hit = { strategyId, score };
+      const row = rows.get(symbol);
+      if (row) row.hits.push(hit);
+      else rows.set(symbol, { symbol, score, scoreStrategyId: strategyId, hits: [hit] });
+    }
+  }
+  signal?.throwIfAborted();
+  return {
+    market: replays[0]!.market,
+    adjustment: shared.adjustment,
+    replays,
+    rows: [...rows.values()].sort((left, right) => {
+      if (left.score === right.score) return 0;
+      if (left.score === null) return 1;
+      if (right.score === null) return -1;
+      return right.score - left.score;
+    }),
   };
 }
