@@ -59,12 +59,21 @@ test("replays all deviation windows from archived closes and preserves the chose
         benchmark: { ref: request.benchmarkRef, symbol: "000002.SH", priceUnit: "index-points", rowsUsed: 33 } },
     });
     const last = result.rows.at(-1)!;
+    const proximity = result.proximity.rows.at(-1)!;
+    expect(result.proximity).toMatchObject({
+      producer: "whyj", basis: "completed-session", unit: "fraction", formula: { id: "tsp_deviation_proximity", version: 1 },
+    });
+    expect(proximity).toMatchObject({ date: last.date, dominantWindow: 30, tier: "below-watch" });
     for (const window of [3, 10, 30] as const) {
       expect(last.comparisonDates[window]).toBe(sessions[sessions.length - 1 - window]!);
       expect(last.values[`deviate_${window}d`]).toBeCloseTo(1.02 ** window - 1.01 ** window, 12);
+      const evidence = proximity.windows.find(item => item.window === window)!;
+      expect(evidence.threshold).toBe({ 3: 0.20, 10: 1, 30: 2 }[window]);
+      expect(evidence.closeness).toBeCloseTo(last.values[`deviate_${window}d`]! / evidence.threshold!, 12);
     }
     const prefix = await replayTspPriceDeviation({ ...request, sessions: sessions.slice(0, -1) });
     expect(prefix.rows).toEqual(result.rows.slice(0, -1));
+    expect(prefix.proximity.rows).toEqual(result.proximity.rows.slice(0, -1));
     expect(await replayTspPriceDeviation(request)).toEqual(result);
     expect(fetcher).not.toHaveBeenCalled();
   } finally { fetcher.mockRestore(); }
@@ -80,9 +89,11 @@ test("keeps original endpoints and availability with missing records, no benchma
     comparisonDates: { 3: missingStock, 10: missingIndex, 30: sessions.at(-31) },
     values: { deviate_3d: null, deviate_10d: null, deviate_30d: expect.any(Number) },
   });
-  expect(await replayTspPriceDeviation({ ...request, benchmarkRef: undefined })).toMatchObject({
+  const noBenchmark = await replayTspPriceDeviation({ ...request, benchmarkRef: undefined });
+  expect(noBenchmark).toMatchObject({
     benchmark: null, input: { benchmark: null },
   });
+  expect(noBenchmark.proximity.rows.at(-1)).toMatchObject({ tier: "unavailable", dominantWindow: null, maxCloseness: null });
   const bseSymbol = "920001.BJ";
   const alternate = await replayTspPriceDeviation({
     ...request, symbol: bseSymbol, stockRef: await stock(bseSymbol), benchmarkRef: await benchmark("000001.SH"),

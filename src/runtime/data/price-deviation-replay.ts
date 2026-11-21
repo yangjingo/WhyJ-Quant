@@ -1,6 +1,7 @@
 import { isDailyDate } from "../../market/bars.ts";
 import {
-  computeTspPriceDeviation, tspDeviationBenchmarkCandidates, TSP_INDICATOR_REVISION, TSP_PRICE_DEVIATION_FORMULA_VERSION,
+  computeTspDeviationProximity, computeTspPriceDeviation, tspDeviationBenchmarkCandidates,
+  TSP_DEVIATION_PROXIMITY_FORMULA_VERSION, TSP_INDICATOR_REVISION, TSP_PRICE_DEVIATION_FORMULA_VERSION,
 } from "../../quant/index.ts";
 import { loadBenchmarkIndexArchive, loadTradingDateArchive, type BenchmarkIndexArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
 
@@ -66,5 +67,13 @@ export async function replayTspPriceDeviation(request: PriceDeviationReplayReque
     },
     benchmarkCandidates: candidates,
     ...result,
+    proximity: {
+      producer: "whyj" as const,
+      formula: { id: "tsp_deviation_proximity" as const, version: TSP_DEVIATION_PROXIMITY_FORMULA_VERSION,
+        revision: TSP_INDICATOR_REVISION },
+      basis: "completed-session" as const,
+      unit: "fraction" as const,
+      rows: result.rows.map(({ date, values }) => ({ date, ...computeTspDeviationProximity(result.board, values) })),
+    },
   };
 }
