@@ -7,6 +7,7 @@ import {
   type TspBacktestRobustnessInput, type TspParameterRobustnessInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
+import { replayTspAbnormalSnapshot, type AbnormalSnapshotReplayRequest } from "../../../src/runtime/data/abnormal-snapshot-replay.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
 import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-collection.ts";
@@ -114,6 +115,26 @@ function observationManifestObject(value: unknown, keys: readonly string[]): Rec
   return value as Record<string, unknown>;
 }
 
+function parseArchivedStockHistories(histories: unknown): AbnormalSnapshotReplayRequest["histories"] {
+  if (!Array.isArray(histories)) throw invalid();
+  return histories.map((value: unknown) => {
+    const { symbol, dailyRevision, limitsRevision, rawRevision } =
+      observationManifestObject(value, ["symbol", "dailyRevision", "limitsRevision", "rawRevision"]);
+    if (typeof symbol !== "string" || !datedStock.test(symbol) || typeof dailyRevision !== "string" || !revisionPattern.test(dailyRevision) ||
+      (limitsRevision !== undefined && (typeof limitsRevision !== "string" || !revisionPattern.test(limitsRevision))) ||
+      (rawRevision !== undefined && (limitsRevision === undefined || typeof rawRevision !== "string" || !revisionPattern.test(rawRevision)))) {
+      throw invalid();
+    }
+    return {
+      symbol, ref: { version: 2, revision: dailyRevision },
+      ...(limitsRevision && { exchange: {
+        tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
+        ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
+      } }),
+    };
+  });
+}
+
 function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
   const { version, marketRevision, adjustment, histories, signalGate, strategy, weights, orderBy, descending, displayLimit } =
     observationManifestObject(value, ["version", "marketRevision", "adjustment", "histories", "signalGate",
@@ -139,22 +160,7 @@ function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
   return {
     marketRef: { version: 1, kind: "market-cross-section", revision: marketRevision },
     adjustment, strategy: { id, revision }, signalGate: gate, orderBy, descending, displayLimit,
-    histories: histories.map((value: unknown) => {
-      const { symbol, dailyRevision, limitsRevision, rawRevision } =
-        observationManifestObject(value, ["symbol", "dailyRevision", "limitsRevision", "rawRevision"]);
-      if (typeof symbol !== "string" || !datedStock.test(symbol) || typeof dailyRevision !== "string" || !revisionPattern.test(dailyRevision) ||
-        (limitsRevision !== undefined && (typeof limitsRevision !== "string" || !revisionPattern.test(limitsRevision))) ||
-        (rawRevision !== undefined && (limitsRevision === undefined || typeof rawRevision !== "string" || !revisionPattern.test(rawRevision)))) {
-        throw invalid();
-      }
-      return {
-        symbol, ref: { version: 2, revision: dailyRevision },
-        ...(limitsRevision && { exchange: {
-          tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
-          ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
-        } }),
-      };
-    }),
+    histories: parseArchivedStockHistories(histories),
     weights: weights.map((value: unknown) => {
       const { field, weight, direction } = observationManifestObject(value, ["field", "weight", "direction"]);
       if (typeof field !== "string" || !field.trim() || field !== field.trim() || typeof weight !== "number" ||
@@ -490,6 +496,24 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-abnormal-snapshot") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const { version, marketRevision, sessions, adjustment, histories, limit } = observationManifestObject(
+      await readObservationJsonFile(path, maxObservationManifestBytes, signal), ["version", "marketRevision", "sessions", "adjustment", "histories", "limit"],
+    );
+    if (version !== 1 || typeof marketRevision !== "string" || !revisionPattern.test(marketRevision) ||
+      (adjustment !== "none" && adjustment !== "forward") ||
+      (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 2_000))) throw invalid();
+    const request: AbnormalSnapshotReplayRequest = {
+      marketRef: { version: 1, kind: "market-cross-section", revision: marketRevision },
+      sessions: parseExchangeSessions(sessions), adjustment, histories: parseArchivedStockHistories(histories), limit,
+    };
+    try { return await replayTspAbnormalSnapshot(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested abnormal snapshot archives."), { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-intraday-signal") {
