@@ -157,3 +157,5 @@ Windows 开发版使用独立的 `io.github.yangjingo.whyj-quant.dev` 任务栏�
 并发进程锁、就绪失败、失效登记、鉴权、客户端 detach 和退出由 `src/app/host/test/` 验证；桌面共享入口以隔离 Host 和受控模型验证跨入口运行；既有服务测试保留真实 Host kill/restart、精确取消与 SSE 接回。测试使用隔离工作区和确定性模型，不能证明真实行情完整性、模型质量、安装包接入或目标机器验收。完整外部副作用对账与长期资源预算仍需独立验证。
 
 行情采集任务的 `daily` 请求可明确指定 `timeMode: "trading-date"`，以有界上海交易日区间调用当前保存的数据源，并返回版本 2 的精确归档引用；旧时间戳日线、分钟线、复权因子及版本 1 引用保持兼容。回执引用类型因此包含两个版本，类型化消费者读取归档前须按 `version` 区分。请求不接受凭证，失败信息不回传供应商原文，取消后若归档已提交仍返回实际结果。设置界面尚未提供该请求，真实服务权限与 TSP 端到端仍未验证。
+
+工作台的认证 RPC `readObservationListRows` 接收一个 `ObservationListRowsRequest`。请求包含市场截面 `marketRef`、日线复权口径及最多 100 个不同的股票代码，可为每个代码附上日线和限价归档引用。Host 离线返回按请求顺序排列的 [历史列表行](./services.md#自选与选股的历史列表行)，保留各项来源、日期、单位以及缺值。无效请求返回 `INPUT_INVALID`，无法读取或不匹配的归档返回 `OBSERVATION_ARCHIVE_UNAVAILABLE`。较旧 Host 缺少此读取方法时返回 `METHOD_NOT_FOUND`。

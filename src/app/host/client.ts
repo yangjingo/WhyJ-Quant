@@ -28,7 +28,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     const capability = await token();
     try { const body = JSON.stringify({ method, args });
       response = await request(new URL("/api/workbench/rpc", baseUrl), { method: "POST", credentials: "omit", cache: "no-store", redirect: "error",
-      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources", "readObservationIndicators", "readObservationExchangeIndicators", "readObservationIntraday", "readObservationAnalytics"].includes(method) ? { signal: AbortSignal.timeout(method === "collectThesisSources" ? 45_000 : 30_000) } : {}),
+      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources", "readObservationIndicators", "readObservationExchangeIndicators", "readObservationIntraday", "readObservationAnalytics", "readObservationListRows"].includes(method) ? { signal: AbortSignal.timeout(method === "collectThesisSources" ? 45_000 : 30_000) } : {}),
       headers: { "Content-Type": "application/json", "x-workbench-token": capability,
         ...(options.connection ? { "x-host-instance-id": options.connection.instanceId } : {}) },
       ...(options.connection ? terminalRequestConnection(body) : {}), body }); }
@@ -50,6 +50,8 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
         if ((method === "startObservationJob" && ((response.status === 400 && code === "INPUT_INVALID") || (response.status === 409 && code === "OBSERVATION_BUSY")))
           || ((method === "readObservationJob" || method === "cancelObservationJob") && response.status === 404 && code === "OBSERVATION_JOB_NOT_FOUND"))
           Object.assign(error, { code });
+        if (method === "readObservationListRows" && ((response.status === 400 && code === "INPUT_INVALID") ||
+          (response.status === 404 && code === "OBSERVATION_ARCHIVE_UNAVAILABLE"))) Object.assign(error, { code });
       }
       throw error;
     }
@@ -122,6 +124,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     readObservationIndicators: ref => rpc("readObservationIndicators", [ref]),
     readObservationExchangeIndicators: input => rpc("readObservationExchangeIndicators", [input]),
     readObservationIntraday: input => rpc("readObservationIntraday", [input]),
+    readObservationListRows: input => rpc("readObservationListRows", [input]),
     readObservationAnalytics: ref => rpc("readObservationAnalytics", [ref]),
     identity: () => rpc("identity"), workspaces: () => rpc("workspaces"), preferences: () => rpc("preferences"),
     market: async () => { const value = await rpc("market"); if (!isMarketSnapshot(value)) throw new Error("行情响应无效。"); return value; },
