@@ -565,3 +565,5 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 ### 指数日线指标回放
 
 `collectDatedIndexDailyBars` 捕获固定上海日期窗口的原始指数日线，空响应也返回归档引用。`replayDatedIndexDailyBars` 根据该引用输出原始数据和 WhyJ 派生的 15 个指标字段，覆盖 MA、MACD、RSI、KDJ 和布林带。可选显示范围必须在归档查询范围内，归档里早于显示起点的观测参与预热，晚于显示终点的观测不进入计算。返回实际计算首末日期和参与条数，短历史按公式返回空值。不会基于查询范围推断交易日数据齐全。 [指标与来源映射](../quant-harness/tsp-panel-coverage.md#index-panel)
+
+通过 `whyj --json observation collect-index-daily --symbol 000001.SH --start 2024-02-23 --end 2024-03-01` 捕获包含预热历史的窗口。执行 `whyj --json observation replay-index-daily --revision DAILY_SHA256` 离线读回原始数据和指标。若只看其中一段，可同时传入 `--start` 和 `--end`。两者只控制显示范围，响应中的 `calculationWindow` 列出实际参与计算的观测范围。
