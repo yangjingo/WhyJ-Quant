@@ -614,6 +614,8 @@ whyj --json observation replay-screener-archives --manifest ./screener-archives.
 
 清单包含 `version: 1`、`marketRevision`、`adjustment`、`strategy` 的 `id` 和 `revision`、`weights` 和 `histories`。每条历史包含 `symbol`、`dailyRevision`，可选 `limitsRevision` 和配套 `rawRevision`。可选的 `signalGate` 接收 `mode` 和内置信号 ID 数组 `signals`，设定入选条件。排序与上限的配置和评分回放一致。
 
+`replayTspScreenerUnion` 接收同一市场截面、复权口径及股票历史归档，以及有序且策略 ID 唯一的 `strategies`。每项独立设定信号条件、权重和策略结果排序，并保留完整回放凭据。汇总使用各策略完整命中结果。每只股票占一行，首个命中策略提供 `score` 和 `scoreStrategyId`，`hits` 保留每个策略的原分数。展示按评分降序，缺分置后，同分保留首次出现顺序。调用方应按可复现的顺序传入策略。 [TSP 参考实现](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/pages/Screener.tsx#L530)
+
 ### 选股候选评分回放
 
 ```sh
