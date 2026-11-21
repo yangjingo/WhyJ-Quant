@@ -3,7 +3,7 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import {
   computeTspBacktestRobustness, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward,
-  TSP_DAILY_SIGNAL_FIELDS, TSP_PARAMETER_OBJECTIVES, type TspScreenerScoreInput,
+  parseTspIntradaySignalRule, TSP_DAILY_SIGNAL_FIELDS, TSP_PARAMETER_OBJECTIVES, type TspScreenerScoreInput,
   type TspBacktestRobustnessInput, type TspParameterRobustnessInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
@@ -16,6 +16,7 @@ import { collectFinancialObservations, type FinancialCollectionRequest } from ".
 import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
+import { replayTspIntradaySignal } from "../../../src/runtime/data/intraday-signal-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { replayTspMarketEmotion, type MarketEmotionReplayRequest } from "../../../src/runtime/data/market-emotion-replay.ts";
 import { replayTspMarketEnvironment, type MarketEnvironmentReplayRequest } from "../../../src/runtime/data/market-environment-replay.ts";
@@ -489,6 +490,28 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-intraday-signal") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const { version, minuteRevision, rule: conditions, previousClose } = observationManifestObject(
+      await readObservationJsonFile(path, maxRevisionFileBytes, signal), ["version", "minuteRevision", "rule", "previousClose"],
+    );
+    if (version !== 1 || typeof minuteRevision !== "string" || !revisionPattern.test(minuteRevision)) throw invalid();
+    let rule;
+    try { rule = parseTspIntradaySignalRule(conditions); } catch { throw invalid(); }
+    let close;
+    if (previousClose !== undefined) {
+      const { revision, priceBasis } = observationManifestObject(previousClose, ["revision", "priceBasis"]);
+      if (typeof revision !== "string" || !revisionPattern.test(revision) || priceBasis !== compatiblePriceBasis) throw invalid();
+      close = { ref: { version: 1, kind: "daily-trading-limits", revision }, priceBasis } as const;
+    }
+    try {
+      return await replayTspIntradaySignal({ version: 1, kind: "historical-minute-bars", revision: minuteRevision }, rule,
+        { signal, previousClose: close });
+    } catch {
+      throw Object.assign(new Error("Could not replay the requested minute signal archives."), { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-screener-archives") {

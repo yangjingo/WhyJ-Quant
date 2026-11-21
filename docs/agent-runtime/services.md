@@ -349,6 +349,14 @@ whyj --json observation replay-sector-rank --market-revision MARKET_SHA --catalo
 
 回放为只读，输出已检查的完成分钟数、交易日数和开盘边界数。事件可以供后续监控判断重复。条件、最少分钟数和断档行为见[指标目录](../quant-harness/tsp-list-catalog.md#custom-minute-signal-events)。
 
+CLI 使用本地清单。
+
+```sh
+whyj --json observation replay-intraday-signal --manifest ./intraday-signal.json
+```
+
+版本 1 清单包含 `version: 1`、`minuteRevision` 和 `rule`。规则例如 `{"id":"vwap_cross","conditions":[{"left":"price","op":"cross_up","right":{"field":"vwap"}}]}`，也可加入 `minBars`。需要昨收时可填写 `previousClose` 对象的 `revision` 和 `priceBasis: "caller-confirmed-same-basis"`。
+
 ### 竞价风向标采集和回放
 
 `collectAuctionBenchmark(tradeDate)` 使用扶摇专用凭证读取一个上海交易日，返回采集元数据、行数和不可变归档引用。空名单也会归档。调用失败或提交前取消时不会返回成功引用。
