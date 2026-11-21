@@ -571,3 +571,5 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 ### 自选加入以来涨跌幅
 
 `replayTspWatchlistReturn` 从本地自选成员记录读取加入日期，再按明确的截止日回放一份前复权股票日线归档。输出把成员代码、日期和文件版本与供应商行情引用分开记录，并返回实际用到的基准和期末行情。可指定已读取的成员版本，后续若发生编辑会拒绝回放。仅在旧的六位代码可归一为归档里的交易所限定代码时使用兼容路径。读取不修改自选记录或请求供应商。 [指标口径](../quant-harness/tsp-list-catalog.md#return-since-watchlist-addition)
+
+通过 `whyj --json observation replay-watchlist-return --revision DAILY_SHA256 --as-of 2024-03-04` 读取已归档的自选涨跌幅。日线引用应来自 `collect-daily --adjustment forward`。添加 `--membership-revision PORTFOLIO_SHA256` 可要求继续使用上一次响应中的自选版本。输出保留用到的两个实际行情日期。
