@@ -8,7 +8,7 @@ Quant Harness 将这些要求装配到通用运行时上。它维护研究范围
 
 | 设计问题 | 文档 |
 | --- | --- |
-| 数据可用与研究证据有何区别？ | [数据源](./source-data-providers.md) · [接口清单](./source-public-inventory.md) · [TSP 列目录](./tsp-list-catalog.md) · [TSP 看板审计](./tsp-dashboard-audit.md) · [TSP 页面覆盖](./tsp-panel-coverage.md) · [观测交换契约提案](./observation-exchange-proposal.md) |
+| 数据可用与研究证据有何区别？ | [数据源](./source-data-providers.md) · [接口清单](./source-public-inventory.md) · [TSP 列目录](./tsp-list-catalog.md) · [TSP 列字段映射](./tsp-list-field-coverage.md) · [TSP 看板审计](./tsp-dashboard-audit.md) · [TSP 页面覆盖](./tsp-panel-coverage.md) · [观测交换契约提案](./observation-exchange-proposal.md) |
 | 数值正确为何还可能解释错误？ | [工具与计算](./quant-tools-design.md) |
 | 社区方法与外部能力由谁负责？ | [Community Tools](./community-tools.md) |
 | 不同组合如何得到公平的比较？ | [组合比较](./portfolio-comparison.md) |

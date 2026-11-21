@@ -8,8 +8,8 @@ This coverage snapshot uses TSP revision `f9cb383c5918c6a88a412f3ce43d59fe81b94c
 | --- | --- |
 | `/` | TSP market aggregation and provider observations, highlighted in the [14-widget dashboard audit](./tsp-dashboard-audit.md). WhyJ formulas and native data routes have their own evidence there. |
 | `/overview` | Alias of `/`. |
-| `/watchlist` | Provider quotes and financial fields, TSP calculations and watchlist state. The [column catalog](./tsp-list-catalog.md) retains all 59 built-in declarations, including hidden defaults. Panel-specific producer mappings still need tracing. |
-| `/screener` | Shared observations plus strategy identity, selection and ranking. The [column catalog](./tsp-list-catalog.md) retains all 55 built-in declarations. Strategy inputs and dynamic columns still need a producer audit. |
+| `/watchlist` | Provider quotes, TSP calculations and watchlist state. The [field coverage matrix](./tsp-list-field-coverage.md) maps the 59 built-in declarations and identifies financial fields without confirmed panel supply. |
+| `/screener` | Shared observations plus strategy identity, selection and ranking. The [field coverage matrix](./tsp-list-field-coverage.md) maps the 55 built-in declarations. Dynamic columns depend on the configured dataset. |
 | `/indices` | Exact quote and chart field mappings are below. |
 | `/regime` | TSP regime coverage, history, state summaries, phases and mainline. WhyJ consumes archived dates for several [market computations](./tsp-dashboard-audit.md). Full response-field and chart audit remains open. |
 | `/backtest` | Strategy and validation pages. WhyJ has merged fixed-evidence Bootstrap (#514), walk-forward (#517) and parameter robustness (#520) replays. The execution engine, strategy settings, NAV and per-trade outputs still need field-level comparison. [WhyJ replay boundary](./tsp-list-catalog.md#backtest-trade-robustness) · [TSP page](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/pages/Backtest.tsx) |
