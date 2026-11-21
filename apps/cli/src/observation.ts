@@ -1,7 +1,7 @@
 import { open } from "node:fs/promises";
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
-import { computeTspBacktestRobustness, type TspBacktestRobustnessInput } from "../../../src/quant/index.ts";
+import { computeTspBacktestRobustness, computeTspWalkForward, type TspBacktestRobustnessInput, type TspWalkForwardInput } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
@@ -118,6 +118,44 @@ function parseBacktestRobustnessManifest(value: unknown): TspBacktestRobustnessI
     return { pnlFraction, holdingDays };
   });
   return { trades, periodicReturns, periodsPerYear, includeMonteCarlo };
+}
+
+function parseWalkForwardManifest(value: unknown): TspWalkForwardInput {
+  const { start, end, trainDays, testDays, stepDays, objective, direction, minHeldOutTrades, folds } =
+    observationManifestObject(value, ["start", "end", "trainDays", "testDays", "stepDays", "objective", "direction", "minHeldOutTrades", "folds"]);
+  if (typeof start !== "string" || !isDailyDate(start) || typeof end !== "string" || !isDailyDate(end) ||
+    typeof trainDays !== "number" || !Number.isSafeInteger(trainDays) || trainDays <= 0 ||
+    typeof testDays !== "number" || !Number.isSafeInteger(testDays) || testDays <= 0 ||
+    typeof stepDays !== "number" || !Number.isSafeInteger(stepDays) || stepDays <= 0 ||
+    typeof objective !== "string" || (direction !== "max" && direction !== "min") ||
+    (minHeldOutTrades !== undefined && typeof minHeldOutTrades !== "number") || !Array.isArray(folds)) throw invalid();
+  // Bound generated windows as well as explicit input rows.
+  const maximumWindows = 7_000;
+  const lastStartOffset = (Date.parse(end) - Date.parse(start)) / dayMs - trainDays - 1 - testDays;
+  if (lastStartOffset >= stepDays * maximumWindows || folds.length > maximumWindows) throw invalid();
+  return { start, end, trainDays, testDays, stepDays, objective, direction, minHeldOutTrades,
+    folds: folds.map((raw: unknown) => {
+      const { window: rawWindow, training, heldOut } = observationManifestObject(raw, ["window", "training", "heldOut"]);
+      const { index, trainStart, trainEnd, testStart, testEnd } =
+        observationManifestObject(rawWindow, ["index", "trainStart", "trainEnd", "testStart", "testEnd"]);
+      if (typeof index !== "number" || typeof trainStart !== "string" || typeof trainEnd !== "string" ||
+        typeof testStart !== "string" || typeof testEnd !== "string") throw invalid();
+      let selection: TspWalkForwardInput["folds"][number]["training"] = null;
+      if (training !== null) {
+        const { candidateId, objective } = observationManifestObject(training, ["candidateId", "objective"]);
+        if (typeof candidateId !== "string" || (objective !== null && typeof objective !== "number")) throw invalid();
+        selection = { candidateId, objective };
+      }
+      let outcome: TspWalkForwardInput["folds"][number]["heldOut"] = null;
+      if (heldOut !== null) {
+        const { candidateId, objective, totalReturn, tradeCount } =
+          observationManifestObject(heldOut, ["candidateId", "objective", "totalReturn", "tradeCount"]);
+        if (typeof candidateId !== "string" || (objective !== null && typeof objective !== "number") ||
+          typeof totalReturn !== "number" || typeof tradeCount !== "number") throw invalid();
+        outcome = { candidateId, objective, totalReturn, tradeCount };
+      }
+      return { window: { index, trainStart, trainEnd, testStart, testEnd }, training: selection, heldOut: outcome };
+    }) };
 }
 
 function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRequest {
@@ -621,6 +659,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const input = parseBacktestRobustnessManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspBacktestRobustness(input); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-walk-forward") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseWalkForwardManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return computeTspWalkForward(input); }
     catch { throw invalid(); }
   }
   if (action === "replay-factor-evaluation") {
