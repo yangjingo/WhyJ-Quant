@@ -10,9 +10,9 @@ const benchmarks = {
   BJ: ["899050.BJ", "000001.SH"],
 } as const;
 
-type Board = keyof typeof benchmarks;
+export type TspDeviationBoard = keyof typeof benchmarks;
 type Window = typeof TSP_DEVIATION_WINDOWS[number];
-export type TspDeviationIndex = typeof benchmarks[Board][number];
+export type TspDeviationIndex = typeof benchmarks[TspDeviationBoard][number];
 
 export interface TspDeviationClose {
   date: string;
@@ -32,7 +32,7 @@ export interface TspPriceDeviationRow {
   comparisonDates: Record<Window, string | null>;
 }
 
-function boardFor(symbol: string): Board {
+function boardFor(symbol: string): TspDeviationBoard {
   if (/^68\d{4}\.SH$/.test(symbol)) return "STAR";
   if (/^6\d{5}\.SH$/.test(symbol)) return "SH";
   if (/^30\d{4}\.SZ$/.test(symbol)) return "GEM";
