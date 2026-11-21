@@ -23,6 +23,7 @@ if ($TraceFixture) { [Console]::Error.WriteLine('WHYJ_ICON_STAGE=helper-drawing-
 Add-Type -AssemblyName System.Drawing
 if ($TraceFixture) { [Console]::Error.WriteLine('WHYJ_ICON_STAGE=helper-interop-init') }
 if (-not ('WhyJShellIcon' -as [type])) {
+  if ($TraceFixture) { [Console]::Error.WriteLine('WHYJ_ICON_STAGE=helper-interop-compile') }
   Add-Type @'
 using System;
 using System.Runtime.InteropServices;
