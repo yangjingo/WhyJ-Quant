@@ -9,7 +9,11 @@ import { withResourceCheckout } from "./resource-checkout.ts";
 test("resource duration receipts detect retained Agents and swallowed cleanup failures", async () => {
   const repo = resolve(import.meta.dir, "../../../..");
   const harness = join(repo, "src/app/host/test/resource-duration.ts");
-  const source = readFileSync(harness, "utf8");
+  const stopAfterDuration = "if (performance.now() - start >= duration) break;";
+  const harnessSource = readFileSync(harness, "utf8");
+  if (!harnessSource.includes(stopAfterDuration)) throw new Error("Duration fixture changed");
+  // A slow runner must still reach the second sample, where the gap is injected.
+  const source = harnessSource.replace(stopAfterDuration, "if (completed >= 2) break;");
   await withResourceCheckout(repo, async ({ checkout, scratch }) => {
     const run = async (file: string, label: string) => {
       const receipt = join(scratch, `${label}.jsonl`), canary = "resource-test-canary-49ec";
@@ -24,10 +28,12 @@ test("resource duration receipts detect retained Agents and swallowed cleanup fa
       const root = stdout.match(/^Synthetic workspace: (.+)$/m)?.[1]?.trim();
       expect(root).toBeDefined(); expect(existsSync(root!)).toBe(false);
       const samples = records.filter(record => record.type === "sample");
-      expect(samples.length).toBeGreaterThanOrEqual(2);
+      expect(samples).toHaveLength(2);
       return { samples, end: records.at(-1) };
     };
-    const original = await run(harness, "normal");
+    const normalFile = join(scratch, "normal.ts");
+    writeFileSync(normalFile, source);
+    const original = await run(normalFile, "normal");
     expect(original.end.outcome).toBe("completed");
     for (const sample of original.samples) {
       expect(sample.agentsCreated).toBe(sample.completed);
