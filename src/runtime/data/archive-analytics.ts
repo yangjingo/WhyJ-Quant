@@ -1,11 +1,11 @@
 import { isDailyDate } from "../../market/bars.ts";
 import { computeTspPriceLevels, computeTspResearchFactors, TSP_INDICATOR_REVISION,
-  TSP_PRICE_LEVEL_FORMULA_VERSION, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "../../quant/index.ts";
+  TSP_PRICE_LEVEL_FORMULA_VERSION, TSP_RESEARCH_FACTOR_FORMULA_VERSION, type TspResearchFactorBar } from "../../quant/index.ts";
 import {
   loadMarketCrossSectionArchive, loadTradingDateArchive, type FinancialObservationArchiveRef, type MarketCrossSectionArchiveRef,
-  type TradingDateArchiveRef,
+  type StoredTradingDateBarObservation, type TradingDateArchiveRef,
 } from "../../storage/index.ts";
-import { replayFinancialResearchInputs } from "./financial-input-replay.ts";
+import { replayFinancialResearchInputs, type FinancialInputReplayRow } from "./financial-input-replay.ts";
 
 export interface ArchiveAnalyticsSupplements {
   turnoverArchives?: readonly MarketCrossSectionArchiveRef[];
@@ -27,6 +27,34 @@ interface TurnoverInput {
   unit: "percentage-point";
   value: number | null;
   availability: "reported" | "unreported" | "missing-symbol";
+}
+
+export function researchFactorBar(
+  row: StoredTradingDateBarObservation,
+  supplements: Pick<TspResearchFactorBar, "turnoverPct" | "consecutiveLimitUps"> = {},
+): TspResearchFactorBar {
+  const { amount, ...values } = row.values;
+  const amountCny = row.amountUnit === "CNY-thousand" && amount !== null ? amount * 1000 : null;
+  return {
+    date: row.tradeDate, ...values, ...supplements,
+    amountCny: amountCny !== null && Number.isFinite(amountCny) ? amountCny : null,
+  };
+}
+
+export function researchFinancialReport(
+  financial: Extract<FinancialInputReplayRow, { status: "available" }>,
+  compatibleBookValue: boolean,
+) {
+  return {
+    announcementDate: financial.actualDisclosureDate,
+    bps: compatibleBookValue ? financial.report.bookValuePerShare : null,
+    roe: financial.report.roe,
+    grossMargin: financial.report.grossProfitMargin,
+    netMargin: financial.report.netProfitMargin,
+    revenueYoy: financial.report.operatingRevenueYoyPct,
+    netIncomeYoy: financial.report.parentNetProfitYoyPct,
+    debtRatio: financial.report.debtToAssets,
+  };
 }
 
 /** Recompute the latest research and chart values from exact daily and optional supplemental revisions. */
@@ -78,25 +106,10 @@ export async function deriveTspArchiveAnalytics(
   const compatibleBookValue = financial?.status === "available" && bookValueBasis !== undefined && first.adjustment === "none" &&
     bookValueBasis.periodEnd === financial.periodEnd && financial.reportEvidence.some(({ ref }) => ref.revision === bookValueBasis.reportRevision);
   // The selected finance inputs are point-in-time for the final row returned here.
-  const financialReports = financial?.status === "available" ? [{
-    announcementDate: financial.actualDisclosureDate,
-    bps: compatibleBookValue ? financial.report.bookValuePerShare : null,
-    roe: financial.report.roe,
-    grossMargin: financial.report.grossProfitMargin,
-    netMargin: financial.report.netProfitMargin,
-    revenueYoy: financial.report.operatingRevenueYoyPct,
-    netIncomeYoy: financial.report.parentNetProfitYoyPct,
-    debtRatio: financial.report.debtToAssets,
-  }] : undefined;
+  const financialReports = financial?.status === "available" ? [researchFinancialReport(financial, compatibleBookValue)] : undefined;
   signal?.throwIfAborted();
   const volumeUnit = first.volumeUnit === "hand" ? first.volumeUnit : undefined;
-  const bars = rows.map(({ tradeDate, values: { amount, ...values } }) => {
-    const amountCny = first.amountUnit === "CNY-thousand" && amount !== null ? amount * 1000 : null;
-    return {
-      date: tradeDate, ...values, turnoverPct: turnover.get(tradeDate)?.value ?? null,
-      amountCny: amountCny !== null && Number.isFinite(amountCny) ? amountCny : null,
-    };
-  });
+  const bars = rows.map(row => researchFactorBar(row, { turnoverPct: turnover.get(row.tradeDate)?.value ?? null }));
   const factor = computeTspResearchFactors(bars, { volumeUnit, financialReports }).at(-1)!;
   const levels = computeTspPriceLevels(bars);
   return {
