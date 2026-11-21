@@ -532,3 +532,26 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 ```
 
 `training` 或 `heldOut` 缺失时填 `null`，未知目标值也填 `null`。输出包含跳过原因、目标均值、退化、复利收益和各测试窗口结束时的权益。重叠测试窗口会标记在 `overlappingTestWindows`，它们的复利可能重复计入相同交易日。输入由用户显式提供，命令只做本地回放。计算规则见 [TSP 指标目录](../quant-harness/tsp-list-catalog.md#walk-forward-evaluation)。
+### 参数稳健性
+
+用 `whyj --json observation replay-parameter-robustness --manifest candidates.json` 比较固定参数在多个独立日历区间的表现。下例使用 2 个各 14 天的区间。每组候选参数提供按日期排序的 `segments`，`objective` 为原始目标值。默认使用 `max` 方向并要求累计 30 笔交易。
+
+```json
+{
+  "start": "2024-01-01",
+  "end": "2024-01-28",
+  "segmentCount": 2,
+  "objective": "sortino",
+  "candidates": [
+    {
+      "params": {"period": 20},
+      "segments": [
+        {"start": "2024-01-01", "end": "2024-01-14", "objective": 1.4, "tradeCount": 18},
+        {"start": "2024-01-15", "end": "2024-01-28", "objective": 1.2, "tradeCount": 15}
+      ]
+    }
+  ]
+}
+```
+
+无法得到目标值时填 `null`。失败的候选可设 `failed: true`，并保留失败前已完成的区间。可选 `fullWindow` 使用同样的观测字段，日期须覆盖完整请求区间。输出包括各段原值、排名、冠军收敛与网格邻域诊断。命令对调用方提供的证据做本地计算。详见 [TSP 指标目录](../quant-harness/tsp-list-catalog.md#parameter-robustness)。
