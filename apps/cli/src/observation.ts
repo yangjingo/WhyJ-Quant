@@ -28,6 +28,7 @@ import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-w
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
+import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 
 const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
@@ -435,6 +436,18 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-watchlist-return") {
+    const fields = parseOptions(options, ["--revision", "--as-of", "--membership-revision"]);
+    const revision = fields.get("--revision"), asOf = fields.get("--as-of");
+    const membershipRevision = fields.get("--membership-revision");
+    if (!revision || !revisionPattern.test(revision) || !asOf || !isDailyDate(asOf) || asOf < "0001-01-01" ||
+      (membershipRevision !== undefined && !revisionPattern.test(membershipRevision))) throw invalid();
+    try { return await replayTspWatchlistReturn({ ref: { version: 2, revision }, asOf, membershipRevision }, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the watchlist return. Verify stock membership, revision and forward-adjusted history."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "collect-index-daily") {
