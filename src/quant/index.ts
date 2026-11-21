@@ -22,8 +22,8 @@ export { computeTspIndicators, computeTspDailyIndicators, TSP_INDICATOR_FORMULA_
 export type { TspIndicatorBar, TspIndicatorRow, TspDailyIndicatorRow } from "./tsp-indicators.ts";
 export { computeTspAuctionPerformance, TSP_AUCTION_PERFORMANCE_FORMULA_VERSION } from "./tsp-auction-performance.ts";
 export type { TspAuctionPerformanceInput } from "./tsp-auction-performance.ts";
-export { computeTspFactorInformation, TSP_FACTOR_INFORMATION_FORMULA_VERSION } from "./tsp-factor-information.ts";
-export type { TspFactorInformationInput, TspFactorInformationRow } from "./tsp-factor-information.ts";
+export { computeTspFactorInformation, TSP_FACTOR_INFORMATION_FORMULA_VERSION, TSP_FACTOR_REGIME_FORMULA_VERSION } from "./tsp-factor-information.ts";
+export type { TspFactorInformationInput, TspFactorInformationRow, TspFactorRegimeInput, TspFactorRegimeObservation } from "./tsp-factor-information.ts";
 export { computeTspFactorGroups, TSP_FACTOR_GROUPS_FORMULA_VERSION } from "./tsp-factor-groups.ts";
 export type { TspFactorGroupsInput } from "./tsp-factor-groups.ts";
 export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "./tsp-research-factors.ts";

@@ -1,8 +1,10 @@
 import { isDailyDate } from "../market/bars.ts";
 import { finiteStatistic, mean, sampleDeviation, standardScores } from "./statistics.ts";
 import { TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
+import type { TspMarketState } from "./tsp-market-regime.ts";
 
 export const TSP_FACTOR_INFORMATION_FORMULA_VERSION = "tsp-factor-v2-information-v1";
+export const TSP_FACTOR_REGIME_FORMULA_VERSION = "tsp-factor-v2-regime-v1";
 
 export interface TspFactorInformationRow {
   symbol: string;
@@ -18,6 +20,21 @@ export interface TspFactorInformationInput {
   sessions: readonly string[];
   rows: readonly TspFactorInformationRow[];
 }
+
+export interface TspFactorRegimeObservation {
+  tradeDate: string;
+  state: TspMarketState;
+  score: number;
+}
+
+export interface TspFactorRegimeInput {
+  /** Exact adjacent exchange session before the evaluation window, when known. */
+  precedingSession?: string;
+  observations: readonly TspFactorRegimeObservation[];
+}
+
+const regimeBuckets = { strong: "strong", lean_strong: "strong", range: "range", lean_weak: "weak", weak: "weak" } as const;
+const regimeOrder = ["strong", "range", "weak"] as const;
 
 const horizons = [1, 3, 5] as const;
 type DatedFactor = { symbol: string; close: number; factor: number };
@@ -152,9 +169,62 @@ export function tspFactorCrossSection(daily: PriceRows) {
   return { factors, priceRows };
 }
 
-export function computeTspFactorInformation(input: TspFactorInformationInput) {
+function alignFactorRegimes(sessions: readonly string[], input: TspFactorRegimeInput) {
+  const { observations, precedingSession } = input;
+  if (!Array.isArray(observations) || (precedingSession !== undefined &&
+    (typeof precedingSession !== "string" || !isDailyDate(precedingSession) || precedingSession >= sessions[0]!))) {
+    throw new Error("Invalid factor regime scope");
+  }
+  const scope = new Set(sessions);
+  if (precedingSession !== undefined) scope.add(precedingSession);
+  const byDate = new Map<string, TspFactorRegimeObservation>();
+  for (const row of observations) {
+    if (!row || !scope.has(row.tradeDate) || byDate.has(row.tradeDate) ||
+      !Object.hasOwn(regimeBuckets, row.state) || !Number.isFinite(row.score) || row.score < 0 || row.score > 100) {
+      throw new Error("Invalid or duplicate factor regime observation");
+    }
+    byDate.set(row.tradeDate, row);
+  }
+  return sessions.map((tradeDate, index) => {
+    const previousTradeDate = sessions[index - 1] ?? precedingSession;
+    if (previousTradeDate === undefined) return null;
+    const point = byDate.get(previousTradeDate);
+    if (!point) throw new Error("Missing previous-session factor regime " + previousTradeDate);
+    return { tradeDate, previousTradeDate, state: regimeBuckets[point.state], score: point.score };
+  });
+}
+
+function summarizeFactorRegimes(
+  aligned: ReturnType<typeof alignFactorRegimes>, pricedDates: ReadonlySet<string>, icByDate: ReadonlyMap<string, number>,
+  firstDate: string,
+) {
+  const assignments = aligned.flatMap(point => point && pricedDates.has(point.tradeDate) ? [point] : []);
+  return {
+    formulaVersion: TSP_FACTOR_REGIME_FORMULA_VERSION,
+    unclassifiedAtStart: aligned[0] === null && pricedDates.has(firstDate) ? firstDate : null,
+    assignments,
+    buckets: regimeOrder.flatMap(state => {
+      const points = assignments.filter(point => point.state === state);
+      if (!points.length) return [];
+      const values = points.flatMap(({ tradeDate }) => {
+        const ic = icByDate.get(tradeDate);
+        return ic === undefined ? [] : [ic];
+      });
+      const { icMean, ir, winRate, nDates: nIcDates } = summary(values);
+      return [{ state, icMean, ir, winRate, meanScore: roundTspFactorStatistic(mean(points.map(point => point.score)), 2),
+        nDates: points.length, nIcDates }];
+    }),
+  };
+}
+
+export function computeTspFactorInformation(input: TspFactorInformationInput, regimeInput?: TspFactorRegimeInput) {
   const { panel, targets } = prepareTspFactorPanel(input);
   const { factorId, rebalance, sessions } = input;
+  const regime = regimeInput && {
+    aligned: alignFactorRegimes(sessions, regimeInput),
+    pricedDates: new Set<string>(),
+    icByDate: new Map<string, number>(),
+  };
   const yearly = new Map<number, number[]>();
   const decay = horizons.map(horizon => ({ horizon, values: [] as number[] }));
   const series: { tradeDate: string; outcomeDate: string; pairCount: number; ic: number }[] = [];
@@ -165,17 +235,19 @@ export function computeTspFactorInformation(input: TspFactorInformationInput) {
   panel.forEach((daily, index) => {
     const { factors: available, priceRows: priced } = tspFactorCrossSection(daily);
     priceRows += priced;
+    const tradeDate = sessions[index]!;
+    if (priced) regime?.pricedDates.add(tradeDate);
     if (!available.length) return;
     for (const row of available) symbols.add(row.symbol);
     factorRows += available.length;
     factorDates++;
-    const tradeDate = sessions[index]!;
     const target = targets.get(index);
     if (target !== undefined) {
       const { ic, pairCount } = rankIc(available, panel[target]);
       if (ic !== null) {
         series.push({ tradeDate, outcomeDate: sessions[target]!, pairCount, ic: roundTspFactorStatistic(ic) });
         allValues.push(ic);
+        regime?.icByDate.set(tradeDate, ic);
         const year = Number(tradeDate.slice(0, 4));
         if (!yearly.has(year)) yearly.set(year, []);
         yearly.get(year)!.push(ic);
@@ -199,6 +271,7 @@ export function computeTspFactorInformation(input: TspFactorInformationInput) {
     coverage: priceRows ? roundTspFactorStatistic(factorRows / priceRows) : null,
     priceRows, factorRows, factorDates, symbolCount: symbols.size,
     summary: summary(allValues),
+    ...(regime && { marketRegime: summarizeFactorRegimes(regime.aligned, regime.pricedDates, regime.icByDate, sessions[0]!) }),
     series,
     yearly: [...yearly].map(([year, values]) => ({ year, ...summary(values) })),
     decay: decay.map(({ horizon, values }) => ({
