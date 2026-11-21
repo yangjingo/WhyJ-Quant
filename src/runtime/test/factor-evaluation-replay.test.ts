@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  archiveDailyTradingLimits, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
+  archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
   type StoredTradingDateBarObservation,
 } from "../../storage/index.ts";
 import { replayTspFactorEvaluation, type FactorEvaluationReplayRequest } from "../data/factor-evaluation-replay.ts";
@@ -146,4 +146,46 @@ test("rejects unknown keys, mixed adjustment bases, duplicate and off-calendar o
   await expect(replayTspFactorEvaluation({ ...base, symbols: [...base.symbols, { symbol: B, dailyRefs: [mixed] }] }))
     .rejects.toThrow("Incompatible factor evaluation price basis");
   await expect(replayTspFactorEvaluation(base, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+});
+
+test("replays earlier market environment from fixed references with exact calendar alignment", async () => {
+  const daily = await archivePrices(A, sessions, [10, 11, 12, 13, 14, 15, 16, 17]);
+  const environmentSessions = sessions.slice(4);
+  const observedSessions = environmentSessions.slice(0, -1);
+  const marketRefs = await Promise.all(observedSessions.map(turnoverArchive));
+  const benchmark = await archiveBenchmarkIndexObservations({
+    symbol: "000001.SH", ...observed, endpoint: "index_daily", observedAt, priceUnit: "index-points",
+    returnUnit: "percentage-points", requested: { start: environmentSessions[0]!, end: environmentSessions.at(-1)! },
+    rows: observedSessions.map((tradeDate, i) => {
+      const change = i === 0 ? 3 : -3;
+      return { tradeDate, closePoints: 100 + change, previousClosePoints: 100, changePoints: change, returnPct: change };
+    }),
+  });
+  const request: FactorEvaluationReplayRequest = {
+    factorId: "momentum_5d", rebalance: "daily", sessions, evaluationStart: sessions[5],
+    symbols: [{ symbol: A, dailyRefs: [daily] }],
+    marketEnvironment: { sessions: environmentSessions, marketRefs, limitRefs: [], priceHistory: [],
+      benchmark: { symbol: "000001.SH", refs: [benchmark] } },
+  };
+  const http = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected provider call"));
+  try {
+    const result = await replayTspFactorEvaluation(request);
+    expect(result.input.marketEnvironment).toMatchObject({
+      scope: { phaseMode: "causal", marketRefs, benchmark: { refs: [benchmark] } }, precedingSession: environmentSessions[0],
+    });
+    expect(result.input.marketEnvironment?.observations.map(row => row.tradeDate)).toEqual(observedSessions);
+    expect(result.information.marketRegime?.assignments.map(row => [row.tradeDate, row.previousTradeDate]))
+      .toEqual([[sessions[5]!, sessions[4]!], [sessions[6]!, sessions[5]!], [sessions[7]!, sessions[6]!]]);
+    expect(result.information.marketRegime?.assignments.map(row => row.score)).toEqual([53, 43, 43]);
+    expect(result.information.marketRegime?.buckets).toMatchObject([
+      { state: "range", meanScore: 53, nDates: 1, nIcDates: 0 },
+      { state: "weak", meanScore: 43, nDates: 2, nIcDates: 0 },
+    ]);
+    const env = request.marketEnvironment!;
+    await expect(replayTspFactorEvaluation({ ...request, marketEnvironment: { ...env, sessions: environmentSessions.slice(1) } }))
+      .rejects.toThrow("Market environment calendar does not match factor evaluation");
+    await expect(replayTspFactorEvaluation({ ...request, marketEnvironment: { ...env, marketRefs: [marketRefs[0]!, marketRefs[2]!] } }))
+      .rejects.toThrow("Missing previous-session factor regime " + sessions[5]!);
+    expect(http).not.toHaveBeenCalled();
+  } finally { http.mockRestore(); }
 });

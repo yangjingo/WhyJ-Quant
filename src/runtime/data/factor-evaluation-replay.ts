@@ -2,7 +2,7 @@ import { isDailyDate } from "../../market/bars.ts";
 import {
   computeTspDailyLadderFlags, computeTspFactorGroups, computeTspFactorInformation, computeTspResearchFactors,
   tspTradingLimitThresholds, TSP_INDICATOR_REVISION, TSP_RESEARCH_FACTOR_FORMULA_VERSION,
-  type TspFactorGroupsInput, type TspFactorInformationRow, type TspResearchFactorId,
+  type TspFactorGroupsInput, type TspFactorInformationRow, type TspFactorRegimeObservation, type TspResearchFactorId,
 } from "../../quant/index.ts";
 import {
   loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadTradingDateArchive, type FinancialObservationArchiveRef,
@@ -10,6 +10,7 @@ import {
 } from "../../storage/index.ts";
 import { researchFactorBar, researchFinancialReport, type ArchiveAnalyticsSupplements } from "./archive-analytics.ts";
 import { replayFinancialResearchInputs } from "./financial-input-replay.ts";
+import { replayTspMarketEnvironment, type MarketEnvironmentReplayRequest } from "./market-environment-replay.ts";
 
 export interface FactorEvaluationSymbolInput {
   symbol: string;
@@ -29,6 +30,7 @@ export interface FactorEvaluationReplayRequest {
   evaluationStart?: string;
   symbols: readonly FactorEvaluationSymbolInput[];
   turnoverRefs?: readonly MarketCrossSectionArchiveRef[];
+  marketEnvironment?: Omit<MarketEnvironmentReplayRequest, "phaseMode">;
   groups?: Pick<TspFactorGroupsInput, "groupCount" | "weight" | "feesFraction" | "commissionFraction" | "stampTaxFraction" | "slippageBps">;
 }
 
@@ -85,9 +87,31 @@ async function readExchange(symbolInput: FactorEvaluationSymbolInput, prices: Aw
   return { limits, raw: raw.evidence, flags };
 }
 
+async function readFactorRegimes(
+  request: NonNullable<FactorEvaluationReplayRequest["marketEnvironment"]>,
+  evaluationSessions: readonly string[],
+  warmUpPredecessor: string | undefined,
+  signal?: AbortSignal,
+) {
+  const first = request.sessions.indexOf(evaluationSessions[0]!);
+  const precedingSession = request.sessions[first - 1];
+  if (first < 0 || evaluationSessions.some((date, index) => request.sessions[first + index] !== date) ||
+    (warmUpPredecessor !== undefined && warmUpPredecessor !== precedingSession)) {
+    throw new Error("Market environment calendar does not match factor evaluation");
+  }
+  const scope = { ...request, phaseMode: "causal" as const };
+  const replay = await replayTspMarketEnvironment(scope, signal);
+  const firstInput = Math.max(0, first - 1);
+  const lastInput = first + evaluationSessions.length - 1;
+  const observations = replay.rows.slice(firstInput, lastInput).flatMap(({ tradingDate, regime }): TspFactorRegimeObservation[] =>
+    regime?.state == null || regime.score === null ? [] : [{ tradeDate: tradingDate, state: regime.state, score: regime.score }]);
+  return { scope, precedingSession, observations };
+}
+
 export async function replayTspFactorEvaluation(request: FactorEvaluationReplayRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { factorId, rebalance, sessions, evaluationStart: requestedStart, symbols, turnoverRefs = [], groups } = structuredClone(request);
+  const { factorId, rebalance, sessions, evaluationStart: requestedStart, symbols, turnoverRefs = [], groups,
+    marketEnvironment } = structuredClone(request);
   const start = sessions[0], end = sessions.at(-1);
   const evaluationStart = requestedStart ?? start;
   if (!start || !end || sessions.length >= 7000 || sessions.some((date, i) => !isDailyDate(date) || (i > 0 && date <= sessions[i - 1]!)) ||
@@ -158,13 +182,17 @@ export async function replayTspFactorEvaluation(request: FactorEvaluationReplayR
       exchange: exchange && { raw: exchange.raw, limits: exchange.limits } });
   }
   signal?.throwIfAborted();
-  const evaluationSessions = sessions.slice(sessions.indexOf(evaluationStart));
+  const evaluationIndex = sessions.indexOf(evaluationStart);
+  const evaluationSessions = sessions.slice(evaluationIndex);
+  const regimes = marketEnvironment && await readFactorRegimes(marketEnvironment, evaluationSessions, sessions[evaluationIndex - 1], signal);
+  signal?.throwIfAborted();
   const panel = { factorId, rebalance, sessions: evaluationSessions, rows };
   return {
-    input: { exchangeTimeZone: "Asia/Shanghai" as const, sessions, evaluationStart, adjustment, symbols: inputs, turnover: turnoverEvidence },
+    input: { exchangeTimeZone: "Asia/Shanghai" as const, sessions, evaluationStart, adjustment, symbols: inputs, turnover: turnoverEvidence,
+      ...(regimes && { marketEnvironment: regimes }) },
     factorFormula: { producer: "whyj" as const, version: TSP_RESEARCH_FACTOR_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
     panel,
-    information: computeTspFactorInformation(panel),
+    information: computeTspFactorInformation(panel, regimes),
     grouping: computeTspFactorGroups({ ...groups, ...panel }),
   };
 }

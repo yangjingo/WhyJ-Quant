@@ -470,3 +470,5 @@ whyj --json observation replay-analytics --revision DAILY_SHA --financial-report
 ```
 
 JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` 和 `grouping` 分别提供 Rank IC 和分组结果。财务因子需要足够的同期证据，示例中缺少相应报告的股票保留空值。输入格式错误会返回 `invalid_arguments`。无法重放的因子或归档会返回 `observation_archive_unavailable`。
+
+因子检验可以传入固定的市场环境归档。服务以因果模式复算环境，核对正式检验日历和已知的预热前驱，再将前一交易日的状态与分数传给 IC 分层计算。响应保留复算清单、前驱日期以及实际使用的市场状态。缺少内部前驱状态或日期顺序不同会使该次回放失败。
