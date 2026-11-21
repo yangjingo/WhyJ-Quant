@@ -574,6 +574,12 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 `observations` 保留两条源记录的端点、时间与原始单位，包括供应商原报的流通市值和换手率。`metrics` 记录 WHYJ 的计算结果、公式版本、人民币元与百分点单位。计算基于选定归档，归档修订使用独立引用。
 
+CLI 使用现有市场截面归档的 SHA256 修订号，无需联网。
+
+```sh
+whyj --json observation replay-list-liquidity --revision SHA256 --symbol 600519.SH
+```
+
 ### 自选加入以来涨跌幅
 
 `replayTspWatchlistReturn` 从本地自选成员记录读取加入日期，再按明确的截止日回放一份前复权股票日线归档。输出把成员代码、日期和文件版本与供应商行情引用分开记录，并返回实际用到的基准和期末行情。可指定已读取的成员版本，后续若发生编辑会拒绝回放。仅在旧的六位代码可归一为归档里的交易所限定代码时使用兼容路径。读取不修改自选记录或请求供应商。 [指标口径](../quant-harness/tsp-list-catalog.md#return-since-watchlist-addition)
