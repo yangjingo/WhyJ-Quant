@@ -1,7 +1,26 @@
 import {
   computeTspListLiquidity, TSP_INDICATOR_REVISION, TSP_LIST_LIQUIDITY_FORMULA_VERSION,
 } from "../../quant/index.ts";
-import { loadMarketCrossSectionArchive, type MarketCrossSectionArchiveRef } from "../../storage/index.ts";
+import { loadMarketCrossSectionArchive, type MarketCrossSectionArchiveRef, type StoredMarketCrossSection } from "../../storage/index.ts";
+
+export function archivedListLiquidity(
+  bar: StoredMarketCrossSection["bars"]["rows"][number] | null,
+  basic: StoredMarketCrossSection["basics"]["rows"][number] | null,
+) {
+  const volumeShares = bar?.volume != null ? bar.volume * 100 : null;
+  return {
+    volumeShares,
+    metrics: {
+      producer: "whyj" as const,
+      formula: { id: "tsp_list_liquidity" as const, version: TSP_LIST_LIQUIDITY_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
+      units: { floatValueCny: "CNY", turnoverPct: "percentage-points" } as const,
+      ...computeTspListLiquidity({
+        rawCloseCny: bar?.close ?? null, volumeShares,
+        circulatingShares: basic?.floatShares != null ? basic.floatShares * 10_000 : null,
+      }),
+    },
+  };
+}
 
 export async function replayTspListLiquidity(
   ref: MarketCrossSectionArchiveRef,
@@ -18,11 +37,7 @@ export async function replayTspListLiquidity(
   const { rows: basicRows, ...basicMetadata } = basics;
   const bar = barRows.find(row => row.symbol === symbol) ?? null;
   const basic = basicRows.find(row => row.symbol === symbol) ?? null;
-  const calculated = computeTspListLiquidity({
-    rawCloseCny: bar?.close ?? null,
-    volumeShares: bar?.volume != null ? bar.volume * 100 : null,
-    circulatingShares: basic?.floatShares != null ? basic.floatShares * 10_000 : null,
-  });
+  const { metrics } = archivedListLiquidity(bar, basic);
   return {
     archiveRef, symbol, market, tradeDate,
     observations: {
@@ -30,11 +45,6 @@ export async function replayTspListLiquidity(
       daily: { ...barMetadata, row: bar },
       dailyBasic: { ...basicMetadata, row: basic },
     },
-    metrics: {
-      producer: "whyj" as const,
-      formula: { id: "tsp_list_liquidity" as const, version: TSP_LIST_LIQUIDITY_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
-      units: { floatValueCny: "CNY", turnoverPct: "percentage-points" } as const,
-      ...calculated,
-    },
+    metrics,
   };
 }

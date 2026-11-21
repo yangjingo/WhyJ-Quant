@@ -632,6 +632,14 @@ whyj --json observation replay-screener-score --manifest ./screener-score.json
 
 命令离线计算，返回市场日期、WHYJ 公式版本、参与评分的字段覆盖与排名结果。候选集合及因子值由上游生成，策略执行和信号判定的证据随上游提供。评分与缺值口径见[指标目录](../quant-harness/tsp-list-catalog.md#screener-strategy-scores)。
 
+### 自选与选股的历史列表行
+
+`replayTspListRows` 在固定 A 股市场截面上按请求顺序组装股票行。调用方提供 `marketRef`、日线指标的 `adjustment` 和有序的 `stocks`。每项包含 `symbol`，也可附上 `history.ref` 及交易所限价信号所需的 `history.exchange`。
+
+供应商观察保留未复权 OHLC、除权参考昨收、涨跌额、涨跌百分比、成交量和成交额，以及 `daily_basic` 的换手率和 PE/PB 等。接口同时提供换算为股的成交量和换算为元的成交额，原始数值和单位仍随响应返回。WHYJ 流通市值、换手率、日线技术指标及信号各自保留公式版本。WHYJ 日线指标中的昨收与涨幅来自同复权序列，涨幅为小数比例。
+
+缺少行情或财务估值观察的标的仍占一行，对应观察为 `null`。日线历史缺少目标交易日时，技术指标和信号为 `null`，已有历史归档的实际结束日期随行返回。调用方可用这份结果展示固定日期，实时行情覆盖需要独立的报价时间和价格口径。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
