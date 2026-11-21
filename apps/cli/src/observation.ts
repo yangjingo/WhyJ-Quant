@@ -15,6 +15,7 @@ import type { MarketLadderReplayRequest } from "../../../src/runtime/data/market
 import { replayTspMarketMainline, type MarketMainlineReplayRequest } from "../../../src/runtime/data/market-mainline-replay.ts";
 import { collectDatedMoneyFlow, replayDatedMoneyFlow } from "../../../src/runtime/data/money-flow.ts";
 import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
+import { collectDatedPopularityList, replayDatedPopularityList } from "../../../src/runtime/data/popularity-list.ts";
 import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "../../../src/runtime/data/price-deviation-replay.ts";
 import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-warning-collection.ts";
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
@@ -348,6 +349,24 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     try { return await replayDatedMoneyFlow({ version: 1, kind: "dated-money-flow", revision }, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested money-flow archive revision."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "collect-popularity") {
+    const calendarDate = parseOptions(options, ["--date"]).get("--date");
+    if (!calendarDate || !isDailyDate(calendarDate) || calendarDate < "0001-01-01" || calendarDate > shanghaiDate.format()) throw invalid();
+    try { return await collectDatedPopularityList(calendarDate, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested historical popularity list. Check Fuyao access and the provider date range."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-popularity") {
+    const revision = parseOptions(options, ["--revision"]).get("--revision");
+    if (!revision || !revisionPattern.test(revision)) throw invalid();
+    try { return await replayDatedPopularityList({ version: 1, kind: "dated-popularity-list", revision }, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested popularity archive revision."),
         { code: "observation_archive_unavailable" });
     }
   }
