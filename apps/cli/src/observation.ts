@@ -12,6 +12,7 @@ import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-c
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
 import { replayTspFactorEvaluation, type FactorEvaluationReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
 import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
+import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
@@ -434,6 +435,30 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "collect-index-daily") {
+    const fields = parseOptions(options, ["--symbol", "--start", "--end"]);
+    const symbol = fields.get("--symbol")?.trim().toUpperCase();
+    const start = fields.get("--start"), end = fields.get("--end");
+    if (!symbol || !isDatedBenchmarkIndexSymbol(symbol) || !start || !end || !isDailyDate(start) || !isDailyDate(end) ||
+      start < "0001-01-01" || start > end || end >= shanghaiDate.format() || Date.parse(end) - Date.parse(start) >= 366 * dayMs) throw invalid();
+    try { return await collectDatedIndexDailyBars({ symbol, start, end }, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the dated index daily candles. Check the configured Source and provider access."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-index-daily") {
+    const fields = parseOptions(options, ["--revision", "--start", "--end"]);
+    const revision = fields.get("--revision"), start = fields.get("--start"), end = fields.get("--end");
+    if (!revision || !revisionPattern.test(revision) ||
+      (fields.size > 1 && (!start || !end || !isDailyDate(start) || !isDailyDate(end) || start < "0001-01-01" || start > end))) throw invalid();
+    const displayRange = start && end ? { start, end } : undefined;
+    try { return await replayDatedIndexDailyBars({ ref: { version: 1, kind: "dated-index-daily", revision }, displayRange }, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the index daily revision for the requested display range."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "collect-index-minutes") {
