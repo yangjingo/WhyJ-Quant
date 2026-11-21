@@ -402,6 +402,13 @@ whyj --json observation replay-money-flow --revision MONEY_FLOW_SHA256
 
 `collectDatedPopularityList` 通过扶摇采集一个北京时间自然日的历史人气榜。回执标记 `archived` 或 `empty`，并保留自然日、上海零点、采集时刻和归档引用。`replayDatedPopularityList` 仅按固定引用读取，原样返回供应商名次和行顺序。上海零点用于标识日期，供应商发布时间和覆盖仍为未知。
 
+在本地运行环境配置 `WHYJ_QUANT_FUYAO_API_KEY`，按供应商支持的一年内自然日采集。回放读取采集回执的 `ref.revision`，只使用本地归档。
+
+```bash
+whyj --json observation collect-popularity --date 2026-06-21
+whyj --json observation replay-popularity --revision POPULARITY_SHA256
+```
+
 ### 财务数据的历史时点
 
 `replayFinancialResearchInputs` 读取指定标的的财务指标及实际披露日期精确引用。每个上海交易日只考虑此前已独立采集的两类记录。实际披露日须已发生，财务指标采集日不能早于实际披露日。对同报告期采用交易日前最近的有效采集版本。同一时点存在不同指标行或互相冲突的实际披露日期时，该报告期不可用。新一期满足条件前可以继续使用此前已知的报告期。结果保留具体选用的报告、披露日及两类归档引用和采集时间；缺失与歧义可区分。此接口保留供应商原始单位和未知币种，供研究因子计算使用。
