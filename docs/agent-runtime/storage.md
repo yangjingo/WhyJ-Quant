@@ -85,6 +85,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 `archiveHistoricalMinuteObservations` 保存 Tushare `stk_mins` 的一个非空单标的历史 1 分钟响应。原始上海本地时间标签与 09:30 开盘边界标记、股数和人民币成交额、实际来源及观察时间均保留；复权、覆盖和最终状态保持未知。`loadHistoricalMinuteArchive` 只读指定的 `historical-minute-bars` 内容摘要，文件位于 `.ohquant/data/historical-minute-archives-v1/`。归档可验证时间标签和交易日区间，常规分钟的边界转换由 Runtime 完成。
 
+指数分钟行情使用 `archiveDatedIndexMinutes` 写入独立的 `dated-index-minute` 归档。每次捕获固定一个标的和上海日期，保留 TickFlow 的指数点位 OHLC、原始时间戳、量额和本地观察时间。空请求结果也可按摘要读取。归档校验承诺仅到保存的证据，覆盖仍为 `unknown`。`loadDatedIndexMinuteArchive` 按精确摘要读 `.ohquant/data/dated-index-minute-archives-v1/`。供应商条目与 WhyJ 后续计算的昨收涨跌分别保存和标注。
+
 市场截面通过 `archiveMarketCrossSection` 保存一个交易日的 Tushare `bak_basic` 股票池、`daily` 行情和 `daily_basic` 交易统计。各响应保存独立交易日、观察时刻和原始单位。未匹配到股票池的行情仍保留在归档，空响应和字段空值也原样保留。文件位于 `.ohquant/data/market-cross-section-archives-v1/`，通过 `loadMarketCrossSectionArchive` 按精确引用读取并验证摘要。股票池匹配、单位转换和覆盖率统计由回放层处理。观察时间记录采集时刻，历史数据的实际可得时间仍由数据使用方核实。
 
 基准指数通过 `archiveBenchmarkIndexObservations` 保存一份 Tushare `index_daily` 响应。归档记录沪深指数代码、请求范围、采集时刻、按交易日排列的收盘点位、昨收点位、点数变化和供应商涨跌幅。涨跌幅保留百分点单位，缺值和空响应均保留。文件位于 `.ohquant/data/benchmark-index-archives-v1/`，`loadBenchmarkIndexArchive` 按精确引用读取并验证摘要。每次更正和重新采集都有独立的归档版本。数据覆盖和历史发布时间仍为未知。
