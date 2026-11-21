@@ -1,5 +1,5 @@
 import { isDailyDate } from "../market/bars.ts";
-import { mean, sampleDeviation, standardScores } from "./statistics.ts";
+import { finiteStatistic, mean, sampleDeviation, standardScores } from "./statistics.ts";
 import { TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
 
 export const TSP_FACTOR_INFORMATION_FORMULA_VERSION = "tsp-factor-v2-information-v1";
@@ -23,17 +23,19 @@ const horizons = [1, 3, 5] as const;
 type DatedFactor = { symbol: string; close: number; factor: number };
 type PriceRows = Map<string, TspFactorInformationRow>;
 
-function rounded(value: number): number {
-  const scaled = value * 10_000;
-  // Exact binary halfway cases at four decimal places are odd multiples of 1/32.
+export function roundTspFactorStatistic(value: number, digits: 2 | 4 = 4): number {
+  finiteStatistic(value);
+  const decimalScale = 10 ** digits;
+  const scaled = value * decimalScale;
+  // Binary-representable halfway cases retain the factor of two in the decimal denominator.
   const floor = Math.floor(scaled);
-  if (Number.isInteger(value * 32) && scaled - floor === 0.5) {
-    return (floor + Math.abs(floor % 2)) / 10_000;
+  if (Number.isInteger(value * 2 ** (digits + 1)) && scaled - floor === 0.5) {
+    return (floor + Math.abs(floor % 2)) / decimalScale;
   }
-  return Number(value.toFixed(4)) || 0;
+  return Number(value.toFixed(digits)) || 0;
 }
 
-function averageRanks(values: number[]): number[] {
+export function averageTspFactorRanks(values: number[]): number[] {
   const byValue = values.map((value, index) => ({ value, index })).sort((left, right) => left.value - right.value);
   const ranks = new Array<number>(values.length);
   for (let first = 0; first < byValue.length;) {
@@ -56,20 +58,26 @@ function correlation(factorRanks: number[], returnRanks: number[]): number | nul
   return Math.max(-1, Math.min(1, ic));
 }
 
+export function tspFactorForwardReturn(row: DatedFactor, target: PriceRows): number | null {
+  const endClose = target.get(row.symbol)?.close;
+  if (endClose == null) return null;
+  const outcome = endClose / row.close - 1;
+  if (!Number.isFinite(outcome)) throw new Error("Factor forward return exceeds the supported numeric range");
+  return outcome;
+}
+
 function rankIc(rows: DatedFactor[], target?: PriceRows, fullFactorRanks?: number[]) {
   if (!target) return { ic: null, pairCount: 0 };
   const signals: number[] = [];
   const outcomes: number[] = [];
-  rows.forEach(({ symbol, close, factor }, index) => {
-    const endClose = target.get(symbol)?.close;
-    if (endClose == null) return;
-    const outcome = endClose / close - 1;
-    if (!Number.isFinite(outcome)) throw new Error("Factor forward return exceeds the supported numeric range");
-    signals.push(fullFactorRanks ? fullFactorRanks[index]! : factor);
+  rows.forEach((row, index) => {
+    const outcome = tspFactorForwardReturn(row, target);
+    if (outcome === null) return;
+    signals.push(fullFactorRanks ? fullFactorRanks[index]! : row.factor);
     outcomes.push(outcome);
   });
-  const factorRanks = fullFactorRanks ? signals : averageRanks(signals);
-  return { ic: correlation(factorRanks, averageRanks(outcomes)), pairCount: outcomes.length };
+  const factorRanks = fullFactorRanks ? signals : averageTspFactorRanks(signals);
+  return { ic: correlation(factorRanks, averageTspFactorRanks(outcomes)), pairCount: outcomes.length };
 }
 
 function periodKey(date: string, rebalance: "weekly" | "monthly"): string {
@@ -102,15 +110,15 @@ function summary(values: number[]) {
   const average = mean(values);
   const std = sampleDeviation(values) * Math.sqrt((values.length - 1) / values.length);
   return {
-    icMean: rounded(average),
-    icStd: rounded(std),
-    ir: std > 1e-8 ? rounded(average / std) : null,
-    winRate: rounded(values.filter(ic => ic > 0).length / values.length),
+    icMean: roundTspFactorStatistic(average),
+    icStd: roundTspFactorStatistic(std),
+    ir: std > 1e-8 ? roundTspFactorStatistic(average / std) : null,
+    winRate: roundTspFactorStatistic(values.filter(ic => ic > 0).length / values.length),
     nDates: values.length,
   };
 }
 
-export function computeTspFactorInformation(input: TspFactorInformationInput) {
+export function prepareTspFactorPanel(input: TspFactorInformationInput) {
   const { factorId, rebalance, sessions, rows } = input;
   if (typeof factorId !== "string" || !factorId.trim() || !["daily", "weekly", "monthly"].includes(rebalance) ||
     !Array.isArray(sessions) || !sessions.length || sessions.some((date, index) =>
@@ -129,7 +137,24 @@ export function computeTspFactorInformation(input: TspFactorInformationInput) {
     panel[dateIndex]!.set(row.symbol, row);
   }
 
-  const targets = rebalanceTargets(sessions, panel, rebalance);
+  return { panel, targets: rebalanceTargets(sessions, panel, rebalance) };
+}
+
+export function tspFactorCrossSection(daily: PriceRows) {
+  const factors: DatedFactor[] = [];
+  let priceRows = 0;
+  for (const { symbol, close, factor } of daily.values()) {
+    if (close === null) continue;
+    priceRows++;
+    if (factor !== null) factors.push({ symbol, close, factor });
+  }
+  factors.sort((left, right) => left.symbol < right.symbol ? -1 : left.symbol > right.symbol ? 1 : 0);
+  return { factors, priceRows };
+}
+
+export function computeTspFactorInformation(input: TspFactorInformationInput) {
+  const { panel, targets } = prepareTspFactorPanel(input);
+  const { factorId, rebalance, sessions } = input;
   const yearly = new Map<number, number[]>();
   const decay = horizons.map(horizon => ({ horizon, values: [] as number[] }));
   const series: { tradeDate: string; outcomeDate: string; pairCount: number; ic: number }[] = [];
@@ -138,16 +163,10 @@ export function computeTspFactorInformation(input: TspFactorInformationInput) {
   let priceRows = 0, factorRows = 0, factorDates = 0;
 
   panel.forEach((daily, index) => {
-    const available: DatedFactor[] = [];
-    for (const { symbol, close, factor } of daily.values()) {
-      if (close === null) continue;
-      priceRows++;
-      if (factor === null) continue;
-      available.push({ symbol, close, factor });
-      symbols.add(symbol);
-    }
+    const { factors: available, priceRows: priced } = tspFactorCrossSection(daily);
+    priceRows += priced;
     if (!available.length) return;
-    available.sort((left, right) => left.symbol < right.symbol ? -1 : left.symbol > right.symbol ? 1 : 0);
+    for (const row of available) symbols.add(row.symbol);
     factorRows += available.length;
     factorDates++;
     const tradeDate = sessions[index]!;
@@ -155,14 +174,14 @@ export function computeTspFactorInformation(input: TspFactorInformationInput) {
     if (target !== undefined) {
       const { ic, pairCount } = rankIc(available, panel[target]);
       if (ic !== null) {
-        series.push({ tradeDate, outcomeDate: sessions[target]!, pairCount, ic: rounded(ic) });
+        series.push({ tradeDate, outcomeDate: sessions[target]!, pairCount, ic: roundTspFactorStatistic(ic) });
         allValues.push(ic);
         const year = Number(tradeDate.slice(0, 4));
         if (!yearly.has(year)) yearly.set(year, []);
         yearly.get(year)!.push(ic);
       }
     }
-    const ranks = averageRanks(available.map(row => row.factor));
+    const ranks = averageTspFactorRanks(available.map(row => row.factor));
     for (const { horizon, values } of decay) {
       // TSP ranks the full finite-factor cross-section before excluding absent horizon returns.
       const { ic } = rankIc(available, panel[index + horizon], ranks);
@@ -177,13 +196,13 @@ export function computeTspFactorInformation(input: TspFactorInformationInput) {
     factorId, rebalance,
     start: sessions[0]!,
     end: sessions.at(-1)!,
-    coverage: priceRows ? rounded(factorRows / priceRows) : null,
+    coverage: priceRows ? roundTspFactorStatistic(factorRows / priceRows) : null,
     priceRows, factorRows, factorDates, symbolCount: symbols.size,
     summary: summary(allValues),
     series,
     yearly: [...yearly].map(([year, values]) => ({ year, ...summary(values) })),
     decay: decay.map(({ horizon, values }) => ({
-      horizon, icMean: values.length ? rounded(mean(values)) : null, nDates: values.length,
+      horizon, icMean: values.length ? roundTspFactorStatistic(mean(values)) : null, nDates: values.length,
     })),
   };
 }
