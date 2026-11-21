@@ -104,8 +104,9 @@ function factorManifestObject(value: unknown, keys: readonly string[]): Record<s
 }
 
 function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRequest {
-  const { sessions: dates, evaluationStart, factorId, rebalance, symbols: rawSymbols, turnoverRevisions, groups: rawGroups } =
-    factorManifestObject(value, ["sessions", "evaluationStart", "factorId", "rebalance", "symbols", "turnoverRevisions", "groups"]);
+  const { sessions: dates, evaluationStart, factorId, rebalance, symbols: rawSymbols, turnoverRevisions, groups: rawGroups,
+    marketEnvironment: rawEnvironment } =
+    factorManifestObject(value, ["sessions", "evaluationStart", "factorId", "rebalance", "symbols", "turnoverRevisions", "groups", "marketEnvironment"]);
   const sessions = parseExchangeSessions(dates);
   if (typeof factorId !== "string" || !/^[a-z][a-z0-9_]{0,80}$/.test(factorId) ||
     (rebalance !== "daily" && rebalance !== "weekly" && rebalance !== "monthly") ||
@@ -168,8 +169,11 @@ function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRe
     groups = settings;
   }
 
+  const marketEnvironment = rawEnvironment === undefined ? undefined : parseEnvironmentManifest(rawEnvironment);
+  if (marketEnvironment?.phaseMode === "retrospective-tsp") throw invalid();
+
   return {
-    factorId, rebalance, sessions, evaluationStart, symbols, groups,
+    factorId, rebalance, sessions, evaluationStart, symbols, groups, marketEnvironment,
     turnoverRefs: turnoverRevisions === undefined ? undefined : validateRevisions(turnoverRevisions)
       .map(revision => ({ version: 1, kind: "market-cross-section", revision })),
   };
