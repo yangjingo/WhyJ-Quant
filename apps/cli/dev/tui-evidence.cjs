@@ -38,14 +38,23 @@ let browser;
       exitPromise = new Promise(done => terminal.onExit(value => { exited = true; done(value); }));
       let writes = Promise.resolve(), terminalError;
       terminal.onData(data => { writes = writes.then(() => page.evaluate(data => new Promise(done => window.term.write(data, done)), data)).catch(error => { terminalError = error; }); });
-      const waitText = async text => { await page.waitForFunction(text => window.dump().includes(text), text, { timeout: 30000 }); await writes; if (terminalError) throw terminalError; };
+      const waitText = async (text, absent = []) => {
+        await page.waitForFunction(({ text, absent }) => {
+          const screen = window.dump();
+          return screen.includes(text) && absent.every(label => !screen.includes(label));
+        }, { text, absent }, { timeout: 30000 });
+        await writes;
+        if (terminalError) throw terminalError;
+      };
       await waitText('工具结果待核对'); terminal.write('KEEP DRAFT'); terminal.write('\r'); await waitText('核对未确定的结果'); await waitText('fixture_tool');
       await page.screenshot({ path: join(output, `tui-recovery-${label}-before.png`) });
-      terminal.write('\x1b'); await waitText('KEEP DRAFT'); if (existsSync(ack)) throw Error('Escape acknowledged unexpectedly');
+      terminal.write('\x1b');
+      await waitText('KEEP DRAFT', ['核对未确定的结果']);
+      if (existsSync(ack)) throw Error('Escape acknowledged unexpectedly');
       terminal.write('\r'); await waitText('核对未确定的结果'); terminal.write('\r');
       for (let n = 0; n < 200 && !existsSync(ack); n++) await delay(25);
       if (!existsSync(ack)) throw Error('Acknowledgement was not recorded');
-      await waitText('KEEP DRAFT');
+      await waitText('KEEP DRAFT', ['核对未确定的结果', '工具结果待核对']);
       const value = JSON.parse(readFileSync(ack, 'utf8'));
       if (JSON.stringify(value) !== JSON.stringify({ workspaceId: 'fixture-workspace', sessionId: 'fixture-session', runId: 'fixture-run', expectedRevision: 4 })) throw Error('Wrong acknowledgement identity');
       if (existsSync(submit)) throw Error('Acknowledgement submitted the draft');

@@ -97,6 +97,8 @@ The Windows Shell icon regression gives its traced PowerShell fixture 60 seconds
 
 Smoke writes `result.json` after each completed check and on success/failure, including the tested revision, stage, completed checks, and process-query timing or error details. A shutdown failure also writes `failure.txt` without requiring a live Electron window; optional page capture cannot replace the original failure. Inspect these files in `desktop-evidence` alongside the job log. A query timeout proves neither a leak nor clean shutdown; a successful retry does not explain an earlier stall. These changes improve the check and its diagnostics, not application shutdown semantics.
 
+The Windows TUI recovery evidence driver waits for the previous dialog to disappear before reopening it. The draft is visible behind the dialog, so draft text alone cannot establish that Escape took effect. After acknowledgement, the driver waits for the dialog and recovery hint to disappear, checks that the draft is still unsent, then sends an explicit submit key.
+
 The shared-Host fixtures exercise an isolated synthetic run in Electron and a browser, version/port conflict, restart recovery, and Desktop quit. The tray fixture invokes Electron's tray event and menu callbacks in a test process, checking both cancellation and confirmation of backend stop. It does not establish that the operating-system tray can be clicked or replace installed-package acceptance on the target machine.
 
 ## Main Branch Protection
