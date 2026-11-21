@@ -12,6 +12,7 @@ import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-c
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
 import { replayTspFactorEvaluation, type FactorEvaluationReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
 import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
+import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { replayTspMarketEmotion, type MarketEmotionReplayRequest } from "../../../src/runtime/data/market-emotion-replay.ts";
@@ -433,6 +434,39 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "collect-index-minutes") {
+    const fields = parseOptions(options, ["--symbol", "--date"]);
+    const symbol = fields.get("--symbol")?.trim().toUpperCase();
+    const tradeDate = fields.get("--date");
+    if (!symbol || !isDatedBenchmarkIndexSymbol(symbol) || !tradeDate || !isDailyDate(tradeDate) ||
+      tradeDate < "0001-01-01" || tradeDate >= shanghaiDate.format()) throw invalid();
+    try { return await collectDatedIndexMinutes({ symbol, tradeDate }, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the dated index minutes. Check the configured Source and provider access."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-index-minutes") {
+    const fields = parseOptions(options, ["--revision", "--daily-revision", "--previous-date", "--date", "--calendar-revision"]);
+    const revision = fields.get("--revision");
+    if (!revision || !revisionPattern.test(revision)) throw invalid();
+    const request: DatedIndexMinuteReplayRequest = { minuteRef: { version: 1, kind: "dated-index-minute", revision } };
+    if (fields.size > 1) {
+      const dailyRevision = fields.get("--daily-revision");
+      const previousTradeDate = fields.get("--previous-date");
+      const tradeDate = fields.get("--date");
+      const calendarRevision = fields.get("--calendar-revision");
+      if (!dailyRevision || !revisionPattern.test(dailyRevision) || !previousTradeDate || !isDailyDate(previousTradeDate) ||
+        !tradeDate || !isDailyDate(tradeDate) || previousTradeDate >= tradeDate || !calendarRevision?.trim()) throw invalid();
+      request.previousClose = { dailyRef: { version: 1, kind: "benchmark-index", revision: dailyRevision },
+        calendar: { revision: calendarRevision, previousTradeDate, tradeDate } };
+    }
+    try { return await replayDatedIndexMinutes(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the index minute revision and its optional previous-close evidence."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "collect-benchmark" || action === "collect-limits") {
