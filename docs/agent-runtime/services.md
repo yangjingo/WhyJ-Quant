@@ -568,6 +568,16 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 通过 `whyj --json observation collect-index-daily --symbol 000001.SH --start 2024-02-23 --end 2024-03-01` 捕获包含预热历史的窗口。执行 `whyj --json observation replay-index-daily --revision DAILY_SHA256` 离线读回原始数据和指标。若只看其中一段，可同时传入 `--start` 和 `--end`。两者只控制显示范围，响应中的 `calculationWindow` 列出实际参与计算的观测范围。
 
+### 选股候选评分回放
+
+```sh
+whyj --json observation replay-screener-score --manifest ./screener-score.json
+```
+
+清单外层是 `{ "version": 1, "input": { ... } }`。输入包含 `tradeDate`、`candidateRevision`、`strategy` 的 `id` 和 `revision`、有序的 `candidateSymbols`、每列为 `{field, values}` 的 `columns`，以及每项为 `{field, weight, direction?}` 的 `weights`。每个值数组和候选代码对齐，可用 `null` 记录缺值。两个修订号是调用方提供的 SHA256 标识。可选的 `orderBy`、`descending` 和 `displayLimit` 控制排序及展示上限。
+
+命令离线计算，返回市场日期、WHYJ 公式版本、参与评分的字段覆盖与排名结果。候选集合及因子值由上游生成，策略执行和信号判定的证据随上游提供。评分与缺值口径见[指标目录](../quant-harness/tsp-list-catalog.md#screener-strategy-scores)。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
