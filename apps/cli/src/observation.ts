@@ -29,6 +29,7 @@ import { collectSectorObservations, type SectorCollectionRequest } from "../../.
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
+import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
 
 const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
@@ -436,6 +437,16 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-list-liquidity") {
+    const fields = parseOptions(options, ["--revision", "--symbol"]);
+    const revision = fields.get("--revision"), symbol = fields.get("--symbol");
+    if (!revision || !revisionPattern.test(revision) || !symbol || !datedStock.test(symbol)) throw invalid();
+    try { return await replayTspListLiquidity({ version: 1, kind: "market-cross-section", revision }, symbol, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay list liquidity. Verify the market archive revision and stock membership."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-watchlist-return") {
