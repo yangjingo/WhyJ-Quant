@@ -345,6 +345,12 @@ whyj --json observation replay-sector-rank --market-revision MARKET_SHA --catalo
 
 默认显示最新 12 个有可比排名的交易日，窗口限制为 7–30 个比较日。发生缺口的日期及其归档仍出现在 `input.sessions` 中。同一板块在上一已提供交易日缺少可比排名时，`rankMovement` 保持 `null`。
 
+### 异动截面回放
+
+`replayTspAbnormalSnapshot` 用固定市场截面和指定股票的日线归档重建七类异动快照。调用方提供交易日历、共同复权口径和所需的当日限价证据。市场截面须匹配日历最后一日。缺少某股当日行情或信号输入时，相关标志计入未知覆盖。
+
+命中按信号优先级、绝对涨跌幅和代码排序，计数先于列表截取。结果分开记录 Tushare 原报收盘、涨跌和换手，与 WHYJ 计算的振幅、量比、连板和信号。历史回放与实时异动时间线的采集口径独立。[异动列表口径](../quant-harness/tsp-list-catalog.md#abnormal-snapshot-ranking)
+
 ### 自定义盘中信号回放
 
 `replayTspIntradaySignal` 在固定分钟归档上计算自定义条件。沿用分钟回放的上海时间、收盘标签及可选昨收证据。结果保留供应商原始时间、WHYJ 分钟起始标签、公式版本、归档引用及命中时的特征。事件 ID 由标的、规则与公式修订、交易日和分钟共同决定，同一事件在扩展归档中保持原 ID。
