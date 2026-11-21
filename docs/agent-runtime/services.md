@@ -555,3 +555,7 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 ```
 
 无法得到目标值时填 `null`。失败的候选可设 `failed: true`，并保留失败前已完成的区间。可选 `fullWindow` 使用同样的观测字段，日期须覆盖完整请求区间。输出包括各段原值、排名、冠军收敛与网格邻域诊断。命令对调用方提供的证据做本地计算。详见 [TSP 指标目录](../quant-harness/tsp-list-catalog.md#parameter-robustness)。
+
+### 指数分钟行情回放
+
+`collectDatedIndexMinutes` 使用当前 Source 捕获指定指数和历史上海日期，返回固定归档引用。空响应也有可回放的引用。`replayDatedIndexMinutes` 按引用读取原始分钟和 WhyJ 派生指标。若提供昨收输入，还须提供日线归档及调用方确认的相邻交易日对与日历版本。仅使用同 TickFlow 指数在该上一交易日的收盘点位。查询范围内缺少该观察时，分时涨跌为空。本地回放无需供应商访问。时间戳和量额单位保留供应商标记。 [指标口径](../quant-harness/tsp-dashboard-audit.md#index-minute-chart-returns)
