@@ -568,6 +568,12 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 通过 `whyj --json observation collect-index-daily --symbol 000001.SH --start 2024-02-23 --end 2024-03-01` 捕获包含预热历史的窗口。执行 `whyj --json observation replay-index-daily --revision DAILY_SHA256` 离线读回原始数据和指标。若只看其中一段，可同时传入 `--start` 和 `--end`。两者只控制显示范围，响应中的 `calculationWindow` 列出实际参与计算的观测范围。
 
+### 流通市值与换手率回放
+
+`replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
+
+`observations` 保留两条源记录的端点、时间与原始单位，包括供应商原报的流通市值和换手率。`metrics` 记录 WHYJ 的计算结果、公式版本、人民币元与百分点单位。计算基于选定归档，归档修订使用独立引用。
+
 ### 自选加入以来涨跌幅
 
 `replayTspWatchlistReturn` 从本地自选成员记录读取加入日期，再按明确的截止日回放一份前复权股票日线归档。输出把成员代码、日期和文件版本与供应商行情引用分开记录，并返回实际用到的基准和期末行情。可指定已读取的成员版本，后续若发生编辑会拒绝回放。仅在旧的六位代码可归一为归档里的交易所限定代码时使用兼容路径。读取不修改自选记录或请求供应商。 [指标口径](../quant-harness/tsp-list-catalog.md#return-since-watchlist-addition)
