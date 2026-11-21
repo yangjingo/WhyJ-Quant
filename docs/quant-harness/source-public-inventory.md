@@ -32,6 +32,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDailyMarketBars` | Tushare `daily` reads one raw A-share date cross-section with ex-rights previous close and native volume and amount units. |
 | `fetchDailyMarketBasics` | Tushare `daily_basic` reads one cross-section of turnover, valuation and capital fields. Retains provider volume ratio, endpoint provenance and unknown coverage. |
 | `fetchDatedBenchmarkObservations` | Tushare `index_daily` retains close, prior close, point change and percentage return. TickFlow `/v1/klines` supplies dated unadjusted index closes and the provider timestamp, including the BSE 50. Missing return operands remain unavailable. Both preserve unknown coverage. |
+| `fetchDatedIndexDailyBars` | TickFlow historical index-level daily OHLC with native quantity semantics, exact Shanghai range and provider timestamps. |
 | `fetchDatedIndexMinutes` | TickFlow historical minute K-lines for one dated A-share benchmark index. Keeps native timestamp labels and volume and amount units. Empty dated frames stay empty. |
 | `fetchDatedAuctionBenchmark` | The explicit Fuyao `/api/a-share/auction/short-term-benchmark` read preserves selected stock identities and order, labels and percentage-point auction returns. The response assembly timestamp is distinct from the exact Shanghai trade date and local capture time. |
 | `fetchDatedDragonTigerBoard` | Read one explicit Fuyao all, institution or hot-money board. Preserve provider counts, CNY amounts, fractional ratios, ordered one- and three-day stock records, and nested seat positions. |
@@ -125,6 +126,7 @@ Provider-specific Financial Datasets operations; facade mapping unresolved.
 
 | Export | Kind | Use | Canonical route |
 | --- | --- | --- | --- |
+| `fetchDatedIndexDailyBars` | TickFlow historical index-level daily OHLC with native quantity semantics, exact Shanghai range and provider timestamps. |
 | `fetchDatedIndexMinutes` | TickFlow historical minute K-lines for one dated A-share benchmark index. Keeps native timestamp labels and volume and amount units. Empty dated frames stay empty. |
 | `fetchDatedAuctionBenchmark` | value | Read Fuyao's selected auction list for a Shanghai trade date | Explicit supplemental observation |
 | `AuctionBenchmarkRow` | type | Stock identity, native auction return and provider tags | — |
@@ -439,6 +441,8 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `DatedBenchmarkObservations` | type | Dated index observation rows, requested window and native units | — |
 | `DatedIndexMinuteRow` | type | Native index minute timestamp, OHLC points and reported quantities | — |
 | `DatedIndexMinuteObservations` | type | Dated TickFlow index minute rows, query scope and quantity semantics | — |
+| `DatedIndexDailyRow` | type | Daily index OHLC points, mapped trade date and provider timestamp | — |
+| `DatedIndexDailyObservations` | type | Dated TickFlow index daily rows, query window and quantity semantics | — |
 | `DailyMarketBasic` | type | Dated turnover, share counts, and valuation fields | — |
 | `DailyMarketBasics` | type | Daily basic cross-section with native units | — |
 | `DatedSectorCatalog` | type | Exact-date Eastmoney provider classification and optional hierarchy | — |
