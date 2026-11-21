@@ -1,7 +1,10 @@
 import { open } from "node:fs/promises";
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
-import { computeTspBacktestRobustness, computeTspWalkForward, type TspBacktestRobustnessInput, type TspWalkForwardInput } from "../../../src/quant/index.ts";
+import {
+  computeTspBacktestRobustness, computeTspParameterRobustness, computeTspWalkForward, TSP_PARAMETER_OBJECTIVES,
+  type TspBacktestRobustnessInput, type TspParameterRobustnessInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
+} from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
@@ -118,6 +121,35 @@ function parseBacktestRobustnessManifest(value: unknown): TspBacktestRobustnessI
     return { pnlFraction, holdingDays };
   });
   return { trades, periodicReturns, periodsPerYear, includeMonteCarlo };
+}
+
+function parseParameterSegment(value: unknown): TspParameterSegmentEvidence {
+  const { start, end, objective, tradeCount } = observationManifestObject(value, ["start", "end", "objective", "tradeCount"]);
+  if (typeof start !== "string" || typeof end !== "string" || (objective !== null && typeof objective !== "number") ||
+    (tradeCount !== null && typeof tradeCount !== "number")) throw invalid();
+  return { start, end, objective, tradeCount };
+}
+
+function parseParameterRobustnessManifest(value: unknown): TspParameterRobustnessInput {
+  const { start, end, segmentCount, objective: rawObjective, direction, minTradesTotal, candidates } =
+    observationManifestObject(value, ["start", "end", "segmentCount", "objective", "direction", "minTradesTotal", "candidates"]);
+  const objective = TSP_PARAMETER_OBJECTIVES.find(name => name === rawObjective);
+  if (!objective || typeof start !== "string" || typeof end !== "string" || typeof segmentCount !== "number" ||
+    (direction !== undefined && direction !== "max" && direction !== "min") ||
+    (minTradesTotal !== undefined && typeof minTradesTotal !== "number") ||
+    !Array.isArray(candidates) || candidates.length > 2_000) throw invalid();
+  return { start, end, segmentCount, objective, direction, minTradesTotal,
+    candidates: candidates.map((value: unknown) => {
+      const { params: rawParams, segments, failed, fullWindow } = observationManifestObject(value, ["params", "segments", "failed", "fullWindow"]);
+      if (!rawParams || typeof rawParams !== "object" || Array.isArray(rawParams) ||
+        !Array.isArray(segments) || segments.length > 6 || (failed !== undefined && typeof failed !== "boolean")) throw invalid();
+      const params = Object.fromEntries(Object.entries(rawParams as Record<string, unknown>).map(([key, setting]) => {
+        if (setting !== null && typeof setting !== "string" && typeof setting !== "boolean" && typeof setting !== "number") throw invalid();
+        return [key, setting] as const;
+      }));
+      return { params, segments: segments.map(parseParameterSegment), failed,
+        ...(fullWindow !== undefined && { fullWindow: parseParameterSegment(fullWindow) }) };
+    }) };
 }
 
 function parseWalkForwardManifest(value: unknown): TspWalkForwardInput {
@@ -659,6 +691,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const input = parseBacktestRobustnessManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspBacktestRobustness(input); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-parameter-robustness") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseParameterRobustnessManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return computeTspParameterRobustness(input); }
     catch { throw invalid(); }
   }
   if (action === "replay-walk-forward") {
