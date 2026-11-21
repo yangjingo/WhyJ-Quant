@@ -30,6 +30,7 @@ import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../s
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
+import { computeTspScreenerScores, type TspScreenerScoreInput } from "../../../src/quant/index.ts";
 
 const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
@@ -438,6 +439,15 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
     }
+  }
+  if (action === "replay-screener-score") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const value = await readObservationJsonFile(path, maxObservationManifestBytes, signal);
+    if (typeof value !== "object" || value === null || Array.isArray(value) ||
+      !("version" in value) || value.version !== 1 || !("input" in value) || Object.keys(value).length !== 2) throw invalid();
+    try { return computeTspScreenerScores(value.input as TspScreenerScoreInput); }
+    catch { throw invalid(); }
   }
   if (action === "replay-list-liquidity") {
     const fields = parseOptions(options, ["--revision", "--symbol"]);
