@@ -24,6 +24,8 @@ export { computeTspAuctionPerformance, TSP_AUCTION_PERFORMANCE_FORMULA_VERSION }
 export type { TspAuctionPerformanceInput } from "./tsp-auction-performance.ts";
 export { computeTspFactorInformation, TSP_FACTOR_INFORMATION_FORMULA_VERSION } from "./tsp-factor-information.ts";
 export type { TspFactorInformationInput, TspFactorInformationRow } from "./tsp-factor-information.ts";
+export { computeTspFactorGroups, TSP_FACTOR_GROUPS_FORMULA_VERSION } from "./tsp-factor-groups.ts";
+export type { TspFactorGroupsInput } from "./tsp-factor-groups.ts";
 export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "./tsp-research-factors.ts";
 export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId, TspResearchFinancialReport } from "./tsp-research-factors.ts";
 export { computeTspPriceLevels, TSP_PRICE_LEVEL_FORMULA_VERSION } from "./tsp-price-levels.ts";
