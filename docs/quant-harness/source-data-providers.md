@@ -161,3 +161,9 @@ PDF 引擎固定为 `unpdf 1.9.1`，符合当前 Node 22 版本范围；通过 B
 ### 交易日观察记录
 
 Source 可将选定供应商的交易日日线转换为版本 2 记录。Tushare 的来源时间戳为空，成交量和成交额分别保留手和千元单位。TickFlow 保留供应商时间戳，单位仍为未知。交易日模式写入独立的 v2 归档，历史覆盖、真实授权和收盘状态需要独立证据。
+
+### TickFlow 指数历史分时
+
+`fetchDatedIndexMinutes` 读取单个交易所限定的 A 股基准指数和已结束的上海日期。它使用历史 `/v1/klines`，请求 `1m`、`adjust=none` 和北京时间 09:25 至 15:05。结果保留指数点位 OHLC、原始毫秒时间戳、成交量、可空成交额与本地观测时间。数据尚无确认的时间标签口径和量额单位时保持 `provider-native`。
+
+空响应保留准确日期。鉴权、错误标的、重复时间或区间外响应报错。调用成功只表示所返回的样本通过校验，覆盖状态为 `unknown`。实际账户的权限、留存和时间标签需要实盘样本确认。此 Source 计算不产生午休或昨收等派生值。 [TSP 分钟请求](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/services/kline_sync.py#L1366)
