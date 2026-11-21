@@ -11,12 +11,14 @@ test("CLI reconstructs scored daily candidates from exact local archive revision
   const manifest = join(root, "scope.json");
   const prior = process.env.OHQUANT_DIR;
   const symbol = "600001.SH", tradeDate = "2024-01-15", observedAt = "2024-01-16T03:00:00Z";
+  const emptySymbol = "600002.SH";
   const sessions = ["2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12", tradeDate];
   const metadata = { tradeDate, observedAt, coverage: "unknown" } as const;
   const snapshot: StoredMarketCrossSection = {
     market: "A", source: "tushare", tradeDate,
     universe: { ...metadata, endpoint: "bak_basic", universe: "provider-dated-stocks",
-      members: [{ symbol, name: "fixture", listedOn: null, industry: null }] },
+      members: [{ symbol, name: "fixture", listedOn: null, industry: null },
+        { symbol: emptySymbol, name: "missing observations", listedOn: null, industry: null }] },
     bars: { ...metadata, endpoint: "daily", adjustment: "none", priceUnit: "CNY", volumeUnit: "hand", amountUnit: "CNY-thousand",
       rows: [{ symbol, open: 10, high: 10, low: 10, close: 10, exRightsPreviousClose: null,
         returnPct: null, changeCny: null, volume: 10, amount: 125 }] },
@@ -54,6 +56,7 @@ test("CLI reconstructs scored daily candidates from exact local archive revision
     const help = await run("--help");
     expect(help.output.data.commands.map((entry: { command: string }) => entry.command)).toEqual(expect.arrayContaining([
       "whyj --json observation replay-screener-archives", "whyj --json observation replay-screener-union",
+      "whyj --json observation replay-list-rows",
     ]));
     const command = ["observation", "replay-screener-archives", "--manifest", manifest];
     const original = JSON.stringify(input);
@@ -98,6 +101,33 @@ test("CLI reconstructs scored daily candidates from exact local archive revision
     }
     writeFileSync(manifest, JSON.stringify({ ...union, marketRevision: "0".repeat(64) }));
     expect(await run(...unionCommand)).toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
+
+    const { histories, ...listScope } = scope;
+    const list = { ...listScope, stocks: [{ symbol: emptySymbol }, ...histories] };
+    const listCommand = ["observation", "replay-list-rows", "--manifest", manifest];
+    writeFileSync(manifest, JSON.stringify(list));
+    expect(await run(...listCommand)).toMatchObject({ code: 0, output: { ok: true, data: {
+      marketRef, tradeDate, source: "tushare",
+      observations: { daily: { volumeUnit: "hand", amountUnit: "CNY-thousand" } },
+      rows: [{
+        instrument: { symbol: emptySymbol },
+        observations: { bar: null, basic: null },
+        metrics: { daily: null, history: null, signals: null },
+      }, {
+        instrument: { symbol },
+        observations: { bar: { close: 10, amount: 125 }, quantities: { volumeShares: 1_000, amountCny: 125_000 } },
+        metrics: { daily: { producer: "whyj", date: tradeDate },
+          history: { ref: dailyRef, source: "tickflow" },
+          signals: { values: { signal_volume_surge: true } } },
+      }],
+    } } });
+    writeFileSync(manifest, JSON.stringify({ ...list, stocks: [{ symbol, limitsRevision: "0".repeat(64) }] }));
+    expect(await run(...listCommand)).toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
+    for (const stocks of [[{ symbol }, { symbol }], [{ symbol: "600003.SH" }],
+      [{ symbol, dailyRevision: "0".repeat(64) }]]) {
+      writeFileSync(manifest, JSON.stringify({ ...list, stocks }));
+      expect(await run(...listCommand)).toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
+    }
   } finally {
     if (prior === undefined) delete process.env.OHQUANT_DIR;
     else process.env.OHQUANT_DIR = prior;

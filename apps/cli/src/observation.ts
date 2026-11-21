@@ -33,6 +33,7 @@ import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../s
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
+import { replayTspListRows, type TspListRowsRequest } from "../../../src/runtime/data/list-rows.ts";
 import { replayTspScreener, replayTspScreenerUnion, type ScreenerReplayRequest,
   type ScreenerUnionReplayRequest } from "../../../src/runtime/data/screener-replay.ts";
 
@@ -116,33 +117,36 @@ function observationManifestObject(value: unknown, keys: readonly string[]): Rec
   return value as Record<string, unknown>;
 }
 
-function parseArchivedStockHistories(histories: unknown): AbnormalSnapshotReplayRequest["histories"] {
-  if (!Array.isArray(histories)) throw invalid();
-  return histories.map((value: unknown) => {
-    const { symbol, dailyRevision, limitsRevision, rawRevision } =
-      observationManifestObject(value, ["symbol", "dailyRevision", "limitsRevision", "rawRevision"]);
-    if (typeof symbol !== "string" || !datedStock.test(symbol) || typeof dailyRevision !== "string" || !revisionPattern.test(dailyRevision) ||
-      (limitsRevision !== undefined && (typeof limitsRevision !== "string" || !revisionPattern.test(limitsRevision))) ||
-      (rawRevision !== undefined && (limitsRevision === undefined || typeof rawRevision !== "string" || !revisionPattern.test(rawRevision)))) {
-      throw invalid();
-    }
-    return {
-      symbol, ref: { version: 2, revision: dailyRevision },
-      ...(limitsRevision && { exchange: {
-        tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
-        ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
-      } }),
-    };
-  });
+const archivedStockKeys = ["symbol", "dailyRevision", "limitsRevision", "rawRevision"] as const;
+
+function parseArchivedStockHistory({ symbol, dailyRevision, limitsRevision, rawRevision }: Record<string, unknown>):
+  AbnormalSnapshotReplayRequest["histories"][number] {
+  if (typeof symbol !== "string" || !datedStock.test(symbol) || typeof dailyRevision !== "string" || !revisionPattern.test(dailyRevision) ||
+    (limitsRevision !== undefined && (typeof limitsRevision !== "string" || !revisionPattern.test(limitsRevision))) ||
+    (rawRevision !== undefined && (limitsRevision === undefined || typeof rawRevision !== "string" || !revisionPattern.test(rawRevision)))) {
+    throw invalid();
+  }
+  return {
+    symbol, ref: { version: 2, revision: dailyRevision },
+    ...(limitsRevision && { exchange: {
+      tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
+      ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
+    } }),
+  };
 }
 
-function parseScreenerArchiveScope({ version, marketRevision, adjustment, histories }: Record<string, unknown>):
-  Pick<ScreenerReplayRequest, "marketRef" | "adjustment" | "histories"> {
+function parseArchivedStockHistories(histories: unknown): AbnormalSnapshotReplayRequest["histories"] {
+  if (!Array.isArray(histories)) throw invalid();
+  return histories.map(item => parseArchivedStockHistory(observationManifestObject(item, archivedStockKeys)));
+}
+
+function parseDatedMarketArchiveScope({ version, marketRevision, adjustment }: Record<string, unknown>):
+  Pick<TspListRowsRequest, "marketRef" | "adjustment"> {
   if (version !== 1 || typeof marketRevision !== "string" || !revisionPattern.test(marketRevision) ||
     (adjustment !== "none" && adjustment !== "forward")) throw invalid();
   return {
     marketRef: { version: 1, kind: "market-cross-section", revision: marketRevision },
-    adjustment, histories: parseArchivedStockHistories(histories),
+    adjustment,
   };
 }
 
@@ -182,7 +186,8 @@ function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
     ...screenerStrategyKeys, "displayLimit"]);
   const { displayLimit } = manifest;
   if (displayLimit != null && (typeof displayLimit !== "number" || !Number.isSafeInteger(displayLimit) || displayLimit < 0)) throw invalid();
-  return { ...parseScreenerArchiveScope(manifest), ...parseScreenerStrategy(manifest), displayLimit };
+  return { ...parseDatedMarketArchiveScope(manifest), ...parseScreenerStrategy(manifest),
+    histories: parseArchivedStockHistories(manifest.histories), displayLimit };
 }
 
 function parseScreenerUnionManifest(value: unknown): ScreenerUnionReplayRequest {
@@ -190,7 +195,21 @@ function parseScreenerUnionManifest(value: unknown): ScreenerUnionReplayRequest 
   if (!Array.isArray(manifest.strategies) || !manifest.strategies.length) throw invalid();
   const strategies = manifest.strategies.map(item => parseScreenerStrategy(observationManifestObject(item, screenerStrategyKeys)));
   if (new Set(strategies.map(item => item.strategy.id)).size !== strategies.length) throw invalid();
-  return { ...parseScreenerArchiveScope(manifest), strategies };
+  return { ...parseDatedMarketArchiveScope(manifest), histories: parseArchivedStockHistories(manifest.histories), strategies };
+}
+
+function parseListRowsManifest(value: unknown): TspListRowsRequest {
+  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks"]);
+  if (!Array.isArray(manifest.stocks)) throw invalid();
+  const stocks = manifest.stocks.map(item => {
+    const entry = observationManifestObject(item, archivedStockKeys);
+    if (Object.keys(entry).length === 1 && typeof entry.symbol === "string" && datedStock.test(entry.symbol)) {
+      return { symbol: entry.symbol };
+    }
+    const { symbol, ...history } = parseArchivedStockHistory(entry);
+    return { symbol, history };
+  });
+  return { ...parseDatedMarketArchiveScope(manifest), stocks };
 }
 
 function parseBacktestRobustnessManifest(value: unknown): TspBacktestRobustnessInput {
@@ -559,6 +578,16 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
         { signal, previousClose: close });
     } catch {
       throw Object.assign(new Error("Could not replay the requested minute signal archives."), { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-list-rows") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseListRowsManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspListRows(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the list with these dated archives and stock scope."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-screener-archives" || action === "replay-screener-union") {

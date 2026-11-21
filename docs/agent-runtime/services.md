@@ -640,6 +640,12 @@ whyj --json observation replay-screener-score --manifest ./screener-score.json
 
 缺少行情或财务估值观察的标的仍占一行，对应观察为 `null`。日线历史缺少目标交易日时，技术指标和信号为 `null`，已有历史归档的实际结束日期随行返回。调用方可用这份结果展示固定日期，实时行情覆盖需要独立的报价时间和价格口径。
 
+```sh
+whyj --json observation replay-list-rows --manifest ./list-rows.json
+```
+
+清单包含 `version: 1`、`marketRevision`、`adjustment` 和 `stocks`。每项至少提供 `symbol`，附上 `dailyRevision` 可回放技术指标与信号。如需交易所限价信号，可同时提供 `limitsRevision` 及必要的 `rawRevision`。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
