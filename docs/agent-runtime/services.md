@@ -574,6 +574,14 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 调用方可指定内置日线信号的任一或全部匹配条件。回放保留每只股票的实际信号、归档和命中状态，再把命中集合交给横截面评分。评分可使用 WHYJ 日线指标、WHYJ 流通市值及截面的未复权收盘、成交额、换手率、PE TTM 和 PB。返回的字段来源、公式和候选修订用于复核。调用方指定的股票范围与归档股票池规模分别记录。
 
+CLI 读取本地版本 1 清单并执行相同的归档回放。
+
+```sh
+whyj --json observation replay-screener-archives --manifest ./screener-archives.json
+```
+
+清单包含 `version: 1`、`marketRevision`、`adjustment`、`strategy` 的 `id` 和 `revision`、`weights` 和 `histories`。每条历史包含 `symbol`、`dailyRevision`，可选 `limitsRevision` 和配套 `rawRevision`。可选的 `signalGate` 接收 `mode` 和内置信号 ID 数组 `signals`，设定入选条件。排序与上限的配置和评分回放一致。
+
 ### 选股候选评分回放
 
 ```sh
