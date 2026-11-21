@@ -428,3 +428,45 @@ whyj --json observation replay-analytics --revision DAILY_SHA --financial-report
 `replayTspFactorEvaluation` 对固定交易日日历内的股票日线重算选定研究因子。每只股票可传入多个同来源、不重叠的日线归档，股票间使用同一复权口径。`evaluationStart` 之前的日线只用于因子预热。正式区间内的截面因子值、Rank IC、年度统计、衰减、分组净值、换手和理论多空都从同一份输入复算。
 
 换手率按标的和交易日读取固定截面归档。涨停因子使用同日未复权收盘价和交易所有效涨停阈值。财务因子使用信号日前已经采集并披露的报告和独立披露证据，PB 还需要对该归档版本和报告期确认未复权人民币口径。每个缺口保留为空，相邻日期和后续财务修订不会补写更早的信号。回放结果保留输入归档出处，历史价格和交易所数据的原始发布时点及覆盖范围仍未知。
+
+使用 `whyj --json observation replay-factor-evaluation --manifest factor.json`。用各采集回执中的 SHA-256 摘要替换示例占位符。提供完整的交易日序列，`evaluationStart` 可省略，默认从第一天检验。每个标的至少有一份日线归档。换手、财报、披露、涨跌停和分组设置均可按所选因子省略。日线已是不复权时，`exchange.rawRevisions` 可以省略。示例的费用和印花税为比例，滑点为基点。
+
+```json
+{
+  "factorId": "pb_latest",
+  "rebalance": "daily",
+  "sessions": ["2026-01-05", "2026-01-06", "2026-01-07"],
+  "evaluationStart": "2026-01-06",
+  "symbols": [
+    {
+      "symbol": "600001.SH",
+      "dailyRevisions": ["DAILY_SHA256"],
+      "financialReportRevisions": ["REPORT_SHA256"],
+      "financialDisclosureRevisions": ["DISCLOSURE_SHA256"],
+      "bookValueBasis": [
+        {
+          "reportRevision": "REPORT_SHA256",
+          "periodEnd": "2025-09-30",
+          "basis": "caller-confirmed-unadjusted-CNY"
+        }
+      ],
+      "exchange": {
+        "rawRevisions": ["RAW_DAILY_SHA256"],
+        "limitRevisions": ["LIMIT_SHA256"]
+      }
+    },
+    { "symbol": "000001.SZ", "dailyRevisions": ["SECOND_DAILY_SHA256"] }
+  ],
+  "turnoverRevisions": ["DAILY_`ET_SHA256"],
+  "groups": {
+    "groupCount": 5,
+    "weight": "factor_weight",
+    "feesFraction": 0.0002,
+    "commissionFraction": 0.0002,
+    "stampTaxFraction": 0.0005,
+    "slippageBps": 5
+  }
+}
+```
+
+JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` 和 `grouping` 分别提供 Rank IC 和分组结果。财务因子需要足够的同期证据，示例中缺少相应报告的股票保留空值。输入格式错误会返回 `invalid_arguments`。无法重放的因子或归档会返回 `observation_archive_unavailable`。
