@@ -288,6 +288,40 @@ export interface BenchmarkIndexArchiveRef {
   revision: string;
 }
 
+export interface StoredDatedIndexMinuteBar {
+  sourceTimestamp: number;
+  openPoints: number;
+  highPoints: number;
+  lowPoints: number;
+  closePoints: number;
+  volume: number;
+  amount: number | null;
+}
+
+export interface StoredDatedIndexMinuteBatch {
+  source: "tickflow";
+  endpoint: "/v1/klines";
+  market: "A";
+  symbol: string;
+  tradeDate: string;
+  observedAt: string;
+  coverage: "unknown";
+  interval: "1m";
+  priceBasis: "index-level";
+  priceUnit: "index-points";
+  volumeUnit: "provider-native";
+  amountUnit: "provider-native";
+  timeZone: "Asia/Shanghai";
+  timestampLabel: "provider-native";
+  rows: StoredDatedIndexMinuteBar[];
+}
+
+export interface DatedIndexMinuteArchiveRef {
+  version: 1;
+  kind: "dated-index-minute";
+  revision: string;
+}
+
 export interface StoredAuctionBenchmark {
   source: "fuyao";
   endpoint: "/api/a-share/auction/short-term-benchmark";
