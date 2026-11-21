@@ -225,7 +225,7 @@ export function fetchTushareReportFinancialIndicators(symbol: string, startPerio
   return fetchFinancialRows("fina_indicator", symbol, {
     start_date: startPeriod.replaceAll("-", ""), end_date: endPeriod.replaceAll("-", ""),
   }, ["ts_code", "end_date", "ann_date", "update_flag", "bps", "roe", "grossprofit_margin", "netprofit_margin",
-    "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets"], 100, options);
+    "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets", "eps"], 100, options);
 }
 
 export function fetchTushareFinancialDisclosureDates(symbol: string, periodEnd: string, options: TushareOptions) {

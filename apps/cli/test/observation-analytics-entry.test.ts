@@ -11,7 +11,7 @@ test("CLI collects separate financial evidence and replays the complete fixed an
   const report = ["observation", "collect-financial-indicators", "--symbol", symbol, "--start", period, "--end", period];
   const disclosure = ["observation", "collect-disclosure-dates", "--symbol", symbol, "--period", period];
   const reportFields = ["ts_code", "end_date", "ann_date", "update_flag", "bps", "roe", "grossprofit_margin", "netprofit_margin",
-    "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets"];
+    "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets", "eps"];
   const disclosureFields = ["ts_code", "end_date", "ann_date", "pre_date", "actual_date", "modify_date"];
   let reportMode: "denied" | "empty" | "available" = "denied";
   let calls = 0, stopped = false;
@@ -23,7 +23,7 @@ test("CLI collects separate financial evidence and replays the complete fixed an
       expect(body.params).toEqual({ ts_code: symbol, start_date: "20241231", end_date: "20241231" });
       if (reportMode === "denied") return new Response(token, { status: 403 });
       return Response.json({ code: 0, data: { fields: reportFields,
-        items: reportMode === "empty" ? [] : [[symbol, "20241231", "20250428", "1", 6, 8, 0, null, 11, 14, -3, 62]] } });
+        items: reportMode === "empty" ? [] : [[symbol, "20241231", "20250428", "1", 6, 8, 0, null, 11, 14, -3, 62, -0.42]] } });
     }
     expect(body.api_name).toBe("disclosure_date");
     expect(body.params).toEqual({ ts_code: symbol, end_date: "20241231" });
@@ -96,15 +96,18 @@ test("CLI collects separate financial evidence and replays the complete fixed an
 
     const evidence = ["--financial-report-revisions", capturedReport.ref.revision, "--financial-disclosure-revisions", capturedDisclosure.ref.revision];
     const replay = (revision: string, ...flags: string[]) => run("observation", "replay-analytics", "--revision", revision, ...flags);
-    expect(await replay(early.revision, ...evidence)).toMatchObject({ code: 0, output: { data: {
+    const beforePublicationEvidence = await replay(early.revision, ...evidence);
+    expect(beforePublicationEvidence).toMatchObject({ code: 0, output: { data: {
       input: { financialInput: { status: "unavailable" } }, researchFactors: { values: { roe_latest: null } },
     } } });
+    expect(beforePublicationEvidence.output.data.input.financialInput).not.toHaveProperty("report");
     const flags = [...evidence, "--turnover-revisions", turnover.revision];
     const first = await replay(eligible.revision, ...flags);
     expect(await replay(eligible.revision, ...flags)).toEqual(first);
     expect(first).toMatchObject({ code: 0, output: { data: {
       input: { financialInput: { status: "available", reportEvidence: [{ ref: capturedReport.ref }],
-        disclosureEvidence: [{ ref: capturedDisclosure.ref }] } },
+        disclosureEvidence: [{ ref: capturedDisclosure.ref }],
+        report: { periodEnd: period, basicEarningsPerShare: -0.42, earningsPerShareCurrency: "unknown" } } },
       researchFactors: { producer: "whyj", asOf: next, values: { roe_latest: 8, gross_margin_latest: 0, net_margin_latest: null,
         revenue_yoy_latest: 11, net_income_yoy_latest: -3, debt_ratio_latest: 62, pb_latest: null, turnover_rate: 2.5 } },
     } } });

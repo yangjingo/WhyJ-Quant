@@ -453,6 +453,8 @@ whyj --json observation replay-analytics --revision DAILY_SHA --financial-report
 
 `replay-analytics` 可完全离线运行，并返回 77 个研究因子字段与 11 组图表价位。引用列表可用逗号连接，`--turnover-revisions` 接收逐日市场截面归档。仅在掌握币种证据时使用 `--confirm-unadjusted-cny-book-value REPORT_SHA,2024-12-31` 确认特定版本和报告期。未确认的 PB 保持为空，后于回放日期采集的财务指标也保持不可用。
 
+符合时点要求的报告在 `input.financialInput.report` 返回基本 EPS、币种证据及其他原报字段。报告归档来自尚未请求 EPS 的版本时，旧记录没有这两个字段。新归档里的 `null` 表示该次响应没有提供基本 EPS。
+
 ### 因子检验归档回放
 
 `replayTspFactorEvaluation` 对固定交易日日历内的股票日线重算选定研究因子。每只股票可传入多个同来源、不重叠的日线归档，股票间使用同一复权口径。`evaluationStart` 之前的日线只用于因子预热。正式区间内的截面因子值、Rank IC、年度统计、衰减、分组净值、换手和理论多空都从同一份输入复算。

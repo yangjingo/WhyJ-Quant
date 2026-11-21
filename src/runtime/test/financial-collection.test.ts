@@ -12,9 +12,9 @@ const periodEnd = "2024-12-31";
 const report = { kind: "report-financial-indicators", symbol, startPeriod: "2024-01-01", endPeriod: periodEnd } as const;
 const disclosure = { kind: "financial-disclosure-dates", symbol, periodEnd } as const;
 const reportFields = ["ts_code", "end_date", "ann_date", "update_flag", "bps", "roe", "grossprofit_margin", "netprofit_margin",
-  "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets"];
+  "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets", "eps"];
 const disclosureFields = ["ts_code", "end_date", "ann_date", "pre_date", "actual_date", "modify_date"];
-const reportRow = [symbol, "20241231", "20250429", "1", 12, null, 0, 3.5, 8, 10, -1.5, 75];
+const reportRow = [symbol, "20241231", "20250429", "1", 12, null, 0, 3.5, 8, 10, -1.5, 75, -0.75];
 const table = (fields: string[], items: unknown[][]) => Response.json({ code: 0, data: { fields, items } });
 const preconnect = fetch.preconnect;
 
@@ -35,7 +35,7 @@ afterEach(() => {
 
 test("configured financial collection keeps both archived responses separate and offline-readable", async () => {
   const http = spyOn(globalThis, "fetch")
-    .mockResolvedValueOnce(table(reportFields, [reportRow, [symbol, "20241231", "20250428", "0", 11, 0, 8, null, null, null, null, null]]))
+    .mockResolvedValueOnce(table(reportFields, [reportRow, [symbol, "20241231", "20250428", "0", 11, 0, 8, null, null, null, null, null, 0]]))
     .mockResolvedValueOnce(table(disclosureFields, [[symbol, "20241231", "20250103", "20250422", "20250428", "20250321,20250422"]]));
   try {
     const indicators = await collectFinancialObservations({ ...report, symbol: "600000" });
@@ -53,7 +53,8 @@ test("configured financial collection keeps both archived responses separate and
     http.mockRejectedValue(new Error("Unexpected provider I/O while reopening"));
     expect(await loadFinancialObservationArchive(indicators.ref)).toMatchObject({ observedAt: indicators.observedAt,
       requested: { startPeriod: report.startPeriod, endPeriod: report.endPeriod }, rows: [
-        { periodEnd, updateFlag: "1", roe: null, grossProfitMargin: 0 }, { periodEnd, updateFlag: "0", roe: 0 },
+        { periodEnd, updateFlag: "1", roe: null, grossProfitMargin: 0, basicEarningsPerShare: -0.75, earningsPerShareCurrency: "unknown" },
+        { periodEnd, updateFlag: "0", roe: 0, basicEarningsPerShare: 0, earningsPerShareCurrency: "unknown" },
       ] });
     expect(await loadFinancialObservationArchive(dates.ref)).toMatchObject({ observedAt: dates.observedAt,
       requested: { periodEnd }, rows: [{ periodEnd, actualDisclosureDate: "2025-04-28", modificationRecord: "20250321,20250422" }] });
