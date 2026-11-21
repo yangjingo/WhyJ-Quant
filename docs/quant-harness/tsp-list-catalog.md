@@ -85,3 +85,9 @@ Rank IC correlates the average ranks of factor and return within each paired cro
 NAV starts at one. A group with no paired outcome in a period carries its NAV and reports a null period return. Group performance uses the pinned calendar-year annualization and derives the Sharpe and win rate from successive recorded NAV values. Sharpe uses 252, 52 or 12 periods per year for daily, weekly or monthly rebalancing. Turnover averages half the absolute weight changes between successive observed positions of the highest observed group.
 
 The 50/50 theoretical spread pairs the highest and lowest observed group paths and applies the pinned spread cost. It carries `executableShort: false` and reports no spread when fewer than two groups have outcomes. Group and spread diagnostics describe the supplied historical panel. [Pinned TSP group and spread methods](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/factor.py)
+
+## Factor IC by market state
+
+Optional market observations attach the previous exchange session's state and score to each priced evaluation date. Strong and lean-strong form the strong bucket, range keeps its own bucket, and lean-weak and weak form the weak bucket. Each bucket keeps the priced date count and mean score independently of the count and statistics of its valid unrounded IC samples.
+
+A priced first day without a preceding session is reported under `unclassifiedAtStart`. Once the predecessor is known, missing prior-session observations fail the diagnostic, including inside the calendar when the selected factor universe has no prices. The caller supplies an exact exchange calendar and, when available, its immediately preceding date. [Pinned TSP alignment](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/regime_alignment.py)
