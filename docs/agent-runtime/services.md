@@ -493,3 +493,42 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 ```
 
 响应包含 Sortino 样本口径、单笔最好与最差收益、中位收益及平均持仓天数。模拟 P50 和 P95 是带符号的回撤比例。少于三笔时两项分位为空，关闭模拟时省略该结果。
+
+### 滚动样本外验证
+
+用 `whyj --json observation replay-walk-forward --manifest folds.json` 重算已完成的训练与测试窗口。`trainDays`、`testDays` 和 `stepDays` 以日历日为单位，起止日期为闭区间。`minHeldOutTrades` 默认 10，设为 0 可关闭门槛。命令最多输出 7,000 个窗口。
+
+```json
+{
+  "start": "2024-01-01",
+  "end": "2024-05-01",
+  "trainDays": 90,
+  "testDays": 30,
+  "stepDays": 30,
+  "objective": "sortino",
+  "direction": "max",
+  "folds": [
+    {
+      "window": {
+        "index": 0,
+        "trainStart": "2024-01-01",
+        "trainEnd": "2024-03-31",
+        "testStart": "2024-04-01",
+        "testEnd": "2024-05-01"
+      },
+      "training": {
+        "candidateId": "candidate-a",
+        "objective": 2
+      },
+      "heldOut": {
+        "candidateId": "candidate-a",
+        "objective": 1.5,
+        "totalReturn": 0.1,
+        "tradeCount": 12
+      }
+    }
+  ]
+}
+```
+
+`training` 或 `heldOut` 缺失时填 `null`，未知目标值也填 `null`。输出包含跳过原因、目标均值、退化、复利收益和各测试窗口结束时的权益。重叠测试窗口会标记在 `overlappingTestWindows`，它们的复利可能重复计入相同交易日。输入由用户显式提供，命令只做本地回放。计算规则见 [TSP 指标目录](../quant-harness/tsp-list-catalog.md#walk-forward-evaluation)。
