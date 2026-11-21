@@ -114,6 +114,12 @@ Segment champions determine the convergence label. For the top candidate, the sc
 
 The pinned TSP code filters missing segment objectives from score statistics. WhyJ preserves that behavior and requires a finite score to declare a best candidate. WhyJ preserves zero scores and evaluates the segment winner with a single direction normalization. Executing the strategy grid and obtaining historical inputs require separately verified evidence. [TSP parameter optimizer](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/robust_optimizer.py)
 
+## Abnormal snapshot ranking
+
+`rankTspAbnormalSnapshot` orders one dated observation set by the highest matched category: limit-up, broken limit-up, limit-down recovery, limit-down, new high, new low and volume surge. It then sorts by absolute daily change and resolves exact ties by symbol. A missing change sorts with zero while the observed value remains null.
+
+Every true category contributes to counts before truncation. The result reports unknown flags separately, including on dates without matches. An output row retains all its matched categories in priority order. The default limit is 500 and the calculator accepts 1–2,000. [Pinned TSP ranking](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/services/abnormal_moves.py#L274)
+
 ## Custom minute signal events
 
 `computeTspIntradaySignal` combines comparisons on the eleven completed-minute features with AND. Each rule has an ID, one or more conditions and optional `minBars` (0–240). A condition takes a finite numeric value or an explicit `{field}` operand. Crossings compare the immediately preceding observed minute with the current minute using inclusive prior and strict current thresholds. Missing operands are false. The current condition must rise from false to true before the minimum-bar check. A suppressed edge does not fire later while the condition stays true. [Pinned TSP definitions](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/strategy/custom_signals.py#L642) · [TSP historical replay](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/signals.py#L306)
