@@ -3,9 +3,10 @@ import { deriveTspArchiveAnalytics } from "../../runtime/data/archive-analytics.
 import { collectObservations, collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators,
   type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
+import { replayTspListRows } from "../../runtime/data/list-rows.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
-  ObservationJobRequest, ObservationJobView } from "../../types/workbench.ts";
+  ObservationJobRequest, ObservationJobView, ObservationListRowsPreview, ObservationListRowsRequest } from "../../types/workbench.ts";
 import type { TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
@@ -14,6 +15,7 @@ const notFound = () => new WorkbenchError("OBSERVATION_JOB_NOT_FOUND", "未找�
 const intervals = ["1m", "5m", "10m", "15m", "30m", "60m"];
 const day = 86_400_000;
 const revision = /^[a-f0-9]{64}$/;
+const datedStock = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const invalidReference = () => new WorkbenchError("INPUT_INVALID", "日线归档引用无效。", 400);
@@ -24,7 +26,7 @@ function dailyReference(value: unknown): TradingDateArchiveRef {
   return { version: 2, revision: value.revision };
 }
 
-function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars">(
+function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars" | "market-cross-section">(
   value: unknown, kind: Kind, error: () => WorkbenchError,
 ) {
   if (!object(value) || Object.keys(value).length !== 3 || !["version", "kind", "revision"].every(key => Object.hasOwn(value, key)) ||
@@ -43,6 +45,41 @@ async function replayIndicators(ref: TradingDateArchiveRef, exchange?: DailySign
 
 export async function readObservationIndicators(value: unknown): Promise<ObservationIndicatorPreview> {
   return replayIndicators(dailyReference(value));
+}
+
+const invalidListRows = () => new WorkbenchError("INPUT_INVALID", "股票列表范围或归档引用无效。", 400);
+
+function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][number] {
+  if (!object(value) || Object.keys(value).some(key => key !== "symbol" && key !== "history") ||
+    typeof value.symbol !== "string" || !datedStock.test(value.symbol)) throw invalidListRows();
+  const { symbol, history } = value;
+  if (!Object.hasOwn(value, "history")) return { symbol };
+  if (!object(history) || Object.keys(history).some(key => key !== "ref" && key !== "exchange")) throw invalidListRows();
+  const ref = dailyReference(history.ref);
+  if (!Object.hasOwn(history, "exchange")) return { symbol, history: { ref } };
+  const exchange = history.exchange;
+  if (!object(exchange) || Object.keys(exchange).some(key => key !== "rawArchiveRef" && key !== "tradingLimitArchiveRef")) {
+    throw invalidListRows();
+  }
+  return { symbol, history: { ref, exchange: {
+    tradingLimitArchiveRef: fixedReference(exchange.tradingLimitArchiveRef, "daily-trading-limits", invalidListRows),
+    ...(Object.hasOwn(exchange, "rawArchiveRef") && { rawArchiveRef: dailyReference(exchange.rawArchiveRef) }),
+  } } };
+}
+
+export async function readObservationListRows(value: unknown): Promise<ObservationListRowsPreview> {
+  if (!object(value) || Object.keys(value).length !== 3 ||
+    !["marketRef", "adjustment", "stocks"].every(key => Object.hasOwn(value, key)) ||
+    (value.adjustment !== "none" && value.adjustment !== "forward") ||
+    !Array.isArray(value.stocks) || value.stocks.length > 100) throw invalidListRows();
+  const marketRef = fixedReference(value.marketRef, "market-cross-section", invalidListRows);
+  const stocks = value.stocks.map(listRowStock);
+  if (new Set(stocks.map(stock => stock.symbol)).size !== stocks.length) throw invalidListRows();
+  try {
+    return await replayTspListRows({ marketRef, adjustment: value.adjustment, stocks }, AbortSignal.timeout(25_000));
+  } catch {
+    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的股票列表归档。请核对归档引用后重试。", 404);
+  }
 }
 
 export async function readObservationAnalytics(value: unknown): Promise<ObservationAnalyticsPreview> {
@@ -105,7 +142,7 @@ export function observationJobRequest(value: unknown): ObservationJobRequest {
     const { startDate, endDate } = input;
     const keys = ["dataset", "symbol", "startDate", "endDate"];
     if (Object.keys(input).length !== keys.length || keys.some(key => !Object.hasOwn(input, key)) ||
-      typeof symbol !== "string" || !/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(symbol) ||
+      typeof symbol !== "string" || !datedStock.test(symbol) ||
       typeof startDate !== "string" || typeof endDate !== "string" || !isDailyDate(startDate) || !isDailyDate(endDate) ||
       startDate < (minutes ? "2010-01-01" : "0001-01-01") || endDate > "9998-12-31" || startDate > endDate ||
       Date.parse(endDate) - Date.parse(startDate) > (minutes ? 30 : 365) * day ||

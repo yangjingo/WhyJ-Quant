@@ -1,6 +1,7 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
 import type {
-  HistoricalMinuteArchiveRef, ObservationArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch,
+  HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch,
+  StoredMarketCrossSection,
   StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
 } from "./observation.ts";
 /**
@@ -297,6 +298,7 @@ export interface WorkbenchClient {
   readObservationIndicators?(ref: TradingDateArchiveRef): Promise<ObservationIndicatorPreview>;
   readObservationExchangeIndicators?(input: ObservationExchangePreviewRequest): Promise<ObservationIndicatorPreview>;
   readObservationIntraday?(input: ObservationIntradayRequest): Promise<ObservationIntradayPreview>;
+  readObservationListRows?(input: ObservationListRowsRequest): Promise<ObservationListRowsPreview>;
   readObservationAnalytics?(ref: TradingDateArchiveRef): Promise<ObservationAnalyticsPreview>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
@@ -415,6 +417,15 @@ export interface ObservationExchangePreviewRequest {
   tradingLimitArchiveRef: TradingLimitArchiveRef;
 }
 
+export interface ObservationListRowsRequest {
+  marketRef: MarketCrossSectionArchiveRef;
+  adjustment: "none" | "forward";
+  stocks: readonly { symbol: string; history?: {
+    ref: TradingDateArchiveRef;
+    exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef">;
+  } }[];
+}
+
 export interface ObservationIntradayRequest {
   archiveRef: HistoricalMinuteArchiveRef;
   tradeDate: string;
@@ -484,6 +495,41 @@ export interface ObservationIndicatorPreview {
       limits: ExchangeInputEvidence<TradingLimitArchiveRef>;
     };
   };
+}
+
+type DatedListDaily = NonNullable<ObservationIndicatorPreview["daily"]>;
+type DatedListSignals = NonNullable<ObservationIndicatorPreview["dailySignals"]>;
+
+export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSection, "source" | "market" | "tradeDate"> {
+  marketRef: MarketCrossSectionArchiveRef;
+  adjustment: ObservationListRowsRequest["adjustment"];
+  observations: {
+    roster: Omit<StoredMarketCrossSection["universe"], "members">;
+    daily: Omit<StoredMarketCrossSection["bars"], "rows">;
+    dailyBasic: Omit<StoredMarketCrossSection["basics"], "rows">;
+  };
+  rows: {
+    instrument: StoredMarketCrossSection["universe"]["members"][number];
+    observations: {
+      bar: StoredMarketCrossSection["bars"]["rows"][number] | null;
+      basic: StoredMarketCrossSection["basics"]["rows"][number] | null;
+      quantities: { volumeShares: number | null; amountCny: number | null };
+    };
+    metrics: {
+      liquidity: {
+        producer: "whyj";
+        formula: { id: "tsp_list_liquidity"; version: number; revision: string };
+        units: { floatValueCny: "CNY"; turnoverPct: "percentage-points" };
+        floatValueCny: number | null;
+        turnoverPct: number | null;
+      };
+      history: ({ ref: TradingDateArchiveRef } & ObservationIndicatorPreview["input"]) | null;
+      daily: (Pick<DatedListDaily, "producer" | "formula"> & DatedListDaily["rows"][number]) | null;
+      signals: (Pick<DatedListSignals, "producer" | "formula"> & DatedListSignals["rows"][number] & {
+        exchangeInputs: NonNullable<DatedListSignals["exchangeInputs"]> | null;
+      }) | null;
+    };
+  }[];
 }
 
 export interface ObservationAnalyticsPreview {
