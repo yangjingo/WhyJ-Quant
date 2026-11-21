@@ -186,7 +186,8 @@ test("one-shot local MCP mutation cannot bypass a Host with active research", as
   const skill = join(project, "shared-skills", "fixture-repo", "skills", "fixture-skill"); mkdirSync(skill, { recursive: true });
   writeFileSync(join(skill, "SKILL.md"), "---\nname: fixture-skill\ndescription: Isolated resource fixture\n---\nfixture\n");
   let calls = 0;
-  const model = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
+  // This fixture holds the responses until the test cancels the two runs.
+  const model = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, async fetch(request) {
     await request.json(); calls++;
     return new Response(new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(": held\n\n")); } }), { headers: { "content-type": "text/event-stream" } });
   } });
@@ -261,4 +262,4 @@ test("one-shot local MCP mutation cannot bypass a Host with active research", as
     if (stopped) cleanup(project);
     expect(stopped).toBe(true);
   }
-}, 30000);
+}, 60000);

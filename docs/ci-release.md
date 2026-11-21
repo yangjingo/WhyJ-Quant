@@ -85,6 +85,8 @@ The portfolio-switch-during-initialization regression labels its setup, identity
 
 The Workbench Host/core session-naming regression drains its owned test body before another test can reuse process-wide workspace settings, and restores the temporary environment even if provider startup or an earlier cleanup step fails. If it times out, a bounded fixture diagnostic records the fixed phase and synthetic provider request count; a stuck body stops the test process instead of releasing shared state. This prevents the controlled overlap observed in #197 without explaining the original Windows delays.
 
+The CLI resource-ownership regression deliberately holds two synthetic model responses until cancellation. Only that loopback server disables its idle timeout. The full two-Host scenario has a 60-second deadline, preserving the individual launch bounds, ownership assertions and explicit teardown.
+
 The Host resource-duration regression runs two complete sampling iterations for each synthetic variant under a bounded subprocess deadline. Its second iteration exercises the injected clock gap even on a slow runner. The standalone measurement harness still samples by elapsed duration.
 
 The fund-NAV concurrent-writer regression compares the complete sorted revision directory against the expected snapshot and commit marker. This preserves the missing-or-extra-file check without relying on filesystem enumeration order; it does not impose an ordering contract on storage consumers.
