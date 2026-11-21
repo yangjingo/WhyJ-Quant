@@ -167,3 +167,7 @@ Source 可将选定供应商的交易日日线转换为版本 2 记录。Tushare
 `fetchDatedIndexMinutes` 读取单个交易所限定的 A 股基准指数和已结束的上海日期。它使用历史 `/v1/klines`，请求 `1m`、`adjust=none` 和北京时间 09:25 至 15:05。结果保留指数点位 OHLC、原始毫秒时间戳、成交量、可空成交额与本地观测时间。数据尚无确认的时间标签口径和量额单位时保持 `provider-native`。
 
 空响应保留准确日期。鉴权、错误标的、重复时间或区间外响应报错。调用成功只表示所返回的样本通过校验，覆盖状态为 `unknown`。实际账户的权限、留存和时间标签需要实盘样本确认。此 Source 计算不产生午休或昨收等派生值。 [TSP 分钟请求](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/services/kline_sync.py#L1366)
+
+### TickFlow 指数历史日线
+
+`fetchDatedIndexDailyBars` 读取一个交易所限定的 A 股基准指数和已结束的上海日期区间，最多 366 个日历日。它复用 `/v1/klines` 日线日期校验，以 `adjust=none` 保留指数点位 OHLC、原始毫秒时间戳、成交量、可空成交额及本地观测时间。量额与时间标签保留 `provider-native`。同一日期的重复 bar、区间外行和身份错配报错，空行保留查询区间。覆盖仍为 `unknown`。日线归档与图表指标消费通过独立接口衔接。 [TSP 指数日线](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/indices.py#L41)
