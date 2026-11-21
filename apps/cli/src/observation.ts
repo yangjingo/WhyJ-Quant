@@ -2,7 +2,8 @@ import { open } from "node:fs/promises";
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import {
-  computeTspBacktestRobustness, computeTspParameterRobustness, computeTspWalkForward, TSP_PARAMETER_OBJECTIVES,
+  computeTspBacktestRobustness, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward,
+  TSP_DAILY_SIGNAL_FIELDS, TSP_PARAMETER_OBJECTIVES, type TspScreenerScoreInput,
   type TspBacktestRobustnessInput, type TspParameterRobustnessInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
@@ -30,7 +31,7 @@ import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../s
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
-import { computeTspScreenerScores, type TspScreenerScoreInput } from "../../../src/quant/index.ts";
+import { replayTspScreener, type ScreenerReplayRequest } from "../../../src/runtime/data/screener-replay.ts";
 
 const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
@@ -110,6 +111,56 @@ function observationManifestObject(value: unknown, keys: readonly string[]): Rec
   if (!value || typeof value !== "object" || Array.isArray(value) ||
     Object.keys(value).some(key => !keys.includes(key))) throw invalid();
   return value as Record<string, unknown>;
+}
+
+function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
+  const { version, marketRevision, adjustment, histories, signalGate, strategy, weights, orderBy, descending, displayLimit } =
+    observationManifestObject(value, ["version", "marketRevision", "adjustment", "histories", "signalGate",
+      "strategy", "weights", "orderBy", "descending", "displayLimit"]);
+  if (version !== 1 || typeof marketRevision !== "string" || !revisionPattern.test(marketRevision) ||
+    (adjustment !== "none" && adjustment !== "forward") || !Array.isArray(histories) || !Array.isArray(weights) ||
+    (orderBy !== undefined && (typeof orderBy !== "string" || !orderBy.trim() || orderBy !== orderBy.trim())) ||
+    (descending !== undefined && typeof descending !== "boolean") ||
+    (displayLimit != null && (typeof displayLimit !== "number" || !Number.isSafeInteger(displayLimit) || displayLimit < 0))) throw invalid();
+  const { id, revision } = observationManifestObject(strategy, ["id", "revision"]);
+  if (typeof id !== "string" || !id.trim() || id !== id.trim() || typeof revision !== "string" || !revisionPattern.test(revision)) throw invalid();
+  let gate: ScreenerReplayRequest["signalGate"];
+  if (signalGate !== undefined) {
+    const { mode, signals } = observationManifestObject(signalGate, ["mode", "signals"]);
+    if ((mode !== "any" && mode !== "all") || !Array.isArray(signals) || !signals.length ||
+      new Set(signals).size !== signals.length) throw invalid();
+    gate = { mode, signals: signals.map((value: unknown) => {
+      const signal = TSP_DAILY_SIGNAL_FIELDS.find(id => id === value);
+      if (!signal) throw invalid();
+      return signal;
+    }) };
+  }
+  return {
+    marketRef: { version: 1, kind: "market-cross-section", revision: marketRevision },
+    adjustment, strategy: { id, revision }, signalGate: gate, orderBy, descending, displayLimit,
+    histories: histories.map((value: unknown) => {
+      const { symbol, dailyRevision, limitsRevision, rawRevision } =
+        observationManifestObject(value, ["symbol", "dailyRevision", "limitsRevision", "rawRevision"]);
+      if (typeof symbol !== "string" || !datedStock.test(symbol) || typeof dailyRevision !== "string" || !revisionPattern.test(dailyRevision) ||
+        (limitsRevision !== undefined && (typeof limitsRevision !== "string" || !revisionPattern.test(limitsRevision))) ||
+        (rawRevision !== undefined && (limitsRevision === undefined || typeof rawRevision !== "string" || !revisionPattern.test(rawRevision)))) {
+        throw invalid();
+      }
+      return {
+        symbol, ref: { version: 2, revision: dailyRevision },
+        ...(limitsRevision && { exchange: {
+          tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
+          ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
+        } }),
+      };
+    }),
+    weights: weights.map((value: unknown) => {
+      const { field, weight, direction } = observationManifestObject(value, ["field", "weight", "direction"]);
+      if (typeof field !== "string" || !field.trim() || field !== field.trim() || typeof weight !== "number" ||
+        !Number.isFinite(weight) || weight < 0 || (direction !== undefined && direction !== "low" && direction !== "high")) throw invalid();
+      return { field, weight, direction };
+    }),
+  };
 }
 
 function parseBacktestRobustnessManifest(value: unknown): TspBacktestRobustnessInput {
@@ -438,6 +489,16 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the requested risk-warning list. Check the configured source with whyj --json doctor --phase data."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-screener-archives") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseScreenerArchiveManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspScreener(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the screener with these dated archives and strategy settings."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-screener-score") {
