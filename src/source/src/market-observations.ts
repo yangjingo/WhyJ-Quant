@@ -56,6 +56,8 @@ export interface ReportFinancialIndicator {
   periodEnd: string;
   announcementDate: string | null;
   updateFlag: string | null;
+  basicEarningsPerShare: number | null;
+  earningsPerShareCurrency: "unknown";
   bookValuePerShare: number | null;
   bookValueCurrency: "unknown";
   roe: number | null;
@@ -468,6 +470,7 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
         }
         return {
           symbol, periodEnd, announcementDate: financialDate(row.ann_date), updateFlag: financialText(row.update_flag),
+          basicEarningsPerShare: nullableNumber(row.eps), earningsPerShareCurrency: "unknown",
           bookValuePerShare: nullableNumber(row.bps), bookValueCurrency: "unknown", roe: nullableNumber(row.roe),
           grossProfitMargin: nullableNumber(row.grossprofit_margin), netProfitMargin: nullableNumber(row.netprofit_margin),
           operatingRevenueYoyPct: nullableNumber(row.or_yoy), totalOperatingRevenueYoyPct: nullableNumber(row.tr_yoy),

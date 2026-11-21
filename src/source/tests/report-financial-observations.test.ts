@@ -6,9 +6,9 @@ const periodEnd = "2024-12-31";
 const range = { ...input, startPeriod: "2024-01-01", endPeriod: periodEnd };
 const disclosure = { ...input, periodEnd };
 const indicatorFields = ["end_date", "ts_code", "ann_date", "update_flag", "bps", "roe", "grossprofit_margin", "netprofit_margin",
-  "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets"];
+  "or_yoy", "tr_yoy", "netprofit_yoy", "debt_to_assets", "eps"];
 const disclosureFields = ["ts_code", "end_date", "ann_date", "pre_date", "actual_date", "modify_date"];
-const indicator = ["20241231", input.symbol, "20250429", "1", 12, null, 0, 3.5, 8, 10, -1.5, 75];
+const indicator = ["20241231", input.symbol, "20250429", "1", 12, null, 0, 3.5, 8, 10, -1.5, 75, -0.75];
 const options = { source: "tushare", apiKey: "fixture", env: {} } as const;
 
 function table(fields: string[], items: unknown[][]) {
@@ -18,7 +18,11 @@ function table(fields: string[], items: unknown[][]) {
 test("dated Tushare financial observations preserve values, repeated periods and input provenance", async () => {
   const http = spyOn(globalThis, "fetch");
   try {
-    http.mockResolvedValueOnce(table(indicatorFields, [indicator, ["20241231", input.symbol, "20250428", "0", 11, 14, null, null, null, null, null, null]]));
+    http.mockResolvedValueOnce(table(indicatorFields, [
+      indicator,
+      ["20241231", input.symbol, "20250428", "0", 11, 14, null, null, null, null, null, null, 0],
+      ["20240930", input.symbol, "20241027", null, 10, 5, null, null, null, null, null, null, null],
+    ]));
     http.mockResolvedValueOnce(table(disclosureFields, [
       [input.symbol, "20241231", "20250103", "20250401", "20250428", "20250301,20250401"],
       [input.symbol, "20241231", "20250102", "20250301", null, null],
@@ -29,9 +33,12 @@ test("dated Tushare financial observations preserve values, repeated periods and
     expect(indicators).toMatchObject({ source: "tushare", market: "A", endpoint: "fina_indicator", coverage: "unknown",
       observedAt: expect.any(String), data: [
         { symbol: input.symbol, periodEnd, announcementDate: "2025-04-29", updateFlag: "1", bookValuePerShare: 12,
-          bookValueCurrency: "unknown", roe: null, grossProfitMargin: 0, netProfitMargin: 3.5, operatingRevenueYoyPct: 8,
+          bookValueCurrency: "unknown", basicEarningsPerShare: -0.75, earningsPerShareCurrency: "unknown",
+          roe: null, grossProfitMargin: 0, netProfitMargin: 3.5, operatingRevenueYoyPct: 8,
           totalOperatingRevenueYoyPct: 10, parentNetProfitYoyPct: -1.5, debtToAssets: 75, ratioUnit: "provider-native" },
-        { periodEnd, announcementDate: "2025-04-28", updateFlag: "0", bookValuePerShare: 11, roe: 14, grossProfitMargin: null },
+        { periodEnd, announcementDate: "2025-04-28", updateFlag: "0", bookValuePerShare: 11, roe: 14, grossProfitMargin: null,
+          basicEarningsPerShare: 0, earningsPerShareCurrency: "unknown" },
+        { periodEnd: "2024-09-30", basicEarningsPerShare: null, earningsPerShareCurrency: "unknown" },
       ] });
     expect(dates).toMatchObject({ source: "tushare", market: "A", endpoint: "disclosure_date", coverage: "unknown",
       observedAt: expect.any(String), data: [
@@ -41,7 +48,8 @@ test("dated Tushare financial observations preserve values, repeated periods and
           actualDisclosureDate: null, modificationRecord: null },
       ] });
     expect(http.mock.calls.map(call => JSON.parse(String(call[1]?.body)))).toMatchObject([
-      { api_name: "fina_indicator", params: { ts_code: input.symbol, start_date: "20240101", end_date: "20241231" } },
+      { api_name: "fina_indicator", params: { ts_code: input.symbol, start_date: "20240101", end_date: "20241231" },
+        fields: ["ts_code", "end_date", ...indicatorFields.slice(2)].join(",") },
       { api_name: "disclosure_date", params: { ts_code: input.symbol, end_date: "20241231" }, fields: disclosureFields.join(",") },
     ]);
   } finally { http.mockRestore(); }
