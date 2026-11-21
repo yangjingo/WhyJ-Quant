@@ -117,6 +117,9 @@ export interface StoredReportFinancialIndicator {
   periodEnd: string;
   announcementDate: string | null;
   updateFlag: string | null;
+  /** Absent in captures made before the basic EPS field was requested. */
+  basicEarningsPerShare?: number | null;
+  earningsPerShareCurrency?: "unknown";
   bookValuePerShare: number | null;
   bookValueCurrency: "unknown";
   roe: number | null;

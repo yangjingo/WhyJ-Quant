@@ -103,6 +103,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 `archiveFinancialObservations` 分别保存 Tushare `fina_indicator` 的单标的报告期范围响应，或 `disclosure_date` 的单标的单报告期响应。两类归档各自记录请求、端点和取数时间，保留同报告期多行、返回顺序、修订标记、零值和空值。空响应也有独立归档引用，覆盖标为未知。`loadFinancialObservationArchive` 按种类和内容摘要读取 `.ohquant/data/financial-observation-archives-v1/` 下的精确版本。历史回放需另外证明所用财务指标版本在判断时点已公开。
 
+报告行还可携带基本每股收益与币种证据。`basicEarningsPerShare` 为供应商原值，允许负数、零和空值。`earningsPerShareCurrency` 同时存在并标为 `unknown`。旧版报告行保留原有字段和内容摘要。
+
 `archiveSectorObservations` 按单个交易日分别归档东方财富板块目录 `dc_index` 和单板块成分 `dc_member` 的观察结果。每份归档保留其端点、分类口径、取数时间、原始行顺序和空值，成功的空响应也有精确引用。`loadSectorObservationArchive` 从 `.ohquant/data/sector-observation-archives-v1/` 按种类和摘要读取。后续排行使用归档中的提供商快照；交易日和取数时间仍分别记录，历史发布时间保持未知。
 
 `archiveRiskWarningObservations` 将 Tushare `stock_st` 的单日风险警示名单写入 `.ohquant/data/risk-warning-archives-v1/`。归档保留交易日、采集时刻、端点、供应商股票名称和风险警示分类。同一股票的不同分类按行保存，供应商成功返回的空列表也有引用。`loadRiskWarningArchive` 校验种类和内容摘要后离线读取。历史覆盖标记为未知，股票池筛选由 Runtime 处理。

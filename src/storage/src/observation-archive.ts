@@ -308,6 +308,7 @@ const financialBatchKeys = ["symbol", "market", "source", "endpoint", "observedA
 const reportNumberFields = ["bookValuePerShare", "roe", "grossProfitMargin", "netProfitMargin", "operatingRevenueYoyPct",
   "totalOperatingRevenueYoyPct", "parentNetProfitYoyPct", "debtToAssets"];
 const indicatorFields = ["periodEnd", "announcementDate", "updateFlag", "bookValueCurrency", "ratioUnit", ...reportNumberFields];
+const indicatorFieldsWithEps = [...indicatorFields, "basicEarningsPerShare", "earningsPerShareCurrency"];
 const disclosureDates = ["planAnnouncementDate", "plannedDisclosureDate", "actualDisclosureDate"];
 const disclosureFields = ["periodEnd", "modificationRecord", ...disclosureDates];
 
@@ -333,9 +334,12 @@ function validateFinancialBatch(batch: unknown): asserts batch is StoredFinancia
     if (!exactKeys(requested, ["startPeriod", "endPeriod"]) || !dailyDate(startPeriod) || !dailyDate(endPeriod) ||
       startPeriod > endPeriod || rows.length >= 100) throw fail();
     for (const row of rows) {
-      if (!object(row) || !exactKeys(row, indicatorFields) || !dailyDate(row.periodEnd) ||
+      if (!object(row)) throw fail();
+      const hasEps = Object.hasOwn(row, "basicEarningsPerShare");
+      if (!exactKeys(row, hasEps ? indicatorFieldsWithEps : indicatorFields) || !dailyDate(row.periodEnd) ||
         row.periodEnd < startPeriod || row.periodEnd > endPeriod || !optionalDate(row.announcementDate) || !optionalText(row.updateFlag) ||
         row.bookValueCurrency !== "unknown" || row.ratioUnit !== "provider-native" ||
+        (hasEps && (!finiteOrNull(row.basicEarningsPerShare) || row.earningsPerShareCurrency !== "unknown")) ||
         reportNumberFields.some(field => row[field] !== null && (typeof row[field] !== "number" || !Number.isFinite(row[field])))) throw fail();
     }
   } else if (batch.endpoint === "disclosure_date") {

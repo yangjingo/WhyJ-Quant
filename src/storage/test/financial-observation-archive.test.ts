@@ -57,6 +57,21 @@ test("financial archives retain independent observations, repeated periods and r
   expect(await loadFinancialObservationArchive(empty)).toEqual(missing);
 });
 
+test("optional basic EPS preserves both legacy report identities and new provider values", async () => {
+  const legacy = indicators();
+  const oldRef = await archiveFinancialObservations(legacy);
+  const extended = {
+    ...legacy, rows: [2.4, 0, -1.8, null].map(basicEarningsPerShare =>
+      ({ ...reportRow, basicEarningsPerShare, earningsPerShareCurrency: "unknown" as const })),
+  };
+  const newRef = await archiveFinancialObservations(extended);
+  expect(newRef.version).toBe(1);
+  expect(newRef.revision).not.toBe(oldRef.revision);
+  expect(await loadFinancialObservationArchive(newRef)).toEqual(extended);
+  expect(await loadFinancialObservationArchive(oldRef)).toEqual(legacy);
+  expect(await archiveFinancialObservations(legacy)).toEqual(oldRef);
+});
+
 test("financial archives reject invalid dates, foreign scope and saturated or malformed data", async () => {
   const report = indicators();
   const dates = disclosure();
@@ -64,6 +79,10 @@ test("financial archives reject invalid dates, foreign scope and saturated or ma
     { ...report, symbol: "000001.SH" }, { ...report, endpoint: "untrusted" },
     { ...report, observedAt: "2025-05-02" }, { ...report, rows: Array.from({ length: 100 }, () => reportRow) },
     { ...report, rows: [{ ...reportRow, bookValuePerShare: Infinity }] },
+    { ...report, rows: [{ ...reportRow, basicEarningsPerShare: 1 }] },
+    { ...report, rows: [{ ...reportRow, earningsPerShareCurrency: "unknown" }] },
+    { ...report, rows: [{ ...reportRow, basicEarningsPerShare: Infinity, earningsPerShareCurrency: "unknown" }] },
+    { ...report, rows: [{ ...reportRow, basicEarningsPerShare: null, earningsPerShareCurrency: "CNY" }] },
     { ...report, rows: [{ ...reportRow, periodEnd: "2023-12-31" }] },
     { ...dates, rows: [{ ...dates.rows[0], periodEnd: "2024-09-30" }] },
     { ...dates, rows: [{ ...dates.rows[0], actualDisclosureDate: "2025-02-30" }] },
