@@ -195,6 +195,8 @@ whyj --json observation replay-price-deviation --manifest deviation.json
 
 清单包含 `symbol`、`sessions`、`stockRevision` 与可选的 `benchmarkRevision`。将实际交易日按升序完整列入 `sessions`。计算 30 日偏离至少需要连续 31 个交易日和两份归档各自的窗口端点。
 
+输出的 `proximity` 为每个已结束的交易日记录 3、10、30 日偏离的方向阈值、接近度、主导窗口和状态。接近度以比例表示，由 WHYJ 基于固定 TSP 阈值口径计算。缺少股票或基准窗口端点时，对应接近度为空。[指标与阈值口径](../quant-harness/tsp-list-catalog.md#completed-session-stock-price-deviation)
+
 `collectDepthSnapshot({ tradeDate, symbols })` 对当前上海日期的明确 A 股标的清单发起 TickFlow 批量盘口采集。Runtime 按 Source 的请求上限依次读取各批，成功后生成一个固定归档。回执保留请求范围、批次数、实际归档行数、缺少的标的，以及因日期或接收时刻不匹配而排除的标的。所有批次成功但没有有效盘口时仍生成空归档。批次失败或采集取消时保留已有归档。
 
 Runtime 的 `collectFinancialObservations` 通过本机配置采集单只 A 股。`report-financial-indicators` 接受起止报告期，`financial-disclosure-dates` 接受一个精确报告期。收据包含实际来源、端点、采集时间、记录数和精确归档引用。Tushare 明确返回空响应时，状态为 `empty` 且仍保存捕获证据。无权限、取消或不支持时直接失败。采集与归档保留两类响应的独立时间，回放使用的财务版本需另行校验其可用时点。

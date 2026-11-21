@@ -71,13 +71,21 @@ test("CLI collects the selected BSE 50 benchmark and replays all three archived 
       benchmark: "899050.BJ", input: { stock: { ref: stock }, benchmark: { ref: collected.output.data.ref, source: "tickflow" } },
     } } });
     const day = result.output.data.rows.at(-1);
+    const proximity = result.output.data.proximity.rows.at(-1);
+    expect(result.output.data.proximity).toMatchObject({
+      basis: "completed-session", formula: { id: "tsp_deviation_proximity", version: 1 },
+    });
+    expect(proximity).toMatchObject({ date: day.date, dominantWindow: 30, tier: "below-watch" });
     for (const window of [3, 10, 30] as const) {
       expect(day.comparisonDates[window]).toBe(sessions.at(-1 - window)!);
       expect(day.values[`deviate_${window}d`]).toBeCloseTo(1.02 ** window - 1.01 ** window, 12);
+      expect(proximity.windows.find((entry: { window: number }) => entry.window === window).threshold)
+        .toBe({ 3: 0.4, 10: 1, 30: 2 }[window]);
     }
     const { benchmarkRevision: _reference, ...noBenchmark } = manifest;
     const missing = await replay(noBenchmark);
     expect(missing.output.data.rows.at(-1)?.values).toEqual({ deviate_3d: null, deviate_10d: null, deviate_30d: null });
+    expect(missing.output.data.proximity.rows.at(-1)).toMatchObject({ tier: "unavailable", maxCloseness: null });
     expect(await replay({ ...manifest, sessions: [start, start] })).toMatchObject({
       code: 1, output: { error: { code: "invalid_arguments" } },
     });
