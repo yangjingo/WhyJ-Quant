@@ -46,7 +46,7 @@ const afternoonIndex = 120;
 const openingRangeLength = 30;
 const volumeLookback = 10;
 
-function minuteIndex(minute: string): number {
+export function tspMinuteIndex(minute: string): number {
   if (!/^\d{2}:[0-5]\d$/.test(minute)) return -1;
   const wallMinute = Number(minute.slice(0, 2)) * 60 + Number(minute.slice(3));
   if (wallMinute >= 570 && wallMinute < 690) return wallMinute - 570;
@@ -108,7 +108,7 @@ export function computeTspIntraday(
 
   return bars.map(bar => {
     const { tradingDate, minute, close, volumeShares, amountCny } = bar;
-    const index = minuteIndex(minute);
+    const index = tspMinuteIndex(minute);
     const newDate = tradingDate !== previous?.tradingDate;
     if (index < 0 || !validBar(bar) || (previous && (tradingDate < previous.tradingDate || (!newDate && index <= previousIndex)))) {
       throw new Error("Invalid or unordered completed A-share minute bars");
