@@ -313,6 +313,17 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .observation-indicator-values > div { padding: 8px 12px; border-top: 1px solid var(--line); background: var(--panel); }
 .observation-indicator-values dt { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .observation-indicator-values dd { margin: 4px 0 0; color: var(--cream); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.observation-list .field-row { margin: 12px 0; min-width: 0; }
+.observation-list .field-row input { width: 100%; min-width: 0; }
+.observation-list-result { overflow-wrap: anywhere; }
+.observation-list-stock { border-top: 1px solid var(--line); }
+.observation-list-stock > summary { cursor: pointer; padding: 10px 0; }
+.observation-list-stock > summary > span { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; }
+.observation-list-stock > summary .supporting { font-size: 12px; }
+.observation-list-price { margin-inline-start: 10px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.observation-list-detail { padding: 8px 0 12px 14px; min-width: 0; }
+.observation-list-detail > details { margin-top: 8px; }
+.observation-list-detail summary { cursor: pointer; }
 @media (max-width: 600px) {
   .observation-indicator-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

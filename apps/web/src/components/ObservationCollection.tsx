@@ -87,24 +87,18 @@ function indicatorValue(field: string, value: number | null): string {
   return decimal.format(value) + (field === "vol_ratio_5d" ? "×" : "");
 }
 
-/** Present the latest values from the fixed archive selected by the preview request. */
-export function ObservationIndicatorResult({ result }: { result: ObservationIndicatorPreview }) {
-  const { daily, input, rows } = result;
-  const latest = rows.at(-1)!;
-  const formula = daily?.formula ?? result.formula;
-  const values = daily?.rows.at(-1)?.values;
-  const fields = new Set(daily?.fields);
+export function ObservationDailyValues({ values, fields: suppliedFields }: {
+  values: Record<string, number | null>;
+  fields: readonly string[];
+}) {
+  const fields = new Set(suppliedFields);
   const groups: { label: string; entries: [string, string][] }[] = indicatorGroups.map(group => ({
     label: group.label, entries: Object.entries(group.fields).filter(([field]) => fields.has(field)),
   }));
   const other = [...fields].filter(field => !namedFields.has(field));
   if (other.length) groups.push({ label: "其他指标", entries: other.map(field => [field, field]) });
 
-  return <>
-    <h5>日线指标预览 <time dateTime={latest.date}>{latest.date}</time></h5>
-    <p className="supporting">数据源 {input.source} · {input.adjustment === "none" ? "未复权" : "前复权"} · {input.firstTradeDate} 至 {input.lastTradeDate} · {rows.length} 条</p>
-    <p className="supporting observation-ref">WhyJ 计算 · 公式 v{formula.version} · TSP 修订 <code>{formula.revision}</code></p>
-    {values ? <div className="observation-indicator-groups">
+  return <div className="observation-indicator-groups">
       {groups.filter(group => group.entries.length).map((group, i) => <details key={group.label} open={i === 0}>
         <summary>{group.label}</summary>
         <dl className="observation-indicator-values">
@@ -112,7 +106,21 @@ export function ObservationIndicatorResult({ result }: { result: ObservationIndi
         </dl>
       </details>)}
       <p className="supporting">暂无表示计算窗口或输入不足。</p>
-    </div> : <dl className="observation-indicator-values">
+  </div>;
+}
+
+/** Present the latest values from the fixed archive selected by the preview request. */
+export function ObservationIndicatorResult({ result }: { result: ObservationIndicatorPreview }) {
+  const { daily, input, rows } = result;
+  const latest = rows.at(-1)!;
+  const formula = daily?.formula ?? result.formula;
+  const values = daily?.rows.at(-1)?.values;
+
+  return <>
+    <h5>日线指标预览 <time dateTime={latest.date}>{latest.date}</time></h5>
+    <p className="supporting">数据源 {input.source} · {input.adjustment === "none" ? "未复权" : "前复权"} · {input.firstTradeDate} 至 {input.lastTradeDate} · {rows.length} 条</p>
+    <p className="supporting observation-ref">WhyJ 计算 · 公式 v{formula.version} · TSP 修订 <code>{formula.revision}</code></p>
+    {values && daily ? <ObservationDailyValues values={values} fields={daily.fields} /> : <dl className="observation-indicator-values">
       {indicatorKeys.map(key => <div key={key}><dt>{indicatorLabels[key]}</dt><dd>{latest[key].toFixed(2)}</dd></div>)}
     </dl>}
     <p className="supporting">指标从归档首日开始计算。历史覆盖和 K 线最终状态未知。</p>
