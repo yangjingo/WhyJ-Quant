@@ -351,6 +351,14 @@ whyj --json observation replay-sector-rank --market-revision MARKET_SHA --catalo
 
 命中按信号优先级、绝对涨跌幅和代码排序，计数先于列表截取。结果分开记录 Tushare 原报收盘、涨跌和换手，与 WHYJ 计算的振幅、量比、连板和信号。历史回放与实时异动时间线的采集口径独立。[异动列表口径](../quant-harness/tsp-list-catalog.md#abnormal-snapshot-ranking)
 
+CLI 读取本地版本 1 清单。
+
+```sh
+whyj --json observation replay-abnormal-snapshot --manifest ./abnormal-snapshot.json
+```
+
+清单包含 `version: 1`、`marketRevision`、按日期升序排列的 `sessions`、`adjustment` 和 `histories`。历史条目包含 `symbol`、`dailyRevision`，并可指定 `limitsRevision` 和配套的 `rawRevision`。可选 `limit` 控制输出行数。
+
 ### 自定义盘中信号回放
 
 `replayTspIntradaySignal` 在固定分钟归档上计算自定义条件。沿用分钟回放的上海时间、收盘标签及可选昨收证据。结果保留供应商原始时间、WHYJ 分钟起始标签、公式版本、归档引用及命中时的特征。事件 ID 由标的、规则与公式修订、交易日和分钟共同决定，同一事件在扩展归档中保持原 ID。
