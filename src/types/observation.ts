@@ -288,7 +288,7 @@ export interface BenchmarkIndexArchiveRef {
   revision: string;
 }
 
-export interface StoredDatedIndexMinuteBar {
+interface StoredIndexBarObservation {
   sourceTimestamp: number;
   openPoints: number;
   highPoints: number;
@@ -297,6 +297,8 @@ export interface StoredDatedIndexMinuteBar {
   volume: number;
   amount: number | null;
 }
+
+export interface StoredDatedIndexMinuteBar extends StoredIndexBarObservation {}
 
 export interface StoredDatedIndexMinuteBatch {
   source: "tickflow";
@@ -319,6 +321,22 @@ export interface StoredDatedIndexMinuteBatch {
 export interface DatedIndexMinuteArchiveRef {
   version: 1;
   kind: "dated-index-minute";
+  revision: string;
+}
+
+export interface StoredDatedIndexDailyBar extends StoredIndexBarObservation {
+  tradeDate: string;
+}
+
+export interface StoredDatedIndexDailyBatch extends Omit<StoredDatedIndexMinuteBatch, "tradeDate" | "interval" | "rows"> {
+  requested: { start: string; end: string };
+  interval: "1d";
+  rows: StoredDatedIndexDailyBar[];
+}
+
+export interface DatedIndexDailyArchiveRef {
+  version: 1;
+  kind: "dated-index-daily";
   revision: string;
 }
 

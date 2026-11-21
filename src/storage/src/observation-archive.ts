@@ -5,9 +5,9 @@ import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
 import type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../../types/money-flow.ts";
 import type { DatedPopularityList, PopularityArchiveRef } from "../../types/popularity.ts";
-import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedIndexMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
+import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedIndexDailyArchiveRef, DatedIndexMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
   HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
-  StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedIndexMinuteBatch, StoredDepthSnapshot,
+  StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDepthSnapshot,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
   StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
@@ -617,9 +617,9 @@ export async function loadBenchmarkIndexArchive(ref: BenchmarkIndexArchiveRef, s
 
 const datedIndexMinuteKind = "dated-index-minute";
 const datedIndexMinuteDir = () => join(resolveDataDir(), "dated-index-minute-archives-v1");
-const datedIndexMinuteKeys = ["source", "endpoint", "market", "symbol", "tradeDate", "observedAt", "coverage",
+const datedIndexBatchKeys = ["source", "endpoint", "market", "symbol", "observedAt", "coverage",
   "interval", "priceBasis", "priceUnit", "volumeUnit", "amountUnit", "timeZone", "timestampLabel", "rows"];
-const datedIndexMinuteRowKeys = ["sourceTimestamp", "openPoints", "highPoints", "lowPoints", "closePoints", "volume", "amount"];
+const datedIndexBarKeys = ["sourceTimestamp", "openPoints", "highPoints", "lowPoints", "closePoints", "volume", "amount"];
 
 function datedIndexMinutePath(ref: DatedIndexMinuteArchiveRef): string {
   if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== datedIndexMinuteKind ||
@@ -627,8 +627,15 @@ function datedIndexMinutePath(ref: DatedIndexMinuteArchiveRef): string {
   return join(datedIndexMinuteDir(), `${ref.revision}.json`);
 }
 
+function validIndexBarValues(row: Record<string, unknown>): boolean {
+  return nonnegative(row.openPoints) && nonnegative(row.highPoints) && nonnegative(row.lowPoints) && nonnegative(row.closePoints) &&
+    row.lowPoints > 0 && row.highPoints >= Math.max(row.openPoints, row.closePoints) &&
+    row.lowPoints <= Math.min(row.openPoints, row.closePoints) &&
+    nonnegative(row.volume) && (row.amount === null || nonnegative(row.amount));
+}
+
 function validateDatedIndexMinutes(batch: unknown): asserts batch is StoredDatedIndexMinuteBatch {
-  if (!object(batch) || !exactKeys(batch, datedIndexMinuteKeys) || batch.source !== "tickflow" ||
+  if (!object(batch) || !exactKeys(batch, [...datedIndexBatchKeys, "tradeDate"]) || batch.source !== "tickflow" ||
     batch.endpoint !== "/v1/klines" || batch.market !== "A" || typeof batch.symbol !== "string" ||
     !isDatedBenchmarkIndexSymbol(batch.symbol) || !dailyDate(batch.tradeDate) || batch.tradeDate < "0001-01-01" ||
     typeof batch.observedAt !== "string" || !instant(batch.observedAt) || batch.coverage !== "unknown" ||
@@ -642,13 +649,10 @@ function validateDatedIndexMinutes(batch: unknown): asserts batch is StoredDated
   const end = Date.parse(batch.tradeDate + "T15:05:00+08:00");
   let previous = 0;
   for (const row of batch.rows) {
-    if (!object(row) || !exactKeys(row, datedIndexMinuteRowKeys) ||
+    if (!object(row) || !exactKeys(row, datedIndexBarKeys) ||
       typeof row.sourceTimestamp !== "number" || !Number.isSafeInteger(row.sourceTimestamp) ||
       row.sourceTimestamp <= previous || row.sourceTimestamp < start || row.sourceTimestamp > end ||
-      !nonnegative(row.openPoints) || !nonnegative(row.highPoints) || !nonnegative(row.lowPoints) || !nonnegative(row.closePoints) ||
-      row.lowPoints <= 0 || row.highPoints < Math.max(row.openPoints, row.closePoints) ||
-      row.lowPoints > Math.min(row.openPoints, row.closePoints) ||
-      !nonnegative(row.volume) || (row.amount !== null && !nonnegative(row.amount))) throw fail();
+      !validIndexBarValues(row)) throw fail();
     previous = row.sourceTimestamp;
   }
 }
@@ -665,6 +669,58 @@ export async function loadDatedIndexMinuteArchive(ref: DatedIndexMinuteArchiveRe
   const data = await readFixedArchive(datedIndexMinutePath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== datedIndexMinuteKind) throw fail();
   validateDatedIndexMinutes(data.batch);
+  return data.batch;
+}
+
+const datedIndexDailyKind = "dated-index-daily";
+const datedIndexDailyDir = () => join(resolveDataDir(), "dated-index-daily-archives-v1");
+const datedIndexDailyKeys = [...datedIndexBatchKeys, "requested"];
+const datedIndexDailyRowKeys = [...datedIndexBarKeys, "tradeDate"];
+
+function datedIndexDailyPath(ref: DatedIndexDailyArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== datedIndexDailyKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(datedIndexDailyDir(), `${ref.revision}.json`);
+}
+
+function validateDatedIndexDaily(batch: unknown): asserts batch is StoredDatedIndexDailyBatch {
+  if (!object(batch) || !exactKeys(batch, datedIndexDailyKeys) || batch.source !== "tickflow" ||
+    batch.endpoint !== "/v1/klines" || batch.market !== "A" || typeof batch.symbol !== "string" ||
+    !isDatedBenchmarkIndexSymbol(batch.symbol) || typeof batch.observedAt !== "string" || !instant(batch.observedAt) ||
+    batch.coverage !== "unknown" || batch.interval !== "1d" || batch.priceBasis !== "index-level" ||
+    batch.priceUnit !== "index-points" || batch.volumeUnit !== "provider-native" || batch.amountUnit !== "provider-native" ||
+    batch.timeZone !== "Asia/Shanghai" || batch.timestampLabel !== "provider-native" ||
+    !object(batch.requested) || !exactKeys(batch.requested, ["start", "end"]) || !Array.isArray(batch.rows)) throw fail();
+
+  const capturedAt = Date.parse(batch.observedAt);
+  const { start, end } = batch.requested;
+  if (!dailyDate(start) || !dailyDate(end) || start < "0001-01-01" || start > end || end >= shanghaiDate(capturedAt)) throw fail();
+  const days = (Date.parse(end) - Date.parse(start)) / 86_400_000 + 1;
+  if (days > 366 || batch.rows.length > days) throw fail();
+
+  let previousDate = "";
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, datedIndexDailyRowKeys) || !dailyDate(row.tradeDate) ||
+      row.tradeDate < start || row.tradeDate > end || row.tradeDate <= previousDate ||
+      typeof row.sourceTimestamp !== "number" || !Number.isSafeInteger(row.sourceTimestamp) ||
+      row.sourceTimestamp <= 0 || row.sourceTimestamp > capturedAt || shanghaiDate(row.sourceTimestamp) !== row.tradeDate ||
+      !validIndexBarValues(row)) throw fail();
+    previousDate = row.tradeDate;
+  }
+}
+
+export async function archiveDatedIndexDailyBars(batch: StoredDatedIndexDailyBatch, signal?: AbortSignal): Promise<DatedIndexDailyArchiveRef> {
+  validateDatedIndexDaily(batch);
+  const content = canonical({ version: 1, kind: datedIndexDailyKind, batch });
+  const ref: DatedIndexDailyArchiveRef = { version: 1, kind: datedIndexDailyKind, revision: digest(content) };
+  await writeFixedArchive(datedIndexDailyDir(), datedIndexDailyPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadDatedIndexDailyArchive(ref: DatedIndexDailyArchiveRef, signal?: AbortSignal): Promise<StoredDatedIndexDailyBatch> {
+  const data = await readFixedArchive(datedIndexDailyPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== datedIndexDailyKind) throw fail();
+  validateDatedIndexDaily(data.batch);
   return data.batch;
 }
 

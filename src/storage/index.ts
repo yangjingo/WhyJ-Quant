@@ -122,6 +122,8 @@ export { archiveMarketCrossSection, loadMarketCrossSectionArchive } from "./src/
 export type { MarketCrossSectionArchiveRef, StoredMarketCrossSection } from "../types/observation.ts";
 export { archiveBenchmarkIndexObservations, loadBenchmarkIndexArchive } from "./src/observation-archive.ts";
 export { archiveDatedIndexMinutes, loadDatedIndexMinuteArchive } from "./src/observation-archive.ts";
+export { archiveDatedIndexDailyBars, loadDatedIndexDailyArchive } from "./src/observation-archive.ts";
+export type { DatedIndexDailyArchiveRef, StoredDatedIndexDailyBatch, StoredDatedIndexDailyBar } from "../types/observation.ts";
 export type { DatedIndexMinuteArchiveRef, StoredDatedIndexMinuteBar, StoredDatedIndexMinuteBatch } from "../types/observation.ts";
 export type { BenchmarkIndexArchiveRef, StoredBenchmarkIndexBatch } from "../types/observation.ts";
 export { archiveAuctionBenchmark, loadAuctionBenchmarkArchive } from "./src/observation-archive.ts";
