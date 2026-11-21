@@ -4,6 +4,18 @@ export function finiteStatistic(value: number): number {
   return value;
 }
 
+export function roundDecimalTiesToEven(value: number, digits: 1 | 2 | 4 = 4): number {
+  finiteStatistic(value);
+  const decimalScale = 10 ** digits;
+  const scaled = value * decimalScale;
+  // Binary-representable halfway cases retain the factor of two in the decimal denominator.
+  const floor = Math.floor(scaled);
+  if (Number.isInteger(value * 2 ** (digits + 1)) && scaled - floor === 0.5) {
+    return (floor + Math.abs(floor % 2)) / decimalScale;
+  }
+  return Number(value.toFixed(digits)) || 0;
+}
+
 function normalized(values: number[]): { scale: number; values: number[] } {
   let scale = 0;
   for (const value of values) {

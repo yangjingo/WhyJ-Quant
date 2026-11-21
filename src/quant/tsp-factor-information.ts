@@ -1,5 +1,5 @@
 import { isDailyDate } from "../market/bars.ts";
-import { finiteStatistic, mean, sampleDeviation, standardScores } from "./statistics.ts";
+import { mean, roundDecimalTiesToEven, sampleDeviation, standardScores } from "./statistics.ts";
 import { TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
 import type { TspMarketState } from "./tsp-market-regime.ts";
 
@@ -39,18 +39,6 @@ const regimeOrder = ["strong", "range", "weak"] as const;
 const horizons = [1, 3, 5] as const;
 type DatedFactor = { symbol: string; close: number; factor: number };
 type PriceRows = Map<string, TspFactorInformationRow>;
-
-export function roundTspFactorStatistic(value: number, digits: 2 | 4 = 4): number {
-  finiteStatistic(value);
-  const decimalScale = 10 ** digits;
-  const scaled = value * decimalScale;
-  // Binary-representable halfway cases retain the factor of two in the decimal denominator.
-  const floor = Math.floor(scaled);
-  if (Number.isInteger(value * 2 ** (digits + 1)) && scaled - floor === 0.5) {
-    return (floor + Math.abs(floor % 2)) / decimalScale;
-  }
-  return Number(value.toFixed(digits)) || 0;
-}
 
 export function averageTspFactorRanks(values: number[]): number[] {
   const byValue = values.map((value, index) => ({ value, index })).sort((left, right) => left.value - right.value);
@@ -127,10 +115,10 @@ function summary(values: number[]) {
   const average = mean(values);
   const std = sampleDeviation(values) * Math.sqrt((values.length - 1) / values.length);
   return {
-    icMean: roundTspFactorStatistic(average),
-    icStd: roundTspFactorStatistic(std),
-    ir: std > 1e-8 ? roundTspFactorStatistic(average / std) : null,
-    winRate: roundTspFactorStatistic(values.filter(ic => ic > 0).length / values.length),
+    icMean: roundDecimalTiesToEven(average),
+    icStd: roundDecimalTiesToEven(std),
+    ir: std > 1e-8 ? roundDecimalTiesToEven(average / std) : null,
+    winRate: roundDecimalTiesToEven(values.filter(ic => ic > 0).length / values.length),
     nDates: values.length,
   };
 }
@@ -211,7 +199,7 @@ function summarizeFactorRegimes(
         return ic === undefined ? [] : [ic];
       });
       const { icMean, ir, winRate, nDates: nIcDates } = summary(values);
-      return [{ state, icMean, ir, winRate, meanScore: roundTspFactorStatistic(mean(points.map(point => point.score)), 2),
+      return [{ state, icMean, ir, winRate, meanScore: roundDecimalTiesToEven(mean(points.map(point => point.score)), 2),
         nDates: points.length, nIcDates }];
     }),
   };
@@ -245,7 +233,7 @@ export function computeTspFactorInformation(input: TspFactorInformationInput, re
     if (target !== undefined) {
       const { ic, pairCount } = rankIc(available, panel[target]);
       if (ic !== null) {
-        series.push({ tradeDate, outcomeDate: sessions[target]!, pairCount, ic: roundTspFactorStatistic(ic) });
+        series.push({ tradeDate, outcomeDate: sessions[target]!, pairCount, ic: roundDecimalTiesToEven(ic) });
         allValues.push(ic);
         regime?.icByDate.set(tradeDate, ic);
         const year = Number(tradeDate.slice(0, 4));
@@ -268,14 +256,14 @@ export function computeTspFactorInformation(input: TspFactorInformationInput, re
     factorId, rebalance,
     start: sessions[0]!,
     end: sessions.at(-1)!,
-    coverage: priceRows ? roundTspFactorStatistic(factorRows / priceRows) : null,
+    coverage: priceRows ? roundDecimalTiesToEven(factorRows / priceRows) : null,
     priceRows, factorRows, factorDates, symbolCount: symbols.size,
     summary: summary(allValues),
     ...(regime && { marketRegime: summarizeFactorRegimes(regime.aligned, regime.pricedDates, regime.icByDate, sessions[0]!) }),
     series,
     yearly: [...yearly].map(([year, values]) => ({ year, ...summary(values) })),
     decay: decay.map(({ horizon, values }) => ({
-      horizon, icMean: values.length ? roundTspFactorStatistic(mean(values)) : null, nDates: values.length,
+      horizon, icMean: values.length ? roundDecimalTiesToEven(mean(values)) : null, nDates: values.length,
     })),
   };
 }

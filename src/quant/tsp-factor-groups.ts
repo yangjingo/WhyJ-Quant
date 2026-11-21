@@ -1,6 +1,6 @@
-import { mean, sampleDeviation, finiteStatistic } from "./statistics.ts";
+import { finiteStatistic, mean, roundDecimalTiesToEven, sampleDeviation } from "./statistics.ts";
 import {
-  averageTspFactorRanks, prepareTspFactorPanel, roundTspFactorStatistic, tspFactorCrossSection,
+  averageTspFactorRanks, prepareTspFactorPanel, tspFactorCrossSection,
   tspFactorForwardReturn, type TspFactorInformationInput,
 } from "./tsp-factor-information.ts";
 import { TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
@@ -96,10 +96,10 @@ function theoreticalSpread(periods: ObservedPeriod[], top: number[], bottom: num
     return cumulative;
   });
   return {
-    totalReturn: roundTspFactorStatistic(cumulative - 1),
-    maxDrawdown: roundTspFactorStatistic(drawdown(balances)),
-    sharpe: roundTspFactorStatistic(zeroTargetSharpe(returns, frequency, 1e-8)),
-    nav: periods.map(({ tradeDate, outcomeDate }, i) => ({ tradeDate, outcomeDate, value: roundTspFactorStatistic(balances[i]!) })),
+    totalReturn: roundDecimalTiesToEven(cumulative - 1),
+    maxDrawdown: roundDecimalTiesToEven(drawdown(balances)),
+    sharpe: roundDecimalTiesToEven(zeroTargetSharpe(returns, frequency, 1e-8)),
+    nav: periods.map(({ tradeDate, outcomeDate }, i) => ({ tradeDate, outcomeDate, value: roundDecimalTiesToEven(balances[i]!) })),
   };
 }
 
@@ -147,7 +147,7 @@ export function computeTspFactorGroups(input: TspFactorGroupsInput) {
       const nav = finiteStatistic(running.get(bucket)! * (1 + (netReturn ?? 0)));
       running.set(bucket, nav);
       navByBucket.get(bucket)!.push(nav);
-      return { label: "Q" + bucket, netReturn, value: roundTspFactorStatistic(nav) };
+      return { label: "Q" + bucket, netReturn, value: roundDecimalTiesToEven(nav) };
     }),
   }));
 
@@ -159,11 +159,11 @@ export function computeTspFactorGroups(input: TspFactorGroupsInput) {
     const returns = groupReturns(values);
     return {
       group: i + 1, label: "Q" + bucket,
-      totalReturn: roundTspFactorStatistic(last - 1),
-      annualReturn: roundTspFactorStatistic(last > 0 ? last ** (1 / years) - 1 : 0),
-      maxDrawdown: roundTspFactorStatistic(drawdown(values)),
-      sharpe: roundTspFactorStatistic(zeroTargetSharpe(returns, frequency, 0), 2),
-      winRate: returns.length ? roundTspFactorStatistic(returns.filter(value => value > 0).length / returns.length) : 0,
+      totalReturn: roundDecimalTiesToEven(last - 1),
+      annualReturn: roundDecimalTiesToEven(last > 0 ? last ** (1 / years) - 1 : 0),
+      maxDrawdown: roundDecimalTiesToEven(drawdown(values)),
+      sharpe: roundDecimalTiesToEven(zeroTargetSharpe(returns, frequency, 0), 2),
+      winRate: returns.length ? roundDecimalTiesToEven(returns.filter(value => value > 0).length / returns.length) : 0,
     };
   });
   const top = buckets.at(-1), bottom = buckets[0];
@@ -178,7 +178,7 @@ export function computeTspFactorGroups(input: TspFactorGroupsInput) {
     formulaVersion: TSP_FACTOR_GROUPS_FORMULA_VERSION,
     referenceRevision: TSP_INDICATOR_REVISION,
     factorId, rebalance, groupCount, weight, roundTripCost: cost,
-    groupNav, groupStats, turnover: top === undefined ? null : roundTspFactorStatistic(turnover(periods, top)),
+    groupNav, groupStats, turnover: top === undefined ? null : roundDecimalTiesToEven(turnover(periods, top)),
     longShort,
   };
 }
