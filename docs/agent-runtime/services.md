@@ -474,3 +474,22 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 因子检验可以传入固定的市场环境归档。服务以因果模式复算环境，核对正式检验日历和已知的预热前驱，再将前一交易日的状态与分数传给 IC 分层计算。响应保留复算清单、前驱日期以及实际使用的市场状态。缺少内部前驱状态或日期顺序不同会使该次回放失败。
 
 在因子检验清单中增加可选的 `marketEnvironment` 对象，即可启用前一交易日的市场状态分层。对象沿用 `replay-market-environment` 的 `sessions`、`marketRevisions`、`limitRevisions`、`priceHistory` 和 `benchmark` 格式，也可以提供 `riskWarningRevisions`。其日历须连续包含正式的因子检验区间和已知前驱。`phaseMode` 可省略或填 `causal`。`data.information.marketRegime` 返回分层统计及每个使用日期的前驱、状态和分数。
+
+### 回测交易稳健性
+
+使用 `whyj --json observation backtest-robustness --manifest trades.json` 计算已实现交易的稳健性。输入收益都是小数比例，持仓天数为非负整数，未知可填 `null`。可选的 `periodicReturns` 只替换 Sortino 的样本，并省略初始权益快照。默认 `periodsPerYear` 为 252，`includeMonteCarlo` 为 `true`。自助重抽样仅用清单里的已实现交易，不读取行情或连接数据提供商。
+
+```json
+{
+  "trades": [
+    {"pnlFraction": 0.05, "holdingDays": 3},
+    {"pnlFraction": -0.03, "holdingDays": 2},
+    {"pnlFraction": 0.08, "holdingDays": null}
+  ],
+  "periodicReturns": [0.02, -0.01, 0.03],
+  "periodsPerYear": 252,
+  "includeMonteCarlo": true
+}
+```
+
+响应包含 Sortino 样本口径、单笔最好与最差收益、中位收益及平均持仓天数。模拟 P50 和 P95 是带符号的回撤比例。少于三笔时两项分位为空，关闭模拟时省略该结果。
