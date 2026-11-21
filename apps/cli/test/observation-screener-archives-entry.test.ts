@@ -52,8 +52,9 @@ test("CLI reconstructs scored daily candidates from exact local archive revision
       weights: [{ field: "amount", weight: 1 }],
     };
     const help = await run("--help");
-    expect(help.output.data.commands.map((entry: { command: string }) => entry.command))
-      .toContain("whyj --json observation replay-screener-archives");
+    expect(help.output.data.commands.map((entry: { command: string }) => entry.command)).toEqual(expect.arrayContaining([
+      "whyj --json observation replay-screener-archives", "whyj --json observation replay-screener-union",
+    ]));
     const command = ["observation", "replay-screener-archives", "--manifest", manifest];
     const original = JSON.stringify(input);
     writeFileSync(manifest, original);
@@ -72,6 +73,31 @@ test("CLI reconstructs scored daily candidates from exact local archive revision
     expect(await run(...command)).toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
     writeFileSync(manifest, JSON.stringify({ ...input, adjustment: "none" }));
     expect(await run(...command)).toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
+
+    const { strategy, weights, signalGate, ...scope } = input;
+    const union = { ...scope, strategies: [
+      { strategy, weights: [], signalGate },
+      { strategy: { id: "liquidity", revision: "b".repeat(64) }, weights },
+    ] };
+    const unionCommand = ["observation", "replay-screener-union", "--manifest", manifest];
+    writeFileSync(manifest, JSON.stringify(union));
+    expect(await run(...unionCommand)).toMatchObject({ code: 0, output: { ok: true, data: {
+      market: { ref: marketRef, tradeDate },
+      rows: [{ symbol, score: null, scoreStrategyId: strategy.id,
+        hits: [{ strategyId: strategy.id, score: null }, { strategyId: "liquidity", score: 50 }] }],
+      replays: [
+        { evaluated: [{ daily: { ref: dailyRef } }], ranking: { strategy } },
+        { ranking: { strategy: union.strategies[1]!.strategy } },
+      ],
+    } } });
+    const first = union.strategies[0]!;
+    for (const strategies of [[], [first, first], [{ ...first, displayLimit: 1 }],
+      [{ ...first, strategy: { ...strategy, revision: "invalid" } }]]) {
+      writeFileSync(manifest, JSON.stringify({ ...union, strategies }));
+      expect(await run(...unionCommand)).toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
+    }
+    writeFileSync(manifest, JSON.stringify({ ...union, marketRevision: "0".repeat(64) }));
+    expect(await run(...unionCommand)).toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
   } finally {
     if (prior === undefined) delete process.env.OHQUANT_DIR;
     else process.env.OHQUANT_DIR = prior;

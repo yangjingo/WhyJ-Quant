@@ -33,7 +33,8 @@ import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../s
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
-import { replayTspScreener, type ScreenerReplayRequest } from "../../../src/runtime/data/screener-replay.ts";
+import { replayTspScreener, replayTspScreenerUnion, type ScreenerReplayRequest,
+  type ScreenerUnionReplayRequest } from "../../../src/runtime/data/screener-replay.ts";
 
 const dayMs = 86_400_000;
 const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symbol CODE --start YYYY-MM-DD --end YYYY-MM-DD" '
@@ -135,15 +136,23 @@ function parseArchivedStockHistories(histories: unknown): AbnormalSnapshotReplay
   });
 }
 
-function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
-  const { version, marketRevision, adjustment, histories, signalGate, strategy, weights, orderBy, descending, displayLimit } =
-    observationManifestObject(value, ["version", "marketRevision", "adjustment", "histories", "signalGate",
-      "strategy", "weights", "orderBy", "descending", "displayLimit"]);
+function parseScreenerArchiveScope({ version, marketRevision, adjustment, histories }: Record<string, unknown>):
+  Pick<ScreenerReplayRequest, "marketRef" | "adjustment" | "histories"> {
   if (version !== 1 || typeof marketRevision !== "string" || !revisionPattern.test(marketRevision) ||
-    (adjustment !== "none" && adjustment !== "forward") || !Array.isArray(histories) || !Array.isArray(weights) ||
+    (adjustment !== "none" && adjustment !== "forward")) throw invalid();
+  return {
+    marketRef: { version: 1, kind: "market-cross-section", revision: marketRevision },
+    adjustment, histories: parseArchivedStockHistories(histories),
+  };
+}
+
+const screenerStrategyKeys = ["signalGate", "strategy", "weights", "orderBy", "descending"] as const;
+
+function parseScreenerStrategy({ signalGate, strategy, weights, orderBy, descending }: Record<string, unknown>):
+  ScreenerUnionReplayRequest["strategies"][number] {
+  if (!Array.isArray(weights) ||
     (orderBy !== undefined && (typeof orderBy !== "string" || !orderBy.trim() || orderBy !== orderBy.trim())) ||
-    (descending !== undefined && typeof descending !== "boolean") ||
-    (displayLimit != null && (typeof displayLimit !== "number" || !Number.isSafeInteger(displayLimit) || displayLimit < 0))) throw invalid();
+    (descending !== undefined && typeof descending !== "boolean")) throw invalid();
   const { id, revision } = observationManifestObject(strategy, ["id", "revision"]);
   if (typeof id !== "string" || !id.trim() || id !== id.trim() || typeof revision !== "string" || !revisionPattern.test(revision)) throw invalid();
   let gate: ScreenerReplayRequest["signalGate"];
@@ -158,9 +167,7 @@ function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
     }) };
   }
   return {
-    marketRef: { version: 1, kind: "market-cross-section", revision: marketRevision },
-    adjustment, strategy: { id, revision }, signalGate: gate, orderBy, descending, displayLimit,
-    histories: parseArchivedStockHistories(histories),
+    strategy: { id, revision }, signalGate: gate, orderBy, descending,
     weights: weights.map((value: unknown) => {
       const { field, weight, direction } = observationManifestObject(value, ["field", "weight", "direction"]);
       if (typeof field !== "string" || !field.trim() || field !== field.trim() || typeof weight !== "number" ||
@@ -168,6 +175,22 @@ function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
       return { field, weight, direction };
     }),
   };
+}
+
+function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
+  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "histories",
+    ...screenerStrategyKeys, "displayLimit"]);
+  const { displayLimit } = manifest;
+  if (displayLimit != null && (typeof displayLimit !== "number" || !Number.isSafeInteger(displayLimit) || displayLimit < 0)) throw invalid();
+  return { ...parseScreenerArchiveScope(manifest), ...parseScreenerStrategy(manifest), displayLimit };
+}
+
+function parseScreenerUnionManifest(value: unknown): ScreenerUnionReplayRequest {
+  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "histories", "strategies"]);
+  if (!Array.isArray(manifest.strategies) || !manifest.strategies.length) throw invalid();
+  const strategies = manifest.strategies.map(item => parseScreenerStrategy(observationManifestObject(item, screenerStrategyKeys)));
+  if (new Set(strategies.map(item => item.strategy.id)).size !== strategies.length) throw invalid();
+  return { ...parseScreenerArchiveScope(manifest), strategies };
 }
 
 function parseBacktestRobustnessManifest(value: unknown): TspBacktestRobustnessInput {
@@ -538,11 +561,14 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       throw Object.assign(new Error("Could not replay the requested minute signal archives."), { code: "observation_archive_unavailable" });
     }
   }
-  if (action === "replay-screener-archives") {
+  if (action === "replay-screener-archives" || action === "replay-screener-union") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");
     if (!path) throw invalid();
-    const request = parseScreenerArchiveManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
-    try { return await replayTspScreener(request, signal); }
+    const value = await readObservationJsonFile(path, maxObservationManifestBytes, signal);
+    const request = action === "replay-screener-archives" ? parseScreenerArchiveManifest(value) : parseScreenerUnionManifest(value);
+    try {
+      return await ("strategies" in request ? replayTspScreenerUnion(request, signal) : replayTspScreener(request, signal));
+    }
     catch {
       throw Object.assign(new Error("Could not replay the screener with these dated archives and strategy settings."),
         { code: "observation_archive_unavailable" });
