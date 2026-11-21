@@ -112,6 +112,10 @@ Segment champions determine the convergence label. For the top candidate, the sc
 
 The pinned TSP code filters missing segment objectives from score statistics. WhyJ preserves that behavior and requires a finite score to declare a best candidate. WhyJ preserves zero scores and evaluates the segment winner with a single direction normalization. Executing the strategy grid and obtaining historical inputs require separately verified evidence. [TSP parameter optimizer](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/robust_optimizer.py)
 
+## Circulating market value and turnover
+
+`computeTspListLiquidity` takes unadjusted closing price in CNY per share, traded volume in shares and circulating shares for the same stock and trading session. It returns the list's `float_val` as close times circulating shares in CNY and calculated `turnover` as traded shares divided by circulating shares times 100. The archive consumer must establish matching date, stock and units. Each output is nullable when its inputs are missing or the circulating share count is zero. Zero traded volume yields zero turnover. Keep the provider's reported turnover and circulating market value as independent observations. [TSP list renderer](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/components/stock-table/primitives.tsx#L81) · [TSP turnover calculation](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/indicators/pipeline.py#L798)
+
 ## Return since watchlist addition
 
 The hidden `added_at` column exposes membership state and displays it in Shanghai time. `pct_since_added` is a TSP-derived fractional return from the latest available forward-adjusted stock close on or before the membership date to the displayed price. The TSP history route restricts the baseline to its loaded stock cache and can leave the result empty. [Pinned watchlist producer](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/watchlist.py#L420)
