@@ -67,6 +67,8 @@ export type { TspEmotionMetric, TspEmotionMetrics, TspEmotionOverrides } from ".
 export { computeTspPriceDeviation, tspDeviationBenchmarkCandidates, TSP_DEVIATION_WINDOWS, TSP_PRICE_DEVIATION_FORMULA_VERSION } from "./tsp-price-deviation.ts";
 export type { TspDeviationBoard, TspDeviationClose, TspDeviationIndex, TspPriceDeviationInput, TspPriceDeviationRow } from "./tsp-price-deviation.ts";
 export { computeTspDeviationProximity, TSP_DEVIATION_PROXIMITY_FORMULA_VERSION } from "./tsp-deviation-proximity.ts";
+export { rankTspAbnormalSnapshot, TSP_ABNORMAL_SNAPSHOT_FORMULA_VERSION, TSP_ABNORMAL_SNAPSHOT_SIGNALS } from "./tsp-abnormal-snapshot.ts";
+export type { TspAbnormalSnapshotObservation } from "./tsp-abnormal-snapshot.ts";
 export { computeTspMarketRegime, TSP_MARKET_REGIME_FORMULA_VERSION } from "./tsp-market-regime.ts";
 export type { TspMarketState, TspRegimeMetrics } from "./tsp-market-regime.ts";
 export { computeTspMarketPhaseSeries, TSP_MARKET_PHASE_FORMULA_VERSION } from "./tsp-market-phase.ts";
