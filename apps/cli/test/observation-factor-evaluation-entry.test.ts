@@ -50,18 +50,19 @@ async function archiveMarketEnvironment() {
   };
 }
 
+async function runCli(root: string, ...args: string[]) {
+  const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)), stdout: "pipe", stderr: "pipe",
+    env: { ...process.env, OHQUANT_DIR: root, WHYJ_QUANT_TUSHARE_TOKEN: "", WHYJ_QUANT_TICKFLOW_API_KEY: "" },
+  });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(stderr).toBe("");
+  return { code, output: JSON.parse(stdout) };
+}
+
 test("actual CLI projects fixed research factor archives into Rank IC and equal-weight group diagnostics", async () => {
   const root = mkdtempSync(join(tmpdir(), "whyj-factor-evaluation-cli-"));
   const path = join(root, "manifest.json");
-  const run = async (...args: string[]) => {
-    const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
-      cwd: fileURLToPath(new URL("..", import.meta.url)), stdout: "pipe", stderr: "pipe",
-      env: { ...process.env, OHQUANT_DIR: root, WHYJ_QUANT_TUSHARE_TOKEN: "", WHYJ_QUANT_TICKFLOW_API_KEY: "" },
-    });
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect(stderr).toBe("");
-    return { code, output: JSON.parse(stdout) };
-  };
   try {
     const previous = process.env.OHQUANT_DIR;
     process.env.OHQUANT_DIR = root;
@@ -86,9 +87,9 @@ test("actual CLI projects fixed research factor archives into Rank IC and equal-
     };
     const replay = async (value: unknown) => {
       writeFileSync(path, JSON.stringify(value));
-      return run("observation", "replay-factor-evaluation", "--manifest", path);
+      return runCli(root, "observation", "replay-factor-evaluation", "--manifest", path);
     };
-    const help = await run("--help");
+    const help = await runCli(root, "--help");
     expect(help.output.data.commands).toContainEqual({ command: "whyj --json observation replay-factor-evaluation",
       description: "Replay fixed factor information and group diagnostics" });
     expect(help.output.data.commands).toContainEqual({ command: "whyj --json observation replay-analytics",
@@ -133,6 +134,64 @@ test("actual CLI projects fixed research factor archives into Rank IC and equal-
     expect(await replay({ ...manifest, symbols: [{ ...manifest.symbols[0], dailyRevisions: ["0".repeat(64)] }] })).toMatchObject(unavailable);
     writeFileSync(join(root, "data", "observation-archives-v2", up.revision + ".json"), "{}");
     expect(await replay(manifest)).toMatchObject(unavailable);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("actual CLI replays a fixed factor test family and distinguishes invalid and unavailable evidence", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-factor-significance-cli-"));
+  const path = join(root, "manifest.json");
+  function replay(value: unknown) {
+    writeFileSync(path, JSON.stringify(value));
+    return runCli(root, "observation", "replay-factor-significance", "--manifest", path);
+  }
+  try {
+    const previous = process.env.OHQUANT_DIR;
+    const profiles = [
+      { symbol: "600001.SH", closes: [10, 11, 12, 11, 13, 14, 13, 16] },
+      { symbol: "000001.SZ", closes: [20, 18, 19, 20, 18, 17, 18, 16] },
+      { symbol: "300001.SZ", closes: [15, 15, 14, 15, 16, 16, 17, 18] },
+    ];
+    process.env.OHQUANT_DIR = root;
+    let refs;
+    try {
+      refs = await Promise.all(profiles.map(({ symbol, closes }) => archivePrices(symbol, closes)));
+    } finally {
+      if (previous === undefined) delete process.env.OHQUANT_DIR;
+      else process.env.OHQUANT_DIR = previous;
+    }
+    const manifest = {
+      schemaVersion: 1, factorIds: ["change_pct", "roe_latest", "log_amount"], sessions,
+      symbols: profiles.map(({ symbol }, index) => ({ symbol, dailyRevisions: [refs[index]!.revision] })),
+    };
+    const help = await runCli(root, "--help");
+    expect(help.output.data.commands).toContainEqual({
+      command: "whyj --json observation replay-factor-significance",
+      description: "Replay fixed daily factor significance and adjusted q values",
+    });
+    const result = await replay(manifest);
+    expect(result).toMatchObject({ code: 0, output: { ok: true, data: {
+      input: { rebalance: "daily", factorIds: manifest.factorIds, sessions },
+      series: [
+        { factorId: "change_pct" }, { factorId: "roe_latest", samples: [] }, { factorId: "log_amount" },
+      ],
+      significance: { producer: "whyj", formulaVersion: "tsp-factor-significance-v1", testedFactorCount: 2, lag: 1, results: [
+        { factorId: "change_pct", observedSamples: 6, missingSamples: 1 },
+        { factorId: "roe_latest", observedSamples: 0, pValue: null, qValue: null },
+        { factorId: "log_amount", observedSamples: 7, missingSamples: 0 },
+      ] },
+    } } });
+    const data = result.output.data;
+    expect(data.input.symbols[0].daily[0].ref).toEqual(refs[0]);
+    expect(data.significance.results[0].pValue).toBeCloseTo(0.4668542708227256, 13);
+    expect(data.significance.results[2].qValue).toBeCloseTo(0.016301943187005407, 13);
+    expect(await replay(manifest)).toEqual(result);
+    const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
+    expect(await replay({ ...manifest, schemaVersion: 2 })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, factorIds: ["change_pct", "change_pct"] })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, symbols: [{ ...manifest.symbols[0], dailyRevisions: ["0".repeat(64)] }] }))
+      .toMatchObject({ code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } } });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

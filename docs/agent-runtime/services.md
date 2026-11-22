@@ -524,6 +524,8 @@ whyj --json observation replay-analytics --revision DAILY_SHA --financial-report
 
 JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` 和 `grouping` 分别提供 Rank IC 和分组结果。财务因子需要足够的同期证据，示例中缺少相应报告的股票保留空值。输入格式错误会返回 `invalid_arguments`。无法重放的因子或归档会返回 `observation_archive_unavailable`。
 
+使用 `whyj --json observation replay-factor-significance --manifest factors.json` 可批量复算因子显著性。沿用示例中的 `sessions`、`evaluationStart`、`symbols` 和 `turnoverRevisions`，将 `factorId` 改为 `factorIds` 数组，增加 `"schemaVersion": 1`，并省略 `rebalance`、`groups` 和 `marketEnvironment`。日频检验、单日向前收益和滞后一阶由报告口径确定。JSON 的 `series` 提供每个因子的 IC，`significance` 提供 t、p、q 值和样本计数，`input` 保留精确归档来源。无效清单返回 `invalid_arguments`，无法重放的归档或因子返回 `observation_archive_unavailable`。
+
 因子检验可以传入固定的市场环境归档。服务以因果模式复算环境，核对正式检验日历和已知的预热前驱，再将前一交易日的状态与分数传给 IC 分层计算。响应保留复算清单、前驱日期以及实际使用的市场状态。缺少内部前驱状态或日期顺序不同会使该次回放失败。
 
 在因子检验清单中增加可选的 `marketEnvironment` 对象，即可启用前一交易日的市场状态分层。对象沿用 `replay-market-environment` 的 `sessions`、`marketRevisions`、`limitRevisions`、`priceHistory` 和 `benchmark` 格式，也可以提供 `riskWarningRevisions`。其日历须连续包含正式的因子检验区间和已知前驱。`phaseMode` 可省略或填 `causal`。`data.information.marketRegime` 返回分层统计及每个使用日期的前驱、状态和分数。

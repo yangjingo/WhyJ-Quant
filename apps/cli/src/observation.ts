@@ -14,7 +14,8 @@ import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchma
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
 import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-collection.ts";
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
-import { replayTspFactorEvaluation, type FactorEvaluationReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
+import { replayTspFactorEvaluation, replayTspFactorSignificance,
+  type FactorEvaluationReplayRequest, type FactorSignificanceReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
 import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
 import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
@@ -50,6 +51,7 @@ const usage = 'Use "whyj --json observation collect-daily|collect-minutes --symb
   + 'or "whyj --json observation replay-daily|replay-intraday|replay-analytics --revision SHA256". '
   + 'See whyj --help for financial collection and optional flags.';
 const revisionPattern = /^[a-f0-9]{64}$/;
+const factorKey = /^[a-z][a-z0-9_]{0,80}$/;
 const datedStock = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 const compatiblePriceBasis = "caller-confirmed-same-basis";
 const compatibleBookValueBasis = "caller-confirmed-unadjusted-CNY";
@@ -319,14 +321,10 @@ function parseWalkForwardManifest(value: unknown): TspWalkForwardInput {
     }) };
 }
 
-function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRequest {
-  const { sessions: dates, evaluationStart, factorId, rebalance, symbols: rawSymbols, turnoverRevisions, groups: rawGroups,
-    marketEnvironment: rawEnvironment } =
-    observationManifestObject(value, ["sessions", "evaluationStart", "factorId", "rebalance", "symbols", "turnoverRevisions", "groups", "marketEnvironment"]);
+function parseFactorReplayScope({ sessions: dates, evaluationStart, symbols: rawSymbols, turnoverRevisions }: Record<string, unknown>):
+  Omit<FactorSignificanceReplayRequest, "factorIds"> {
   const sessions = parseExchangeSessions(dates);
-  if (typeof factorId !== "string" || !/^[a-z][a-z0-9_]{0,80}$/.test(factorId) ||
-    (rebalance !== "daily" && rebalance !== "weekly" && rebalance !== "monthly") ||
-    (evaluationStart !== undefined && (typeof evaluationStart !== "string" || !sessions.includes(evaluationStart))) ||
+  if ((evaluationStart !== undefined && (typeof evaluationStart !== "string" || !sessions.includes(evaluationStart))) ||
     !Array.isArray(rawSymbols) || !rawSymbols.length) throw invalid();
 
   const symbols = rawSymbols.map((raw: unknown): FactorEvaluationReplayRequest["symbols"][number] => {
@@ -370,7 +368,18 @@ function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRe
     };
   });
   if (new Set(symbols.map(entry => entry.symbol)).size !== symbols.length) throw invalid();
+  return {
+    sessions, evaluationStart, symbols,
+    turnoverRefs: turnoverRevisions === undefined ? undefined : validateRevisions(turnoverRevisions)
+      .map(revision => ({ version: 1, kind: "market-cross-section", revision })),
+  };
+}
 
+function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRequest {
+  const { factorId, rebalance, groups: rawGroups, marketEnvironment: rawEnvironment, ...scope } =
+    observationManifestObject(value, ["sessions", "evaluationStart", "factorId", "rebalance", "symbols", "turnoverRevisions", "groups", "marketEnvironment"]);
+  if (typeof factorId !== "string" || !factorKey.test(factorId) ||
+    (rebalance !== "daily" && rebalance !== "weekly" && rebalance !== "monthly")) throw invalid();
   let groups: FactorEvaluationReplayRequest["groups"];
   if (rawGroups !== undefined) {
     const costs = ["feesFraction", "commissionFraction", "stampTaxFraction", "slippageBps"] as const;
@@ -388,11 +397,15 @@ function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRe
   const marketEnvironment = rawEnvironment === undefined ? undefined : parseEnvironmentManifest(rawEnvironment);
   if (marketEnvironment?.phaseMode === "retrospective-tsp") throw invalid();
 
-  return {
-    factorId, rebalance, sessions, evaluationStart, symbols, groups, marketEnvironment,
-    turnoverRefs: turnoverRevisions === undefined ? undefined : validateRevisions(turnoverRevisions)
-      .map(revision => ({ version: 1, kind: "market-cross-section", revision })),
-  };
+  return { ...parseFactorReplayScope(scope), factorId, rebalance, groups, marketEnvironment };
+}
+
+function parseFactorSignificanceManifest(value: unknown): FactorSignificanceReplayRequest {
+  const { schemaVersion, factorIds, ...scope } = observationManifestObject(value,
+    ["schemaVersion", "factorIds", "sessions", "evaluationStart", "symbols", "turnoverRevisions"]);
+  if (schemaVersion !== 1 || !Array.isArray(factorIds) || !factorIds.length ||
+    factorIds.some(id => typeof id !== "string" || !factorKey.test(id)) || new Set(factorIds).size !== factorIds.length) throw invalid();
+  return { ...parseFactorReplayScope(scope), factorIds };
 }
 
 function parseAuctionManifest(value: unknown): AuctionBenchmarkReplayRequest {
@@ -952,6 +965,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     try { return await replayTspFactorEvaluation(request, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested factor evidence. Verify the factor key, archive revisions and observation scope."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-factor-significance") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseFactorSignificanceManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspFactorSignificance(request, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay the requested factor family. Verify factor keys, archive revisions and calendar."),
         { code: "observation_archive_unavailable" });
     }
   }
