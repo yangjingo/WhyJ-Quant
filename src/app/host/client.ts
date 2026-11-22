@@ -26,9 +26,10 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
   const rpc = async <T>(method: string, args: unknown[] = []): Promise<T> => {
     let response: Response;
     const capability = await token();
+    const timeout = method === "readObservationMarketRegime" ? 55_000 : method === "collectThesisSources" ? 45_000 : 30_000;
     try { const body = JSON.stringify({ method, args });
       response = await request(new URL("/api/workbench/rpc", baseUrl), { method: "POST", credentials: "omit", cache: "no-store", redirect: "error",
-      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources", "readObservationIndicators", "readObservationExchangeIndicators", "readObservationIntraday", "readObservationAnalytics", "readObservationListRows", "readObservationListQuotes"].includes(method) ? { signal: AbortSignal.timeout(method === "collectThesisSources" ? 45_000 : 30_000) } : {}),
+      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources", "readObservationIndicators", "readObservationExchangeIndicators", "readObservationIntraday", "readObservationAnalytics", "readObservationListRows", "readObservationListQuotes", "readObservationMarketRegime"].includes(method) ? { signal: AbortSignal.timeout(timeout) } : {}),
       headers: { "Content-Type": "application/json", "x-workbench-token": capability,
         ...(options.connection ? { "x-host-instance-id": options.connection.instanceId } : {}) },
       ...(options.connection ? terminalRequestConnection(body) : {}), body }); }
@@ -50,7 +51,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
         if ((method === "startObservationJob" && ((response.status === 400 && code === "INPUT_INVALID") || (response.status === 409 && code === "OBSERVATION_BUSY")))
           || ((method === "readObservationJob" || method === "cancelObservationJob") && response.status === 404 && code === "OBSERVATION_JOB_NOT_FOUND"))
           Object.assign(error, { code });
-        if ((method === "readObservationListRows" || method === "readObservationListQuotes") && ((response.status === 400 && code === "INPUT_INVALID") ||
+        if (["readObservationListRows", "readObservationListQuotes", "readObservationMarketRegime"].includes(method) && ((response.status === 400 && code === "INPUT_INVALID") ||
           (response.status === 404 && code === "OBSERVATION_ARCHIVE_UNAVAILABLE"))) Object.assign(error, { code });
       }
       throw error;
@@ -126,6 +127,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     readObservationIntraday: input => rpc("readObservationIntraday", [input]),
     readObservationListRows: input => rpc("readObservationListRows", [input]),
     readObservationListQuotes: input => rpc("readObservationListQuotes", [input]),
+    readObservationMarketRegime: ref => rpc("readObservationMarketRegime", [ref]),
     readObservationAnalytics: ref => rpc("readObservationAnalytics", [ref]),
     identity: () => rpc("identity"), workspaces: () => rpc("workspaces"), preferences: () => rpc("preferences"),
     market: async () => { const value = await rpc("market"); if (!isMarketSnapshot(value)) throw new Error("行情响应无效。"); return value; },

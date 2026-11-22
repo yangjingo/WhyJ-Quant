@@ -63,6 +63,10 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
       if (!client.readObservationAnalytics) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持研究因子预览。", 404);
       return client.readObservationAnalytics(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationAnalytics"]>>[0]);
     }
+    case "readObservationMarketRegime": count(1); {
+      if (!client.readObservationMarketRegime) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持市场状态回放。", 404);
+      return client.readObservationMarketRegime(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationMarketRegime"]>>[0]);
+    }
     case "startDataDraft": count(0); {
       if (!client.startDataDraft) throw new WorkbenchError("UNAVAILABLE", "当前服务不支持数据源草稿。");
       return client.startDataDraft();
