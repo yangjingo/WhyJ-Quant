@@ -20,10 +20,15 @@ import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from ".
 import { replayTspIntradaySignal } from "../../../src/runtime/data/intraday-signal-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { replayTspMarketEmotion, type MarketEmotionReplayRequest } from "../../../src/runtime/data/market-emotion-replay.ts";
-import { replayTspMarketEnvironment, type MarketEnvironmentReplayRequest } from "../../../src/runtime/data/market-environment-replay.ts";
-import type { MarketLadderReplayRequest } from "../../../src/runtime/data/market-ladder-replay.ts";
-import { replayTspMarketMainline, type MarketMainlineReplayRequest } from "../../../src/runtime/data/market-mainline-replay.ts";
-import { replayTspMarketRegimeSummary, type MarketRegimeSummaryReplayRequest } from "../../../src/runtime/data/market-regime-summary-replay.ts";
+import { replayTspMarketEnvironment } from "../../../src/runtime/data/market-environment-replay.ts";
+import { replayTspMarketMainline } from "../../../src/runtime/data/market-mainline-replay.ts";
+import {
+  parseEnvironmentManifest as environmentManifest, parseExchangeSessions as exchangeSessions,
+  parseMainlineManifest as mainlineManifest, parseMarketReplayScope as marketReplayScope,
+  parseRegimeSummaryManifest as regimeSummaryManifest, parseSectorRefs as sectorRefs,
+  validateRevisions as validateMarketRevisions,
+} from "../../../src/runtime/data/market-regime-manifest.ts";
+import { replayTspMarketRegimeSummary } from "../../../src/runtime/data/market-regime-summary-replay.ts";
 import { collectDatedMoneyFlow, replayDatedMoneyFlow } from "../../../src/runtime/data/money-flow.ts";
 import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
 import { collectDatedPopularityList, replayDatedPopularityList } from "../../../src/runtime/data/popularity-list.ts";
@@ -54,6 +59,20 @@ function invalid() {
   return Object.assign(new Error(usage), { code: "invalid_arguments" });
 }
 
+function marketManifest<Args extends unknown[], Result>(parse: (...args: Args) => Result) {
+  return (...args: Args): Result => {
+    try { return parse(...args); } catch { throw invalid(); }
+  };
+}
+
+const validateRevisions = marketManifest(validateMarketRevisions);
+const parseExchangeSessions = marketManifest(exchangeSessions);
+const parseMarketReplayScope = marketManifest(marketReplayScope);
+const parseEnvironmentManifest = marketManifest(environmentManifest);
+const parseSectorRefs = marketManifest(sectorRefs);
+const parseMainlineManifest = marketManifest(mainlineManifest);
+const parseRegimeSummaryManifest = marketManifest(regimeSummaryManifest);
+
 function parseOptions(args: readonly string[], allowed: readonly string[]) {
   const options = new Map<string, string>();
   for (let index = 0; index < args.length; index += 2) {
@@ -63,12 +82,6 @@ function parseOptions(args: readonly string[], allowed: readonly string[]) {
     options.set(flag, value);
   }
   return options;
-}
-
-function validateRevisions(revisions: unknown): string[] {
-  if (!Array.isArray(revisions) || revisions.length >= 7_000 || new Set(revisions).size !== revisions.length ||
-    revisions.some(revision => typeof revision !== "string" || !revisionPattern.test(revision))) throw invalid();
-  return revisions;
 }
 
 async function readObservationJsonFile(path: string, maxBytes: number, signal?: AbortSignal): Promise<unknown> {
@@ -102,14 +115,6 @@ function parseRotationManifest(value: unknown): SectorRankReplayRequest[] {
       memberRefs: revisions.map(revision => ({ version: 1, kind: "dated-sector-members", revision })),
     };
   });
-}
-
-function parseExchangeSessions(sessions: unknown): string[] {
-  if (!Array.isArray(sessions) || sessions.length === 0 || sessions.length >= 7_000 ||
-    sessions.some((date, index) => typeof date !== "string" || !isDailyDate(date) || (index > 0 && date <= sessions[index - 1]))) {
-    throw invalid();
-  }
-  return sessions;
 }
 
 function observationManifestObject(value: unknown, keys: readonly string[]): Record<string, unknown> {
@@ -372,47 +377,6 @@ function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRe
   };
 }
 
-function parseMarketReplayScope(value: Record<string, unknown>): MarketLadderReplayRequest {
-  const sessions = parseExchangeSessions(value.sessions);
-  const { marketRevisions, limitRevisions, riskWarningRevisions } = value;
-  const market = validateRevisions(marketRevisions);
-  if (market.length > sessions.length) throw invalid();
-  return {
-    sessions,
-    marketRefs: market.map(revision => ({ version: 1, kind: "market-cross-section", revision })),
-    limitRefs: validateRevisions(limitRevisions).map(revision => ({ version: 1, kind: "daily-trading-limits", revision })),
-    ...(Object.hasOwn(value, "riskWarningRevisions") ? {
-      riskWarningRefs: validateRevisions(riskWarningRevisions).map(revision => ({ version: 1 as const, kind: "dated-risk-warnings" as const, revision })),
-    } : {}),
-  };
-}
-
-function parseEnvironmentManifest(value: unknown): MarketEnvironmentReplayRequest {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
-  const manifest = value as Record<string, unknown>;
-  const { priceHistory, benchmark, phaseMode } = manifest;
-  const hasRiskWarnings = Object.hasOwn(value, "riskWarningRevisions");
-  const scope = parseMarketReplayScope(manifest);
-  if (Object.keys(value).length !== 5 + Number(Object.hasOwn(value, "phaseMode")) + Number(hasRiskWarnings) ||
-    !Array.isArray(priceHistory) || priceHistory.length > scope.sessions.length ||
-    !benchmark || typeof benchmark !== "object" || Array.isArray(benchmark) || Object.keys(benchmark).length !== 2 ||
-    (phaseMode !== undefined && phaseMode !== "causal" && phaseMode !== "retrospective-tsp")) throw invalid();
-  const { symbol, revisions } = benchmark as Record<string, unknown>;
-  if (typeof symbol !== "string" || !/^(?:000\d{3}\.SH|399\d{3}\.SZ)$/.test(symbol)) throw invalid();
-  const dates = new Set(scope.sessions);
-  const priceDates = new Set<string>();
-  const priceRefs = priceHistory.map(item => {
-    if (!item || typeof item !== "object" || Array.isArray(item) || Object.keys(item).length !== 2 ||
-      typeof item.tradeDate !== "string" || !dates.has(item.tradeDate) || priceDates.has(item.tradeDate)) throw invalid();
-    priceDates.add(item.tradeDate);
-    return { tradeDate: item.tradeDate, refs: validateRevisions(item.priceRevisions).map(revision => ({ version: 2 as const, revision })) };
-  });
-  return {
-    ...scope, phaseMode, priceHistory: priceRefs,
-    benchmark: { symbol, refs: validateRevisions(revisions).map(revision => ({ version: 1, kind: "benchmark-index", revision })) },
-  };
-}
-
 function parseAuctionManifest(value: unknown): AuctionBenchmarkReplayRequest {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 3) throw invalid();
   const { auctionRevision, calendar, marketRevisions } = value as Record<string, unknown>;
@@ -429,66 +393,6 @@ function parseAuctionManifest(value: unknown): AuctionBenchmarkReplayRequest {
     calendar: { revision, tradeDate, previousTradeDate, nextTradeDate },
     marketRefs: revisions.map(revision => ({ version: 1, kind: "market-cross-section", revision })),
   };
-}
-
-function parseMainlineFilter(value: unknown): MarketMainlineReplayRequest["filter"] {
-  if (!value || typeof value !== "object" || Array.isArray(value) ||
-    Object.keys(value).some(key => !["minMembers", "maxMembers", "blacklist"].includes(key))) throw invalid();
-  const { minMembers, maxMembers, blacklist } = value as Record<string, unknown>;
-  if ((minMembers !== undefined && (typeof minMembers !== "number" || !Number.isSafeInteger(minMembers) || minMembers < 1)) ||
-    (maxMembers !== undefined && (typeof maxMembers !== "number" || !Number.isSafeInteger(maxMembers) || maxMembers < 1)) ||
-    (maxMembers ?? 600) < (minMembers ?? 4) ||
-    (blacklist !== undefined && (!Array.isArray(blacklist) || blacklist.some(name => typeof name !== "string" || !name.trim())))) throw invalid();
-  return { minMembers, maxMembers, blacklist };
-}
-
-function parseSectorRefs(catalogRevision: unknown, memberRevisions: unknown): Pick<SectorRankReplayRequest, "catalogRef" | "memberRefs"> {
-  if (typeof catalogRevision !== "string" || !revisionPattern.test(catalogRevision)) throw invalid();
-  const members = validateRevisions(memberRevisions);
-  if (members.length >= 5_000) throw invalid();
-  return { catalogRef: { version: 1, kind: "dated-sector-catalog", revision: catalogRevision },
-    memberRefs: members.map(revision => ({ version: 1, kind: "dated-sector-members", revision })) };
-}
-
-function parseMainlineManifest(value: unknown): MarketMainlineReplayRequest {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
-  const manifest = value as Record<string, unknown>;
-  const scope = parseMarketReplayScope(manifest);
-  const { sectorHistory, filter } = manifest;
-  const hasFilter = Object.hasOwn(manifest, "filter");
-  if (Object.keys(manifest).length !== 4 + Number(Object.hasOwn(manifest, "riskWarningRevisions")) + Number(hasFilter)) throw invalid();
-  return { ...scope, sectorHistory: parseSectorHistory(sectorHistory, scope.sessions),
-    filter: hasFilter ? parseMainlineFilter(filter) : undefined };
-}
-
-function parseSectorHistory(sectorHistory: unknown, sessions: readonly string[]): MarketMainlineReplayRequest["sectorHistory"] {
-  if (!Array.isArray(sectorHistory) || sectorHistory.length > sessions.length) throw invalid();
-  const dates = new Set(sessions);
-  const seen = new Set<string>();
-  return sectorHistory.map(item => {
-    if (!item || typeof item !== "object" || Array.isArray(item) || Object.keys(item).length !== 3 ||
-      typeof item.tradeDate !== "string" || !dates.has(item.tradeDate) || seen.has(item.tradeDate)) throw invalid();
-    seen.add(item.tradeDate);
-    return { tradeDate: item.tradeDate, ...parseSectorRefs(item.catalogRevision, item.memberRevisions) };
-  });
-}
-
-function parseRegimeSummaryManifest(value: unknown): MarketRegimeSummaryReplayRequest {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
-  const { window, concepts, ...environment } = value as Record<string, unknown>;
-  const request: MarketRegimeSummaryReplayRequest = parseEnvironmentManifest(environment);
-  if (window !== undefined) {
-    const { start, end } = observationManifestObject(window, ["start", "end"]);
-    if (typeof start !== "string" || typeof end !== "string" || start > end ||
-      !request.sessions.includes(start) || !request.sessions.includes(end)) throw invalid();
-    request.window = { start, end };
-  }
-  if (concepts !== undefined) {
-    const { sectorHistory, filter } = observationManifestObject(concepts, ["sectorHistory", "filter"]);
-    request.concepts = { sectorHistory: parseSectorHistory(sectorHistory, request.sessions),
-      filter: filter === undefined ? undefined : parseMainlineFilter(filter) };
-  }
-  return request;
 }
 
 function parseEmotionDepth(value: unknown): NonNullable<MarketEmotionReplayRequest["depth"]> {
