@@ -73,6 +73,8 @@ export { computeTspMarketRegime, TSP_MARKET_REGIME_FORMULA_VERSION } from "./tsp
 export type { TspMarketState, TspRegimeMetrics } from "./tsp-market-regime.ts";
 export { computeTspMarketPhaseSeries, TSP_MARKET_PHASE_FORMULA_VERSION } from "./tsp-market-phase.ts";
 export type { TspMarketPhaseInput, TspMarketPhaseMode, TspMarketPhase } from "./tsp-market-phase.ts";
+export { summarizeTspMarketRegime, TSP_MARKET_REGIME_SUMMARY_FORMULA_VERSION } from "./tsp-market-regime-summary.ts";
+export type { TspRegimeSummarySession, TspRegimeMainlineRank } from "./tsp-market-regime-summary.ts";
 export { computeTspMarketMainline, TSP_MARKET_MAINLINE_FORMULA_VERSION } from "./tsp-market-mainline.ts";
 export type { TspMainlineFilter, TspMainlineInput } from "./tsp-market-mainline.ts";
 export { computeTspDashboardEmotion, tspDashboardDepthCandidates, TSP_DASHBOARD_CORE_INDICES, TSP_DASHBOARD_EMOTION_FORMULA_VERSION } from "./tsp-dashboard-emotion.ts";
