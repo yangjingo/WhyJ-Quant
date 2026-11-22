@@ -44,6 +44,8 @@ export { evaluateTspStrategyGuardian, planTspStrategyGuardianCheck, TSP_STRATEGY
 export type { TspStrategyGuardianCheckInput, TspStrategyGuardianPlanInput, TspStrategyGuardianReason, TspStrategyGuardianThresholds } from "./tsp-strategy-guardian.ts";
 export { computeTspPaperStatistics, TSP_PAPER_STATISTICS_FORMULA_VERSION } from "./tsp-paper-statistics.ts";
 export type { TspPaperFill, TspPaperNavRow, TspPaperStatisticsInput } from "./tsp-paper-statistics.ts";
+export { computeTspPaperValuation, TSP_PAPER_VALUATION_FORMULA_VERSION } from "./tsp-paper-valuation.ts";
+export type { TspPaperValuationInput, TspPaperPositionObservation, TspPaperPriceMark } from "./tsp-paper-valuation.ts";
 export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "./tsp-research-factors.ts";
 export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId, TspResearchFinancialReport } from "./tsp-research-factors.ts";
 export { computeTspPriceLevels, TSP_PRICE_LEVEL_FORMULA_VERSION } from "./tsp-price-levels.ts";
