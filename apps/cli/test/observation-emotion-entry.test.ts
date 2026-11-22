@@ -3,19 +3,20 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { archiveBenchmarkIndexObservations, archiveMarketCrossSection } from "../../../src/storage/index.ts";
+import { archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveDepthSnapshot,
+  archiveMarketCrossSection } from "../../../src/storage/index.ts";
 
 const tradeDate = "2025-01-03", observedAt = "2025-01-04T01:00:00Z";
+const symbol = "600001.SH";
 
-async function archiveFixture() {
+async function archiveFixture(close = 10) {
   const meta = { tradeDate, observedAt, coverage: "unknown" } as const;
-  const symbol = "600001.SH";
   const market = await archiveMarketCrossSection({ source: "tushare", market: "A", tradeDate,
     universe: { ...meta, endpoint: "bak_basic", universe: "provider-dated-stocks",
       members: [{ symbol, name: "Fixture", industry: null, listedOn: null }] },
     bars: { ...meta, endpoint: "daily", adjustment: "none", priceUnit: "CNY", volumeUnit: "hand", amountUnit: "CNY-thousand",
-      rows: [{ symbol, open: 10, high: 10, low: 10, close: 10, exRightsPreviousClose: 10,
-        returnPct: 0, changeCny: 0, volume: 100, amount: 1 }] },
+      rows: [{ symbol, open: 10, high: close, low: 10, close, exRightsPreviousClose: 10,
+        returnPct: (close - 10) * 10, changeCny: close - 10, volume: 100, amount: 1 }] },
     basics: { ...meta, endpoint: "daily_basic", priceUnit: "CNY", shareUnit: "ten-thousand-shares", marketValueUnit: "CNY-ten-thousand", rows: [] },
   });
   const index = await archiveBenchmarkIndexObservations({ symbol: "000680.SH", source: "tushare", market: "A", endpoint: "index_daily",
@@ -72,6 +73,38 @@ test("exposes an offline market emotion command with distinct partial, missing a
     expect(await replay({ ...manifest, indexRevisions: ["e".repeat(64)] })).toMatchObject({
       code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } },
     });
+
+    const { manifest: limitManifest } = await archiveFixture(11);
+    const limits = await archiveDailyTradingLimits({
+      source: "tushare", market: "A", symbol, endpoint: "stk_limit", observedAt, coverage: "unknown",
+      priceUnit: "CNY", requested: { startDate: tradeDate, endDate: tradeDate },
+      rows: [{ tradeDate, previousClose: 10, limitUp: 11, limitDown: 9 }],
+    });
+    const timestamp = Date.parse(tradeDate + "T15:00:00+08:00");
+    const asOf = new Date(timestamp + 1000).toISOString();
+    const book = await archiveDepthSnapshot({ source: "tickflow", endpoint: "/v1/depth", market: "A",
+      tradeDate, observedAt: asOf, coverage: "unknown", volumeUnit: "unknown", requestedSymbols: [symbol],
+      rows: [{ symbol, timestamp, bids: [{ price: 11, volume: 200 }], asks: [{ price: 0, volume: 0 }] }],
+    });
+    const legacyDepth = { ...limitManifest, limitRevisions: [limits.revision],
+      depth: { revision: book.revision, asOf, maxAgeMs: 1000 } };
+    expect(await replay(legacyDepth)).toMatchObject({ code: 0, output: { data: {
+      depthQueue: { volumeUnit: "unknown", volumeUnitBasis: "archive", rows: [
+        { symbol, nativeVolume: 200, queueHands: null, queueAmountCny: null, triggered: null },
+      ] },
+    } } });
+    const queue = { volumeUnit: "share", rule: { metric: "sealed_amount", threshold: 2200 } };
+    const qualified = await replay({ ...legacyDepth, depth: { ...legacyDepth.depth, queue } });
+    expect(qualified).toMatchObject({ code: 0, output: { data: {
+      input: { depth: { ref: book, volumeUnit: "unknown" } },
+      depthQueue: { volumeUnit: "share", volumeUnitBasis: "caller-declared", rows: [
+        { symbol, queueShares: 200, queueHands: 2, queueAmountCny: 2200, triggered: true },
+      ] },
+    } } });
+    for (const badQueue of [
+      { ...queue, volumeUnit: "lot" }, { ...queue, rule: { metric: "amount", threshold: 1 } },
+      { ...queue, rule: { ...queue.rule, threshold: -1 } },
+    ]) expect(await replay({ ...legacyDepth, depth: { ...legacyDepth.depth, queue: badQueue } })).toMatchObject(invalid);
   } finally {
     if (previous === undefined) delete process.env.OHQUANT_DIR;
     else process.env.OHQUANT_DIR = previous;

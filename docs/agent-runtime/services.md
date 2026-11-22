@@ -317,6 +317,8 @@ Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必
 
 已有固定盘口归档时，可加入 `"depth": {"revision": "DEPTH_SHA", "asOf": "2025-01-03T15:00:05+08:00", "maxAgeMs": 5000}`。截止时间须带时区，并与目标交易日一致。`maxAgeMs` 是盘口相对截止时间允许的最大年龄。归档基于其原始采集时间绑定到该截止时间，回执保留实际匹配的股票和封板修正依据。
 
+如果已确认该盘口归档以股计量，可在 `depth` 内添加 `"queue": {"volumeUnit": "share", "rule": {"metric": "sealed_amount", "threshold": 25000}}`。结果在 `data.depthQueue` 返回每只候选的手数、人民币金额及阈值结果，原始单位保留在 `data.input.depth.volumeUnit`。省略 `queue` 时，回放仍提供盘口原始排队量。无效单位或阈值返回 `invalid_arguments`。
+
 选定 TickFlow 后，用 `whyj --json observation collect-depth --date YYYY-MM-DD --symbols-file symbols.json` 采集当前上海日期的盘口。`symbols.json` 是形如 `["600000.SH", "000001.SZ"]` 的股票代码数组。将回执中的 `data.ref.revision` 传给市场情绪清单的 `depth.revision`，将采集时刻 `data.observedAt` 作为 `depth.asOf`，并按用途选择 `maxAgeMs`。采集回执会列出缺少的标的。
 
 Runtime 的 `deriveTspArchiveAnalytics` 用精确的 v2 日线引用生成归档末日的 77 个研究因子字段和 11 组图表价格位。Tushare 的手数和千元成交额按明确单位参与计算，TickFlow 成交单位未确认时，对应因子保持空值。估值财务、历史换手和连板输入需独立归档。结果标记价格位的量分布口径、原行情来源、归档范围、可用成交额计数及两个计算的公式版本。读取只使用指定归档。
