@@ -326,6 +326,14 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .observation-list-detail { padding: 8px 0 12px 14px; min-width: 0; }
 .observation-list-detail > details { margin-top: 8px; }
 .observation-list-detail summary { cursor: pointer; }
+.observation-regime .field-row { margin: 12px 0; min-width: 0; }
+.observation-regime .field-row :is(input, select) { width: 100%; min-width: 0; }
+.observation-regime-result { overflow-wrap: anywhere; }
+.observation-regime-chart { width: 100%; min-width: 0; height: 240px; margin: 10px 0; background: var(--panel); }
+.observation-regime-result summary { cursor: pointer; }
+.observation-regime-result > details { margin: 8px 0; }
+.observation-regime-segments { padding-inline-start: 16px; }
+.observation-regime-list { margin: 8px 0; padding-inline-start: 22px; }
 @media (max-width: 600px) {
   .observation-indicator-values { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
