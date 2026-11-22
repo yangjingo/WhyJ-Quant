@@ -4,10 +4,13 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
-  computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward,
-  parseTspIntradaySignalRule, TSP_DAILY_SIGNAL_FIELDS, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES, TSP_SECTOR_MONITOR_WINDOWS, type TspScreenerScoreInput,
+  computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
+  parseTspIntradaySignalRule, planTspStrategyGuardianCheck,
+  TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
+  TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
+  type TspStrategyGuardianCheckInput, type TspStrategyGuardianPlanInput, type TspStrategyGuardianThresholds,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { replayTspAbnormalSnapshot, type AbnormalSnapshotReplayRequest } from "../../../src/runtime/data/abnormal-snapshot-replay.ts";
@@ -457,6 +460,40 @@ function parseMiningCandidateManifest(value: unknown): TspMiningCandidateReportI
     return { window, evaluationKind, testSessionCount, outcome: {
       status, metrics: { totalReturnFraction, sharpe, maxDrawdownFraction, tradeCount },
     } };
+  }) };
+}
+
+const guardianPlanKeys = ["schemaVersion", "dataAsOf", "sessions", "thresholds"] as const;
+const guardianThresholdKeys = ["watchFraction", "retireFraction", "maxSoftDrawdownFraction", "maxSegments", "minNewTradingDays"] as const;
+
+function parseGuardianPlan({ schemaVersion, dataAsOf, sessions, thresholds: rawThresholds }: Record<string, unknown>): TspStrategyGuardianPlanInput {
+  if (schemaVersion !== 1 || typeof dataAsOf !== "string" || !Array.isArray(sessions) ||
+    !sessions.every(date => typeof date === "string")) throw invalid();
+  const thresholds: Partial<TspStrategyGuardianThresholds> = {};
+  if (rawThresholds !== undefined) {
+    const supplied = observationManifestObject(rawThresholds, guardianThresholdKeys);
+    for (const key of guardianThresholdKeys) {
+      const value = supplied[key];
+      if (value === undefined) continue;
+      if (typeof value !== "number") throw invalid();
+      thresholds[key] = value;
+    }
+  }
+  return { dataAsOf, sessions, thresholds };
+}
+
+function parseGuardianCheck(value: unknown): TspStrategyGuardianCheckInput {
+  const { strategyId, objective: rawObjective, baselineScore, baselineTradeCount, segments, ...scope } = observationManifestObject(value,
+    [...guardianPlanKeys, "strategyId", "objective", "baselineScore", "baselineTradeCount", "segments"]);
+  const objective = TSP_PARAMETER_OBJECTIVES.find(name => name === rawObjective);
+  if (typeof strategyId !== "string" || objective === undefined || typeof baselineScore !== "number" ||
+    typeof baselineTradeCount !== "number" || !Array.isArray(segments)) throw invalid();
+  return { ...parseGuardianPlan(scope), strategyId, objective, baselineScore, baselineTradeCount, segments: segments.map((entry: unknown) => {
+    const { start, end, objective, tradeCount, maxDrawdownFraction } =
+      observationManifestObject(entry, ["start", "end", "objective", "tradeCount", "maxDrawdownFraction"]);
+    if (typeof start !== "string" || typeof end !== "string" || (objective !== null && typeof objective !== "number") ||
+      (tradeCount !== null && typeof tradeCount !== "number") || (maxDrawdownFraction !== null && typeof maxDrawdownFraction !== "number")) throw invalid();
+    return { start, end, objective, tradeCount, maxDrawdownFraction };
   }) };
 }
 
@@ -1159,6 +1196,16 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     const request = parseMiningCandidateManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspMiningCandidateReport(request); }
     catch { throw invalid(); }
+  }
+  if (action === "plan-strategy-guardian" || action === "replay-strategy-guardian") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const value = await readObservationJsonFile(path, maxObservationManifestBytes, signal);
+    try {
+      if (action === "replay-strategy-guardian") return evaluateTspStrategyGuardian(parseGuardianCheck(value));
+      const plan = planTspStrategyGuardianCheck(parseGuardianPlan(observationManifestObject(value, guardianPlanKeys)));
+      return { producer: "whyj", formulaVersion: TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, referenceRevision: TSP_INDICATOR_REVISION, ...plan };
+    } catch { throw invalid(); }
   }
   if (action === "replay-analytics") {
     const fields = parseOptions(options, ["--revision", "--financial-report-revisions", "--financial-disclosure-revisions",

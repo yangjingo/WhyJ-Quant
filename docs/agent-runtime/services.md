@@ -550,6 +550,14 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 有效折使用 `outcome.status: "valid"`，并在 `outcome.metrics` 写入 `totalReturnFraction`、`sharpe`、`maxDrawdownFraction` 和 `tradeCount`。缺测字段填写 `null`，观察到的零填写 `0`。跳过折使用 `outcome.status: "skipped"` 并填写 `outcome.reason`。返回各折、汇总结果、指标覆盖折数和 WhyJ 公式版本。训练和测试日期重叠、重复折号及无效字段返回 `invalid_arguments`。 [样本外指标定义](../quant-harness/tsp-panel-coverage.md#mining-candidate-out-of-sample-report)
 
+### 策略健康度复验
+
+`whyj --json observation plan-strategy-guardian --manifest plan.json` 接受 `schemaVersion: 1`、基线数据截止日 `dataAsOf` 和严格升序的交易日 `sessions`。可在 `thresholds` 覆盖 `minNewTradingDays`、`maxSegments`、`watchFraction`、`retireFraction` 或 `maxSoftDrawdownFraction`。规划默认要求基线后至少有 30 个交易日，选择最多 4 个分段，每段至少 14 个自然日。结果返回分段起止日期，或数据量不足的具体原因。
+
+`whyj --json observation replay-strategy-guardian --manifest check.json` 沿用规划字段，并接受 `strategyId`、`objective`（例如 `sharpe`）、`baselineScore`、`baselineTradeCount` 和 `segments`。每段按规划顺序提交 `start`、`end`、目标得分 `objective`、`tradeCount` 和有符号的回撤比例 `maxDrawdownFraction`。缺测填 `null`。规划跳过时提交空数组。
+
+复验返回基线、当前分段稳健得分、相对退化比例、交易数、最差回撤及原因码。结果状态为 `healthy`、`watch`、`retired`、`skipped` 或 `unavailable`。这两条命令只读取本地清单。格式、阈值或分段不符时返回 `invalid_arguments`。 [策略健康度指标定义](../quant-harness/tsp-panel-coverage.md#strategy-guardian)
+
 在因子检验清单中增加可选的 `marketEnvironment` 对象，即可启用前一交易日的市场状态分层。对象沿用 `replay-market-environment` 的 `sessions`、`marketRevisions`、`limitRevisions`、`priceHistory` 和 `benchmark` 格式，也可以提供 `riskWarningRevisions`。其日历须连续包含正式的因子检验区间和已知前驱。`phaseMode` 可省略或填 `causal`。`data.information.marketRegime` 返回分层统计及每个使用日期的前驱、状态和分数。
 
 ### 回测交易稳健性
