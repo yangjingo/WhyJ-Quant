@@ -97,17 +97,42 @@ async function marketPriceMetrics(ref: MarketCrossSectionArchiveRef, priceRefs: 
   const upper = returns[Math.floor(count / 2)];
   const strongDown = returns.filter(value => value <= -0.03).length;
   const strongUp = returns.filter(value => value >= 0.03).length;
+  const advances = returns.filter(value => value > 0).length;
+  const declines = returns.filter(value => value < 0).length;
+  let amountSum = 0, amountCount = 0;
+  for (const { symbol, amount } of bars.rows) {
+    if (!matched.has(symbol) || amount === null) continue;
+    amountSum += amount;
+    amountCount++;
+  }
+  const totalAmountCny = amountCount ? amountSum * 1_000 : null;
+  if (totalAmountCny !== null && !Number.isFinite(totalAmountCny)) throw new Error("Market traded amount exceeds numeric range");
   return {
     metrics: {
-      upFraction: count ? returns.filter(value => value > 0).length / matched.size : null,
+      upFraction: count ? advances / matched.size : null,
       averageFraction: count ? returns.reduce((sum, value) => sum + value / count, 0) : null,
       medianFraction: lower === undefined || upper === undefined ? null : lower / 2 + upper / 2,
       strongDifferenceFraction: count ? (strongUp - strongDown) / matched.size : null,
       strongDownFraction: count ? strongDown / matched.size : null,
       aboveMa20Fraction: ma20Count ? aboveMa20 / ma20Count : null,
     },
+    breadth: {
+      observedReturns: count, matchedBars: matched.size,
+      advances: count ? advances : null, declines: count ? declines : null, flat: count ? count - advances - declines : null,
+      strongAdvances: count ? strongUp : null, strongDeclines: count ? strongDown : null,
+      advanceDeclineRatio: count ? (declines ? advances / declines : advances || 1) : null,
+      advanceFraction: count ? advances / matched.size : null, declineFraction: count ? declines / matched.size : null,
+      strongAdvanceFraction: count ? strongUp / matched.size : null, strongDeclineFraction: count ? strongDown / matched.size : null,
+      aboveMa20Fraction: ma20Count ? aboveMa20 / ma20Count : null, observedMa20: ma20Count,
+    },
+    activity: { unit: "CNY" as const, sourceUnit: bars.amountUnit, matchedBars: matched.size, observedAmounts: amountCount,
+      totalAmountCny, meanAmountCny: totalAmountCny === null ? null : totalAmountCny / amountCount },
     evidence: { rowCount: matched.size, missingBars: roster.size - matched.size, returnCount: count, ma20Count, aboveMa20, prices: priceEvidence },
   };
+}
+
+function limitCount(observed: number, known: number, roster: number) {
+  return { observed, known, roster, count: roster > 0 && known === roster ? observed : null };
 }
 
 /** Replay the pinned environment formulas on the exact captured stock universe. */
@@ -131,7 +156,7 @@ export async function replayTspMarketEnvironment(request: MarketEnvironmentRepla
   const rows = [];
   for (const row of ladders.rows) {
     signal?.throwIfAborted();
-    const { tradingDate, market, metrics: ladder, riskWarnings } = row;
+    const { tradingDate, market, metrics: ladder, limitDown, riskWarnings } = row;
     const excluded = new Set(riskWarnings?.status === "matched" ? riskWarnings.excludedSymbols : []);
     const available = market && riskWarnings?.status !== "missing";
     const price = available ? await marketPriceMetrics(market.ref, pricesByDate.get(tradingDate) ?? [], excluded, signal) : null;
@@ -148,7 +173,15 @@ export async function replayTspMarketEnvironment(request: MarketEnvironmentRepla
       firstBoardCount: ladder?.ladder?.firstBoardCount ?? null, twoOrMoreCount: ladder?.ladder?.twoOrMoreCount ?? null,
       promotionFraction: ladder?.promotion.fraction ?? null,
       sealFraction: ladder?.seal.fraction ?? (ladder?.seal.basis === "regime-zero-events-default" ? 0.5 : null) });
-    rows.push({ tradingDate, regime, ladder, inputs: { market, prices: price?.evidence ?? null, benchmark: indexRow,
+    const daily = price && {
+      breadth: price.breadth, activity: price.activity,
+      exchange: ladder && limitDown ? {
+        limitUp: limitCount(ladder.seal.observedLimitUps, ladder.coverage.limitUpsKnown, ladder.coverage.roster),
+        brokenLimitUp: limitCount(ladder.seal.observedBrokenLimits, ladder.coverage.brokenLimitsKnown, ladder.coverage.roster),
+        limitDown: limitCount(limitDown.observed, limitDown.known, ladder.coverage.roster),
+      } : null,
+    };
+    rows.push({ tradingDate, regime, ladder, daily, inputs: { market, prices: price?.evidence ?? null, benchmark: indexRow,
       ...(riskWarnings ? { riskWarnings } : {}) } });
   }
   const phases = computeTspMarketPhaseSeries(phaseInput, mode);
