@@ -1,7 +1,7 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
 import type {
-  HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch,
-  StoredMarketCrossSection,
+  BenchmarkIndexArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, MarketRegimeManifestRef,
+  ObservationArchiveRef, SectorObservationArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
   StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
 } from "./observation.ts";
 /**
@@ -301,6 +301,7 @@ export interface WorkbenchClient {
   readObservationListRows?(input: ObservationListRowsRequest): Promise<ObservationListRowsPreview>;
   readObservationListQuotes?(input: ObservationListRowsRequest): Promise<ObservationListQuotesPreview>;
   readObservationAnalytics?(ref: TradingDateArchiveRef): Promise<ObservationAnalyticsPreview>;
+  readObservationMarketRegime?(ref: MarketRegimeManifestRef): Promise<ObservationMarketRegimePreview>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
   verifyModelDraft?(id: string): Promise<ModelDraftView>;
@@ -555,6 +556,68 @@ export interface ObservationListQuotesPreview {
     units: "unknown";
     rows: ObservationListQuoteRow[];
   };
+}
+
+export type ObservationRegimeState = "strong" | "lean_strong" | "range" | "lean_weak" | "weak";
+export type ObservationRegimePhase = "ice" | "ignite" | "rally" | "climax" | "ebb" | "repair";
+type RegimeFormula<Id extends string> = { id: Id; version: number; revision: string };
+type RegimeMean = { value: number | null; observed: number; denominator: number };
+type RegimeLimitCount = { count: number | null; observed: number; known: number; roster: number };
+
+export interface ObservationMarketRegimePreview {
+  manifestRef: MarketRegimeManifestRef;
+  calendar: { zone: "Asia/Shanghai"; start: string | null; end: string | null; sessions: number };
+  universe: "captured-market-roster" | "exclude-observed-risk-warnings";
+  phase: { mode: "causal" | "retrospective-tsp"; formula: RegimeFormula<"tsp_market_phase"> };
+  summary: {
+    producer: "whyj";
+    formula: RegimeFormula<"tsp_market_regime_summary">;
+    window: { start: string | null; end: string | null; sessions: number; observedStates: number };
+    distribution: { state: ObservationRegimeState | null; days: number; pct: number }[];
+    stateSwitches: { count: number; observedPairs: number; fraction: number | null };
+    momentum: { state: ObservationRegimeState | null; streak: number | null; scoreSlope: number | null;
+      sessionsSinceLastObservedWeak: number | null } | null;
+    latestPercentiles: { field: string; value: number | null; observed: number; percentilePct: number | null }[];
+    segments: {
+      phase: ObservationRegimePhase | null; start: string; end: string; days: number;
+      means: Record<"height" | "firstBoardCount" | "twoOrMoreCount" | "promotionFraction" | "sealFraction", RegimeMean>;
+      conceptDays: number;
+      topConcepts: { name: string; topFiveDays: number; scoreSum: number; maxBoards: number; leaderSymbol: string | null }[];
+    }[];
+    currentPhase: { phase: ObservationRegimePhase; streak: number; segments: number; averageDays: number; maxDays: number;
+      successors: { phase: ObservationRegimePhase | null; transitions: number; pct: number }[] } | null;
+  };
+  rows: {
+    tradingDate: string;
+    regime: {
+      state: ObservationRegimeState | null; score: number | null; label: string | null;
+      dimensions: { profit: number; speculation: number; resilience: number; trend: number } | null;
+      formula: RegimeFormula<"tsp_market_regime">;
+    } | null;
+    phase: ObservationRegimePhase | null;
+    phaseFutureFields: string[];
+    daily: {
+      breadth: {
+        observedReturns: number; matchedBars: number; advances: number | null; declines: number | null; flat: number | null;
+        strongAdvances: number | null; strongDeclines: number | null; advanceDeclineRatio: number | null;
+        advanceFraction: number | null; declineFraction: number | null; strongAdvanceFraction: number | null;
+        strongDeclineFraction: number | null; aboveMa20Fraction: number | null; observedMa20: number;
+      };
+      activity: { unit: "CNY"; sourceUnit: "CNY-thousand"; matchedBars: number; observedAmounts: number;
+        totalAmountCny: number | null; meanAmountCny: number | null };
+      exchange: Record<"limitUp" | "limitDown" | "brokenLimitUp", RegimeLimitCount> | null;
+    } | null;
+    ladder: {
+      height: number; firstBoardCount: number; twoOrMoreCount: number; threeOrMoreCount: number; fiveOrMoreCount: number;
+      completeness: number; promotionFraction: number | null; observedPromotionPool: number; sealFraction: number | null;
+    } | null;
+    market: { ref: MarketCrossSectionArchiveRef; source: "tushare"; observedAt: string } | null;
+    benchmark: { ref: BenchmarkIndexArchiveRef; returnPct: number | null } | null;
+    concepts: {
+      catalogRef: SectorObservationArchiveRef; archivedGroups: number; catalogGroups: number;
+      ranks: { name: string; score: number; rank: number; maxBoards: number; leaderSymbol: string | null }[] | null;
+    } | null;
+  }[];
 }
 
 export interface ObservationAnalyticsPreview {

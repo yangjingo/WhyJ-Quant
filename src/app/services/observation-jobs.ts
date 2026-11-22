@@ -4,10 +4,13 @@ import { collectObservations, collectTradingDateObservations, collectTradingLimi
   type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../../runtime/data/list-rows.ts";
+import { parseRegimeSummaryManifest } from "../../runtime/data/market-regime-manifest.ts";
+import { replayTspMarketRegimeSummary } from "../../runtime/data/market-regime-summary-replay.ts";
+import { loadMarketRegimeManifest } from "../../storage/index.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
   ObservationJobRequest, ObservationJobView, ObservationListQuotesPreview, ObservationListRowsPreview,
-  ObservationListRowsRequest } from "../../types/workbench.ts";
+  ObservationListRowsRequest, ObservationMarketRegimePreview } from "../../types/workbench.ts";
 import type { TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
@@ -27,7 +30,7 @@ function dailyReference(value: unknown): TradingDateArchiveRef {
   return { version: 2, revision: value.revision };
 }
 
-function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars" | "market-cross-section">(
+function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars" | "market-cross-section" | "market-regime-manifest">(
   value: unknown, kind: Kind, error: () => WorkbenchError,
 ) {
   if (!object(value) || Object.keys(value).length !== 3 || !["version", "kind", "revision"].every(key => Object.hasOwn(value, key)) ||
@@ -91,6 +94,46 @@ export function readObservationListRows(value: unknown): Promise<ObservationList
 
 export function readObservationListQuotes(value: unknown): Promise<ObservationListQuotesPreview> {
   return readListArchive(value, (request, signal) => replayTspListRowsWithLiveQuotes(request, { signal, timeoutMs: 10_000 }));
+}
+
+export async function readObservationMarketRegime(value: unknown): Promise<ObservationMarketRegimePreview> {
+  const manifestRef = fixedReference(value, "market-regime-manifest",
+    () => new WorkbenchError("INPUT_INVALID", "市场状态清单引用无效。", 400));
+  const signal = AbortSignal.timeout(50_000);
+  try {
+    const request = parseRegimeSummaryManifest(await loadMarketRegimeManifest(manifestRef, signal));
+    const { summary, history, mainline } = await replayTspMarketRegimeSummary(request, signal);
+    const { sessions, zone } = history.calendar;
+    const conceptsByDate = new Map(mainline?.rows.map(row => [row.tradingDate, row]));
+    const rows = history.rows.filter(row => !request.window ||
+      (row.tradingDate >= request.window.start && row.tradingDate <= request.window.end));
+    return {
+      manifestRef, calendar: { zone, start: sessions[0] ?? null, end: sessions.at(-1) ?? null, sessions: sessions.length },
+      universe: history.universe, phase: history.phase, summary,
+      rows: rows.map(({ tradingDate, regime, ladder, phase, daily, inputs }) => {
+        const { market, benchmark } = inputs;
+        const conceptDay = conceptsByDate.get(tradingDate);
+        const sector = conceptDay?.input.sector;
+        return {
+          tradingDate, regime: regime && { state: regime.state, score: regime.score, label: regime.label,
+            dimensions: regime.dimensions, formula: regime.formula },
+          phase: phase.phase, phaseFutureFields: phase.futureFields, daily,
+          ladder: ladder?.ladder ? {
+            ...ladder.ladder, promotionFraction: ladder.promotion.fraction, observedPromotionPool: ladder.promotion.observedCandidates,
+            sealFraction: ladder.seal.fraction ?? ladder.seal.regimeFraction,
+          } : null,
+          market: market && { ref: market.ref, source: market.source, observedAt: market.barsObservedAt },
+          benchmark: benchmark && { ref: benchmark.ref, returnPct: benchmark.returnPct },
+          concepts: sector ? { catalogRef: sector.catalogRef, archivedGroups: sector.coverage.archivedGroups,
+            catalogGroups: sector.coverage.catalogGroups,
+            ranks: conceptDay?.mainline?.rows.map(({ name, score, rank, maxBoards, leaderSymbol }) =>
+              ({ name, score, rank, maxBoards, leaderSymbol })) ?? null } : null,
+        };
+      }),
+    };
+  } catch {
+    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法回放市场状态。请核对清单和所需归档后重试。", 404);
+  }
 }
 
 export async function readObservationAnalytics(value: unknown): Promise<ObservationAnalyticsPreview> {
