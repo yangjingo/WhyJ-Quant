@@ -62,6 +62,8 @@ export { calculatePositionScenarios } from "./position-scenarios.ts";
 export { computeTspMarketBreadth, TSP_MARKET_BREADTH_FORMULA_VERSION } from "./tsp-market-breadth.ts";
 export type { TspBreadthMemberObservation, TspBreadthUniverse, TspMarketBreadth } from "./tsp-market-breadth.ts";
 export { computeTspSectorRanking, TSP_SECTOR_RANKING_FORMULA_VERSION } from "./tsp-sector-ranking.ts";
+export { computeTspSectorMonitor, TSP_SECTOR_MONITOR_FORMULA_VERSION, TSP_SECTOR_MONITOR_WINDOWS } from "./tsp-sector-monitor.ts";
+export type { TspSectorMonitorInput, TspSectorMonitorQuote, TspSectorMonitorRule, TspSectorMonitorTarget } from "./tsp-sector-monitor.ts";
 export type { TspSectorMember, TspSectorMembership, TspSectorRankingInput, TspSectorRank, TspSectorSnapshotGroup } from "./tsp-sector-ranking.ts";
 export { computeTspDragonTiger, TSP_DRAGON_TIGER_FORMULA_VERSION } from "./tsp-dragon-tiger.ts";
 export type { TspDragonTigerInput } from "./tsp-dragon-tiger.ts";
