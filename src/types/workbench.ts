@@ -299,6 +299,7 @@ export interface WorkbenchClient {
   readObservationExchangeIndicators?(input: ObservationExchangePreviewRequest): Promise<ObservationIndicatorPreview>;
   readObservationIntraday?(input: ObservationIntradayRequest): Promise<ObservationIntradayPreview>;
   readObservationListRows?(input: ObservationListRowsRequest): Promise<ObservationListRowsPreview>;
+  readObservationListQuotes?(input: ObservationListRowsRequest): Promise<ObservationListQuotesPreview>;
   readObservationAnalytics?(ref: TradingDateArchiveRef): Promise<ObservationAnalyticsPreview>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
@@ -530,6 +531,30 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
       }) | null;
     };
   }[];
+}
+
+export type ObservationListQuoteRow = { symbol: string } & (
+  | { status: "missing"; sourceTimestamp: null }
+  | { status: "missing-price" | "different-session" | "future-timestamp"; sourceTimestamp: number }
+  | {
+    status: "available";
+    sourceTimestamp: number;
+    snapshot: { symbol: string; timestamp: number; lastPrice: number; previousClose: number;
+      open: number; high: number; low: number; volume: number; amount: number | null };
+    change: { producer: "whyj"; changeAmount: number | null; changeFraction: number | null };
+  }
+);
+
+export interface ObservationListQuotesPreview {
+  fixed: ObservationListRowsPreview;
+  quotes: { status: "outside-current-day" | "empty" | "unavailable" } | {
+    status: "observed";
+    source: string;
+    endpoint: string;
+    observedAt: string;
+    units: "unknown";
+    rows: ObservationListQuoteRow[];
+  };
 }
 
 export interface ObservationAnalyticsPreview {

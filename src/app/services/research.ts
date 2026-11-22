@@ -49,7 +49,7 @@ import type { HudContextUsage } from "../../types/hud.ts";
 import { terminalCommandResources, terminalReadResources } from "./resource-paths.ts";
 import { createDataDrafts } from "./data-drafts.ts";
 import { createObservationJobs, readObservationAnalytics, readObservationExchangeIndicators, readObservationIndicators,
-  readObservationIntraday, readObservationListRows } from "./observation-jobs.ts";
+  readObservationIntraday, readObservationListQuotes, readObservationListRows } from "./observation-jobs.ts";
 import { createModelDrafts } from "./model-drafts.ts";
 import { removeDataCredential } from "./data-credentials.ts";
 import type { DataSettingsOptions } from "../../runtime/data/data-settings.ts";
@@ -1029,6 +1029,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     async readObservationExchangeIndicators(input) { assertOpen(); return readObservationExchangeIndicators(input); },
     async readObservationIntraday(input) { assertOpen(); return readObservationIntraday(input); },
     async readObservationListRows(input) { assertOpen(); return readObservationListRows(input); },
+    async readObservationListQuotes(input) { assertOpen(); return readObservationListQuotes(input); },
     async editDataDraft(input) { assertOpen(); return dataDrafts.edit(input); },
     async verifyDataDraft(id) { assertOpen(); return dataDrafts.verify(id); },
     async cancelDataDraft(id) { assertOpen(); return dataDrafts.cancel(id); },

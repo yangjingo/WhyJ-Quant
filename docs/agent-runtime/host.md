@@ -159,3 +159,5 @@ Windows 开发版使用独立的 `io.github.yangjingo.whyj-quant.dev` 任务栏�
 行情采集任务的 `daily` 请求可明确指定 `timeMode: "trading-date"`，以有界上海交易日区间调用当前保存的数据源，并返回版本 2 的精确归档引用；旧时间戳日线、分钟线、复权因子及版本 1 引用保持兼容。回执引用类型因此包含两个版本，类型化消费者读取归档前须按 `version` 区分。请求不接受凭证，失败信息不回传供应商原文，取消后若归档已提交仍返回实际结果。设置界面尚未提供该请求，真实服务权限与 TSP 端到端仍未验证。
 
 工作台的认证 RPC `readObservationListRows` 接收一个 `ObservationListRowsRequest`。请求包含市场截面 `marketRef`、日线复权口径及最多 100 个不同的股票代码，可为每个代码附上日线和限价归档引用。Host 离线返回按请求顺序排列的 [历史列表行](./services.md#自选与选股的历史列表行)，保留各项来源、日期、单位以及缺值。无效请求返回 `INPUT_INVALID`，无法读取或不匹配的归档返回 `OBSERVATION_ARCHIVE_UNAVAILABLE`。较旧 Host 缺少此读取方法时返回 `METHOD_NOT_FOUND`。
+
+另一个可选 RPC `readObservationListQuotes` 接收相同请求。它只在用户主动调用且截面对应当前上海日期时向当前选定的 Source 读取单批报价，提供 10 秒的供应商请求超时。响应分别返回 `fixed` 与 `quotes`，提供历史跳过、报价不可用和逐股状态。已有 `readObservationListRows` 继续离线读取，供应商失败时也可从新方法取得固定归档。

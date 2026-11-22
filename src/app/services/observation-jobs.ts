@@ -3,10 +3,11 @@ import { deriveTspArchiveAnalytics } from "../../runtime/data/archive-analytics.
 import { collectObservations, collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators,
   type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
-import { replayTspListRows } from "../../runtime/data/list-rows.ts";
+import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../../runtime/data/list-rows.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
-  ObservationJobRequest, ObservationJobView, ObservationListRowsPreview, ObservationListRowsRequest } from "../../types/workbench.ts";
+  ObservationJobRequest, ObservationJobView, ObservationListQuotesPreview, ObservationListRowsPreview,
+  ObservationListRowsRequest } from "../../types/workbench.ts";
 import type { TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
@@ -67,7 +68,9 @@ function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][numb
   } } };
 }
 
-export async function readObservationListRows(value: unknown): Promise<ObservationListRowsPreview> {
+async function readListArchive<T>(
+  value: unknown, read: (request: ObservationListRowsRequest, signal: AbortSignal) => Promise<T>,
+): Promise<T> {
   if (!object(value) || Object.keys(value).length !== 3 ||
     !["marketRef", "adjustment", "stocks"].every(key => Object.hasOwn(value, key)) ||
     (value.adjustment !== "none" && value.adjustment !== "forward") ||
@@ -76,10 +79,18 @@ export async function readObservationListRows(value: unknown): Promise<Observati
   const stocks = value.stocks.map(listRowStock);
   if (new Set(stocks.map(stock => stock.symbol)).size !== stocks.length) throw invalidListRows();
   try {
-    return await replayTspListRows({ marketRef, adjustment: value.adjustment, stocks }, AbortSignal.timeout(25_000));
+    return await read({ marketRef, adjustment: value.adjustment, stocks }, AbortSignal.timeout(25_000));
   } catch {
     throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的股票列表归档。请核对归档引用后重试。", 404);
   }
+}
+
+export function readObservationListRows(value: unknown): Promise<ObservationListRowsPreview> {
+  return readListArchive(value, replayTspListRows);
+}
+
+export function readObservationListQuotes(value: unknown): Promise<ObservationListQuotesPreview> {
+  return readListArchive(value, (request, signal) => replayTspListRowsWithLiveQuotes(request, { signal, timeoutMs: 10_000 }));
 }
 
 export async function readObservationAnalytics(value: unknown): Promise<ObservationAnalyticsPreview> {
