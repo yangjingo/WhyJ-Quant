@@ -220,6 +220,12 @@ export interface MarketCrossSectionArchiveRef {
   revision: string;
 }
 
+export interface MarketRegimeManifestRef {
+  version: 1;
+  kind: "market-regime-manifest";
+  revision: string;
+}
+
 export interface StoredDepthSnapshot {
   source: "tickflow";
   endpoint: "/v1/depth" | "/v1/depth/batch";
