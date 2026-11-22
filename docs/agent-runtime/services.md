@@ -327,6 +327,8 @@ Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必
 
 `replayTspSectorMonitor` 固定同一天的板块目录、成分归档和按采集时间排序的股票快照重算板块分钟变化。板块涨跌幅取可用成员的 `lastPrice / previousClose - 1` 平均值，覆盖率分母取完整归档成分。允许快照未返回部分成分。请求范围与板块成分的交集在各轮保持一致。窗口按快照收包时间比较，原始报价时段和成分采集时点随证据返回，成分在历史具体时点的可得性仍未知。指数分支复用已结束交易日的同源分钟归档和前一交易日收盘价，时间轴保留供应商原始时间戳标签。
 
+用 `whyj --json observation replay-sector-monitor --manifest monitor.json` 回放。两种清单均包含 `"version": 1`。行业或概念用 `"kind": "sector"`，填写 `catalogRevision`、`memberRevision` 和按时间排序的 `quoteRevisions`。指数用 `"kind": "index"` 与 `minuteRevision`，可选 `name` 和 `previousClose`。后者包含 `dailyRevision` 及 `calendar`（`revision`、`previousTradeDate`、`tradeDate`）。两种清单均可选 `rule`，包含 `trigger`（`change_pct` 或 `momentum`）、`direction`（`up` 或 `down`）、小数比例 `thresholdFraction` 和毫秒 `cooldownMs`。分钟异动还需给出 `windowMinutes`（1、3、5、10 或 15）。清单无效返回 `invalid_arguments`，引用的归档缺失或不匹配返回 `observation_archive_unavailable`。
+
 Runtime 的 `deriveTspArchiveAnalytics` 用精确的 v2 日线引用生成归档末日的 77 个研究因子字段和 11 组图表价格位。Tushare 的手数和千元成交额按明确单位参与计算，TickFlow 成交单位未确认时，对应因子保持空值。估值财务、历史换手和连板输入需独立归档。结果标记价格位的量分布口径、原行情来源、归档范围、可用成交额计数及两个计算的公式版本。读取只使用指定归档。
 
 可选认证 RPC `readObservationAnalytics` 接收一份 v2 日线引用，返回归档末日的研究因子及价格位。调用方可读取各组的公式版本与同一份行情证据。归档缺失或损坏时返回固定诊断，旧 Host 对此可选方法返回 `METHOD_NOT_FOUND`。
