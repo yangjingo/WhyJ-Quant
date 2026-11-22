@@ -85,6 +85,8 @@ export { computeTspDashboardEmotion, tspDashboardDepthCandidates, TSP_DASHBOARD_
 export type { TspDashboardEmotionInput } from "./tsp-dashboard-emotion.ts";
 export { computeTspDepthQueue, computeTspDepthSeal, TSP_DEPTH_QUEUE_FORMULA_VERSION, TSP_DEPTH_SEAL_FORMULA_VERSION } from "./tsp-depth-seal.ts";
 export type { TspDepthLimitCandidate, TspDepthQueueInput, TspDepthQueueRule, TspDepthQuote, TspDepthSealInput, TspDepthSnapshot } from "./tsp-depth-seal.ts";
+export { computeTspQuotePollDelta, TSP_QUOTE_POLL_DELTA_FORMULA_VERSION } from "./tsp-quote-poll-delta.ts";
+export type { TspQuotePollCapture, TspQuotePollDeltaInput, TspQuotePollDeltaRule, TspQuotePollRow } from "./tsp-quote-poll-delta.ts";
 export type { PositionScenarioInputs } from "./position-scenarios.ts";
 export { factorEvidenceBoundary } from "./factor-evidence.ts";
 export { runDcaBacktest, validateDcaOptions, buildDcaSchedule, calculateXirr } from "./fund-dca.ts";
