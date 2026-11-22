@@ -196,16 +196,34 @@ test("binds exact depth to eligible limit hits and retains raw streaks, excluded
   });
   expect(corrected.input.depth).toMatchObject({ ref: depth.ref, source: "tickflow", endpoint: "/v1/depth",
     requestedSymbols: [leader, other, unrelated], returnedSymbols: [leader, other, unrelated], usedSymbols: [leader, other] });
+  expect(corrected).toMatchObject({ depthQueue: { volumeUnitBasis: "archive", volumeUnit: "unknown", observedCandidates: 2, rows: [
+    { symbol: leader, side: "up", nativeVolume: 200, queueAmountCny: null, triggered: null },
+    { symbol: other, side: "down", nativeVolume: 500, queueAmountCny: null, triggered: null },
+  ] } });
+  const normalized = await replayTspMarketEmotion({ ...request, marketRefs, depth: {
+    ...depth, queue: { volumeUnit: "share", rule: { metric: "sealed_amount", threshold: 2200 } },
+  } });
+  expect(normalized).toMatchObject({ input: { depth: { ref: depth.ref, volumeUnit: "unknown" } },
+    depthQueue: { volumeUnitBasis: "caller-declared", volumeUnit: "share", rows: [
+      { symbol: leader, closeCny: 11, queueHands: 2, queueAmountCny: 2200, triggered: true },
+      { symbol: other, closeCny: 9, queueHands: 5, queueAmountCny: 4500, triggered: false },
+    ] } });
+  expect(normalized.dashboard).toEqual(corrected.dashboard);
   const stale = await replayTspMarketEmotion({ ...request, marketRefs, depth: { ...depth, maxAgeMs: 5_000 } });
   expect(stale.dashboard?.metrics).toMatchObject({ limit_up: 1, seal_rate: 50 });
   expect(stale.dashboard?.evidence.exchange.depthCorrection).toMatchObject({
     coverage: "partial", rows: [{ symbol: leader, availability: "stale", sealed: null }, { symbol: other, availability: "observed", sealed: true }],
   });
+  expect(stale).toMatchObject({ depthQueue: { observedCandidates: 1, rows: [
+    { symbol: leader, availability: "stale", nativeVolume: 200, queueAmountCny: null },
+    { symbol: other, availability: "observed", nativeVolume: 500 },
+  ] } });
   const risk = await archiveRiskWarningObservations({ source: "tushare", market: "A", tradeDate: target,
     observedAt, endpoint: "stock_st", coverage: "unknown",
     rows: [{ symbol: leader, name: "ST fixture", type: "ST", typeName: "风险警示板" }] });
   const filtered = await replayTspMarketEmotion({ ...request, marketRefs, depth, riskWarningRefs: [risk] });
   expect(filtered.input.depth?.usedSymbols).toEqual([other]);
+  expect(filtered).toMatchObject({ depthQueue: { rows: [{ symbol: other, side: "down" }] } });
   expect(filtered.dashboard?.evidence.exchange.depthCorrection).toMatchObject({
     up: { priceLimitCount: 0, observedUnsealed: 0 }, down: { priceLimitCount: 1, observedSealed: 1 },
   });
