@@ -4,7 +4,7 @@ export function finiteStatistic(value: number): number {
   return value;
 }
 
-export function roundDecimalTiesToEven(value: number, digits: 1 | 2 | 4 | 6 = 4): number {
+export function roundDecimalTiesToEven(value: number, digits: 1 | 2 | 4 | 6 | 8 = 4): number {
   finiteStatistic(value);
   const decimalScale = 10 ** digits;
   const scaled = value * decimalScale;

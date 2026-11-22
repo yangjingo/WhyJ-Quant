@@ -36,6 +36,8 @@ export { computeTspFactorGroups, TSP_FACTOR_GROUPS_FORMULA_VERSION } from "./tsp
 export type { TspFactorGroupsInput } from "./tsp-factor-groups.ts";
 export { computeTspFactorSignificance, TSP_FACTOR_SIGNIFICANCE_FORMULA_VERSION } from "./tsp-factor-significance.ts";
 export type { TspFactorSignificanceInput } from "./tsp-factor-significance.ts";
+export { computeTspFactorMiningScreen, TSP_FACTOR_MINING_SCREEN_FORMULA_VERSION, TSP_MINING_MAX_FACTORS } from "./tsp-factor-mining-screen.ts";
+export type { TspFactorMiningRow, TspFactorMiningScreenInput } from "./tsp-factor-mining-screen.ts";
 export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "./tsp-research-factors.ts";
 export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId, TspResearchFinancialReport } from "./tsp-research-factors.ts";
 export { computeTspPriceLevels, TSP_PRICE_LEVEL_FORMULA_VERSION } from "./tsp-price-levels.ts";
