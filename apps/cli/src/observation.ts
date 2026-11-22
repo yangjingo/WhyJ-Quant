@@ -33,7 +33,7 @@ import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../s
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
-import { replayTspListRows, type TspListRowsRequest } from "../../../src/runtime/data/list-rows.ts";
+import { replayTspListRows, replayTspListRowsWithLiveQuotes, type TspListRowsRequest } from "../../../src/runtime/data/list-rows.ts";
 import { replayTspScreener, replayTspScreenerUnion, type ScreenerReplayRequest,
   type ScreenerUnionReplayRequest } from "../../../src/runtime/data/screener-replay.ts";
 
@@ -580,11 +580,14 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       throw Object.assign(new Error("Could not replay the requested minute signal archives."), { code: "observation_archive_unavailable" });
     }
   }
-  if (action === "replay-list-rows") {
+  if (action === "replay-list-rows" || action === "read-list-quotes") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");
     if (!path) throw invalid();
     const request = parseListRowsManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
-    try { return await replayTspListRows(request, signal); }
+    try {
+      return await (action === "read-list-quotes" ? replayTspListRowsWithLiveQuotes(request, { signal })
+        : replayTspListRows(request, signal));
+    }
     catch {
       throw Object.assign(new Error("Could not replay the list with these dated archives and stock scope."),
         { code: "observation_archive_unavailable" });

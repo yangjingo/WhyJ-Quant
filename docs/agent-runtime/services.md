@@ -650,6 +650,12 @@ whyj --json observation replay-list-rows --manifest ./list-rows.json
 
 结果的 `fixed` 保留原始历史列表，`quotes` 单独记录 TickFlow 的端点、获取时间、原始数量和行情时间。供应商数量单位仍为未知。WHYJ 以该报价自己的昨收计算涨跌额与小数涨幅，应用可按时间戳展示同日快照。报价请求成功无法证实实时权限或延迟。
 
+```sh
+whyj --json observation read-list-quotes --manifest ./list-rows.json
+```
+
+`read-list-quotes` 复用同一份清单，且仅在市场截面对应当前上海日期时请求已配置的 TickFlow。固定归档回放继续使用离线的 `replay-list-rows`。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
