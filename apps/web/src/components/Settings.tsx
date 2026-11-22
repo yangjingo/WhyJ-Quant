@@ -3,6 +3,7 @@ import type { Preferences, SessionSnapshot, WorkbenchClient } from "../client/co
 import { DataSourceSettings } from "./DataSourceSettings";
 import { ObservationCollection } from "./ObservationCollection";
 import { ObservationListRows } from "./ObservationListRows";
+import { ObservationMarketRegime } from "./ObservationMarketRegime";
 import { ModelSettings } from "./ModelSettings";
 import { runLabels } from "../presentation";
 import { Dialog } from "./UI";
@@ -70,6 +71,8 @@ export function Settings(props: {
         {props.page === "source" && props.mode === "host" && props.client && <ObservationCollection client={props.client} />}
         {props.page === "source" && props.mode === "host" && props.client && <ObservationListRows
           read={props.client.readObservationListRows} readQuotes={props.client.readObservationListQuotes} />}
+        {props.page === "source" && props.mode === "host" && props.client && <ObservationMarketRegime
+          read={props.client.readObservationMarketRegime} />}
         {props.page === "source" && <><h3 ref={portfolioHeading} tabIndex={-1}>观察组</h3><p>观察组用于行情概览，不代表真实持仓，也不改变已经保存的研究。</p>{props.preferences.availablePortfolios?.length ? <label className="field-row">观察组<select aria-label="投资组合" value={props.preferences.portfolio} disabled={pending} onChange={event => void savePreferences({ ...props.preferences, portfolio: event.target.value })}>{props.preferences.availablePortfolios.map(name => <option key={name}>{name}</option>)}</select></label> : <p className="notice">研究服务尚未提供观察组。</p>}</>}
         {props.page === "session" && <><h3>当前会话</h3><p className="supporting">{props.title || "未命名会话"}</p><p>{props.snapshot ? runLabels[props.snapshot.state] : "研究服务未连接"}</p><button className="action" disabled={props.snapshot?.state !== "running"} onClick={props.onStop}>停止生成</button><p className="supporting">关闭面板、切换会话只改变查看位置，研究仍会继续。</p>{props.snapshot && <details><summary>会话与运行标识</summary><p>会话 ID</p><code>{props.snapshot.identity.sessionId}</code>{props.snapshot.identity.runId && <><p>运行 ID</p><code>{props.snapshot.identity.runId}</code></>}</details>}</>}
         {props.page === "session" && <><label className="field-row">会话名称<input aria-label="会话名称" value={title} disabled={pending} onChange={event => { setTitle(event.target.value); setFeedback(null); }} /></label><button className="action primary-action" disabled={pending || !props.snapshot} onClick={() => void perform(() => props.onRename(title), "会话名称已保存。")}>保存名称</button>
