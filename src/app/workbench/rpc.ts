@@ -55,6 +55,10 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
       if (!client.readObservationListRows) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持历史股票列表。", 404);
       return client.readObservationListRows(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationListRows"]>>[0]);
     }
+    case "readObservationListQuotes": count(1); {
+      if (!client.readObservationListQuotes) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持当日报价读取。", 404);
+      return client.readObservationListQuotes(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationListQuotes"]>>[0]);
+    }
     case "readObservationAnalytics": count(1); {
       if (!client.readObservationAnalytics) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持研究因子预览。", 404);
       return client.readObservationAnalytics(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationAnalytics"]>>[0]);

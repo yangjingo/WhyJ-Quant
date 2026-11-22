@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveDailyTradingLimits, archiveMarketCrossSection, archiveTradingDateObservations, saveSettings } from "../../../storage/index.ts";
+import { archiveDailyTradingLimits, archiveMarketCrossSection, archiveTradingDateObservations,
+  loadMarketCrossSectionArchive, saveSettings } from "../../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../../types/config.ts";
 import type { ObservationListRowsRequest } from "../../../types/workbench.ts";
 import { createHostClient } from "../../host/client.ts";
@@ -19,13 +20,18 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
   const observedAt = "2024-03-05T02:00:00Z";
   const meta = { tradeDate, observedAt, coverage: "unknown" } as const;
   const requested = { startDate: tradeDate, endDate: tradeDate };
-  let providerCalls = 0;
-  const provider = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch() {
-    providerCalls++;
-    return new Response(null, { status: 403 });
+  const providerCalls: string[] = [];
+  const timestamp = Date.now();
+  let failQuotes = false;
+  const provider = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
+    const url = new URL(request.url);
+    providerCalls.push(url.pathname + "?" + url.searchParams.get("symbols"));
+    if (failQuotes) return new Response("fixture unavailable", { status: 403 });
+    return Response.json({ data: [{ symbol, region: "CN", timestamp, last_price: 12, prev_close: 10,
+      open: 10, high: 12, low: 9, volume: 0, amount: null }] });
   } });
-  saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tushare" },
-    env: { WHYJ_QUANT_TUSHARE_TOKEN: "fixture-token", TUSHARE_BASE_URL: provider.url.origin } });
+  saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
+    env: { WHYJ_QUANT_TICKFLOW_API_KEY: "fixture-tickflow", TICKFLOW_BASE_URL: provider.url.origin } });
   const host = startWorkbenchServer({ port: 0, assetsRoot });
   try {
     const [marketRef, ref, tradingLimitArchiveRef] = await Promise.all([
@@ -53,9 +59,9 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     ]);
     const baseUrl = host.server.url.origin;
     const { token } = await (await fetch(baseUrl + "/api/workbench/bootstrap")).json() as { token: string };
-    const send = (arg: unknown, authenticated = true) => fetch(baseUrl + "/api/workbench/rpc", {
+    const send = (arg: unknown, authenticated = true, method = "readObservationListRows") => fetch(baseUrl + "/api/workbench/rpc", {
       method: "POST", headers: { "Content-Type": "application/json", ...(authenticated ? { "x-workbench-token": token } : {}) },
-      body: JSON.stringify({ method: "readObservationListRows", args: [arg] }),
+      body: JSON.stringify({ method, args: [arg] }),
     });
     const stock = { symbol, history: { ref, exchange: { tradingLimitArchiveRef } } };
     const request: ObservationListRowsRequest = { marketRef, adjustment: "none", stocks: [{ symbol: empty }, stock] };
@@ -86,7 +92,38 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     expect(await unavailable.json()).toMatchObject({ error: { code: "OBSERVATION_ARCHIVE_UNAVAILABLE" } });
     await expect(client.readObservationListRows!(missing)).rejects.toMatchObject({ code: "OBSERVATION_ARCHIVE_UNAVAILABLE" });
     await expect(client.readObservationListRows!({ ...request, stocks: [stock, stock] })).rejects.toMatchObject({ code: "INPUT_INVALID" });
-    expect(providerCalls).toBe(0);
+    expect(providerCalls).toEqual([]);
+
+    const market = await loadMarketCrossSectionArchive(marketRef);
+    const current = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(timestamp);
+    const currentFields = { tradeDate: current, observedAt: new Date().toISOString() };
+    const currentRef = await archiveMarketCrossSection({
+      ...market, tradeDate: current,
+      universe: { ...market.universe, ...currentFields }, bars: { ...market.bars, ...currentFields },
+      basics: { ...market.basics, ...currentFields },
+    });
+    const requestNow = { ...request, marketRef: currentRef, stocks: [{ symbol: empty }, { symbol }] };
+    expect((await send(requestNow, false, "readObservationListQuotes")).status).toBe(401);
+    await expect(client.readObservationListQuotes!({ ...requestNow, stocks: [{ symbol }, { symbol }] }))
+      .rejects.toMatchObject({ code: "INPUT_INVALID" });
+    expect(await client.readObservationListQuotes!(request)).toEqual({ fixed: result, quotes: { status: "outside-current-day" } });
+    const fixedNow = await client.readObservationListRows!(requestNow);
+    expect(providerCalls).toEqual([]);
+    const quoteResponse = await client.readObservationListQuotes!(requestNow);
+    expect(quoteResponse.fixed).toEqual(fixedNow);
+    expect(quoteResponse.quotes).toMatchObject({
+      status: "observed", source: "tickflow", endpoint: "/v1/quotes", units: "unknown", rows: [
+        { symbol: empty, status: "missing" },
+        { symbol, status: "available", sourceTimestamp: timestamp, snapshot: { lastPrice: 12, volume: 0 },
+          change: { producer: "whyj", changeAmount: 2, changeFraction: 0.2 } },
+      ],
+    });
+    expect(providerCalls).toEqual(["/v1/quotes?" + empty + "," + symbol]);
+    failQuotes = true;
+    expect(await client.readObservationListQuotes!(requestNow)).toEqual({ fixed: fixedNow, quotes: { status: "unavailable" } });
+    expect(providerCalls).toHaveLength(2);
   } finally {
     await host.close();
     await provider.stop(true);
