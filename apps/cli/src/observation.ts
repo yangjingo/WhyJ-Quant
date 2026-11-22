@@ -36,6 +36,7 @@ import { collectDatedMoneyFlow, replayDatedMoneyFlow } from "../../../src/runtim
 import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
 import { collectDatedPopularityList, replayDatedPopularityList } from "../../../src/runtime/data/popularity-list.ts";
 import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "../../../src/runtime/data/price-deviation-replay.ts";
+import { collectQuotePollCapture, replayTspQuotePollDelta, type QuotePollReplayRequest } from "../../../src/runtime/data/quote-poll-replay.ts";
 import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-warning-collection.ts";
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
@@ -485,19 +486,55 @@ function parsePriceDeviationManifest(value: unknown): PriceDeviationReplayReques
     } : {}) };
 }
 
+function parseQuotePollManifest(value: unknown): QuotePollReplayRequest {
+  const { version, currentRevision, previousRevision, volumeUnit, amountUnit, rule: rawRule } = observationManifestObject(
+    value, ["version", "currentRevision", "previousRevision", "volumeUnit", "amountUnit", "rule"],
+  );
+  if (version !== 1 || typeof currentRevision !== "string" || !revisionPattern.test(currentRevision) ||
+    (previousRevision !== undefined && (typeof previousRevision !== "string" || !revisionPattern.test(previousRevision) ||
+      previousRevision === currentRevision)) ||
+    (volumeUnit !== undefined && volumeUnit !== "share" && volumeUnit !== "hand") ||
+    (amountUnit !== undefined && amountUnit !== "CNY" && amountUnit !== "CNY-thousand")) throw invalid();
+  let rule: QuotePollReplayRequest["rule"];
+  if (rawRule !== undefined) {
+    const { metric, threshold } = observationManifestObject(rawRule, ["metric", "threshold"]);
+    if ((metric !== "volume" && metric !== "amount") || typeof threshold !== "number" ||
+      !Number.isFinite(threshold) || threshold < 1) throw invalid();
+    rule = { metric, threshold };
+  }
+  return {
+    currentRef: { version: 1, kind: "quote-poll", revision: currentRevision },
+    previousRef: previousRevision === undefined ? undefined : { version: 1, kind: "quote-poll", revision: previousRevision },
+    volumeUnit, amountUnit, rule,
+  };
+}
+
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
-  if (action === "collect-depth") {
+  if (action === "collect-depth" || action === "collect-quote-poll") {
     const fields = parseOptions(options, ["--date", "--symbols-file"]);
     const tradeDate = fields.get("--date"), path = fields.get("--symbols-file");
-    if (!tradeDate || !isDailyDate(tradeDate) || tradeDate !== shanghaiDate.format() || !path) throw invalid();
+    if (!tradeDate || !isDailyDate(tradeDate) || tradeDate !== shanghaiDate.format(Date.now()) || !path) throw invalid();
     const symbols = await readObservationJsonFile(path, maxRevisionFileBytes, signal);
     if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length >= 7_000 || new Set(symbols).size !== symbols.length ||
       symbols.some(symbol => typeof symbol !== "string" || !datedStock.test(symbol))) throw invalid();
-    try { return await collectDepthSnapshot({ tradeDate, symbols }, { signal }); }
+    const collect = action === "collect-depth" ? collectDepthSnapshot : collectQuotePollCapture;
+    try { return await collect({ tradeDate, symbols }, { signal }); }
     catch {
-      throw Object.assign(new Error("Could not collect the requested market depth. Check the configured source with whyj --json doctor --phase data."),
+      const scope = action === "collect-depth" ? "market depth" : "quote poll";
+      throw Object.assign(new Error(`Could not collect the requested ${scope}. Check the configured source with whyj --json doctor --phase data.`),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-quote-poll-delta") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseQuotePollManifest(await readObservationJsonFile(path, maxRevisionFileBytes, signal));
+    try { return await replayTspQuotePollDelta(request, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay the requested quote polls. Verify revisions, ordering and scope."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "collect-risk-warnings") {
