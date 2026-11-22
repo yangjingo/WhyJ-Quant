@@ -277,6 +277,10 @@ Runtime 的 `replayTspMarketEmotion` 用升序交易日和固定归档回放最�
 
 使用 TickFlow 基准时，市场环境和情绪回放都通过同一份归档的目标日及紧邻前一交易日收盘点位计算指数收益。回执的 `derivedReturn` 记录 WhyJ 计算的百分点、两个端点以及可用性。前一交易日未列入清单、归档缺少该日点位或点位分属两个修订时，收益保持为空。Tushare 环境回放继续读取原始涨跌幅，Tushare 情绪回放继续使用同日收盘和昨收点位。
 
+`replayTspMarketRegimeSummary` 复用市场环境回放清单。可加上 `window: {start, end}` 指定闭区间，起止均须属于所给交易日历。阶段算法仍从完整输入序列计算，区间统计只使用窗口内日线。可选的 `concepts` 包含按日引用的概念板块归档及排名筛选规则，复用相同的市场截面、限价和风险警示范围。
+
+响应的 `history` 和 `mainline` 保留归档证据，`summary` 提供状态分布、节奏、阶段段落、指标分位和段内主导概念。已观测但没有入榜概念的交易日与缺少归档的交易日分别计数。具体字段见 [市场状态页](../quant-harness/tsp-panel-coverage.md#market-regime-panel)。
+
 Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必须与目标日相同，采集时刻必须早于或等于截止时刻，两项时间参数使用毫秒。回执分别列出已请求、已返回和参与封板判定的股票。盘口只修正符合条件的涨跌停候选，ST 筛选剔除的股票不参与。缺少盘口、空档和过期观测保持可见，原始价格梯队随回执保留。省略盘口归档时，五档盘口修正状态为不可用。
 
 在 CLI 中用 `whyj --json observation replay-market-emotion --manifest emotion.json` 回放。清单中的摘要取自每条采集回执的 `data.ref.revision`。补齐目标日以前的连续交易日及对应市场截面，才能验证五日量比和连板所需历史。
