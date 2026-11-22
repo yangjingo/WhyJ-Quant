@@ -140,3 +140,5 @@ export { archivePopularityList, loadPopularityArchive } from "./src/observation-
 export type { PopularityArchiveRef } from "../types/popularity.ts";
 export { archiveDepthSnapshot, loadDepthSnapshotArchive } from "./src/observation-archive.ts";
 export type { DepthSnapshotArchiveRef, StoredDepthSnapshot } from "../types/observation.ts";
+export { archiveQuotePollCapture, loadQuotePollArchive } from "./src/observation-archive.ts";
+export type { QuotePollArchiveRef, StoredQuotePollCapture } from "../types/observation.ts";
