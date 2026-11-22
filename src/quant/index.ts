@@ -42,6 +42,8 @@ export { computeTspMiningCandidateReport, TSP_MINING_CANDIDATE_REPORT_FORMULA_VE
 export type { TspMiningCandidateReportInput, TspMiningCandidateFoldEvidence, TspMiningCandidateFoldMetrics } from "./tsp-mining-candidate-report.ts";
 export { evaluateTspStrategyGuardian, planTspStrategyGuardianCheck, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION } from "./tsp-strategy-guardian.ts";
 export type { TspStrategyGuardianCheckInput, TspStrategyGuardianPlanInput, TspStrategyGuardianReason, TspStrategyGuardianThresholds } from "./tsp-strategy-guardian.ts";
+export { computeTspPaperStatistics, TSP_PAPER_STATISTICS_FORMULA_VERSION } from "./tsp-paper-statistics.ts";
+export type { TspPaperFill, TspPaperNavRow, TspPaperStatisticsInput } from "./tsp-paper-statistics.ts";
 export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "./tsp-research-factors.ts";
 export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId, TspResearchFinancialReport } from "./tsp-research-factors.ts";
 export { computeTspPriceLevels, TSP_PRICE_LEVEL_FORMULA_VERSION } from "./tsp-price-levels.ts";
