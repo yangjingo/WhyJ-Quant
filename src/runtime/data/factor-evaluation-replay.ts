@@ -1,9 +1,9 @@
 import { isDailyDate } from "../../market/bars.ts";
 import {
-  computeTspDailyLadderFlags, computeTspFactorGroups, computeTspFactorInformation, computeTspFactorSignificance,
+  computeTspDailyLadderFlags, computeTspFactorGroups, computeTspFactorInformation, computeTspFactorMiningScreen, computeTspFactorSignificance,
   computeTspResearchFactors, tspTradingLimitThresholds, TSP_FACTOR_INFORMATION_FORMULA_VERSION, TSP_INDICATOR_REVISION,
-  TSP_RESEARCH_FACTOR_FORMULA_VERSION, type TspFactorGroupsInput, type TspFactorInformationInput,
-  type TspFactorRegimeObservation, type TspResearchFactorId,
+  TSP_MINING_MAX_FACTORS, TSP_RESEARCH_FACTOR_FORMULA_VERSION, type TspFactorGroupsInput, type TspFactorInformationInput,
+  type TspFactorMiningRow, type TspFactorRegimeObservation, type TspResearchFactorId,
 } from "../../quant/index.ts";
 import {
   loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadTradingDateArchive, type FinancialObservationArchiveRef,
@@ -40,6 +40,12 @@ export interface FactorEvaluationReplayRequest extends FactorReplayScope {
 
 export interface FactorSignificanceReplayRequest extends FactorReplayScope {
   factorIds: readonly string[];
+}
+
+export interface FactorMiningScreenReplayRequest extends FactorReplayScope {
+  factorIds: readonly string[];
+  forwardSessions?: 1 | 3 | 5;
+  correlationThreshold: number;
 }
 
 const financialFactors = new Set<string>(["pb_latest", "roe_latest", "gross_margin_latest", "net_margin_latest",
@@ -200,6 +206,7 @@ async function readFactorReplay(scope: FactorReplayScope, factorIds: readonly st
   return {
     input: { exchangeTimeZone: "Asia/Shanghai" as const, sessions, evaluationStart, adjustment, symbols: inputs, turnover: turnoverEvidence },
     evaluationSessions,
+    rows,
     precedingSession: sessions[evaluationIndex - 1],
     panelFor(index: number, rebalance: TspFactorInformationInput["rebalance"]) {
       return { factorId: ids[index]!, rebalance, sessions: evaluationSessions,
@@ -243,5 +250,55 @@ export async function replayTspFactorSignificance(request: FactorSignificanceRep
     informationFormulaVersion: TSP_FACTOR_INFORMATION_FORMULA_VERSION,
     series,
     significance,
+  };
+}
+
+export async function replayTspFactorMiningScreen(request: FactorMiningScreenReplayRequest, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const { factorIds, forwardSessions = 5, correlationThreshold, ...scope } = structuredClone(request);
+  if (![1, 3, 5].includes(forwardSessions) || !Array.isArray(factorIds) || factorIds.length > TSP_MINING_MAX_FACTORS ||
+    !Number.isFinite(correlationThreshold) || correlationThreshold <= 0 || correlationThreshold > 1) {
+    throw new Error("Invalid factor mining replay scope");
+  }
+
+  const { input, evaluationSessions, rows } = await readFactorReplay(scope, factorIds, signal);
+  const alignment = evaluationSessions.slice(0, Math.max(0, evaluationSessions.length - forwardSessions))
+    .map((tradeDate, i) => ({ tradeDate, targetDate: evaluationSessions[i + forwardSessions]! }));
+  const dateTargets = new Map(alignment.map(({ tradeDate, targetDate }) => [tradeDate, targetDate]));
+  const closesBySymbol = new Map<string, Map<string, number>>();
+  for (const { symbol, tradeDate, close } of rows) {
+    const prices = closesBySymbol.get(symbol) ?? new Map<string, number>();
+    prices.set(tradeDate, close);
+    closesBySymbol.set(symbol, prices);
+  }
+
+  const trainingRows: TspFactorMiningRow[] = [];
+  let labeledRows = 0;
+  for (const { symbol, tradeDate, close, values } of rows) {
+    const targetDate = dateTargets.get(tradeDate);
+    if (targetDate === undefined) continue;
+    const targetClose = closesBySymbol.get(symbol)?.get(targetDate);
+    const targetReturn = targetClose === undefined ? NaN : Math.fround(targetClose / close - 1);
+    const forwardReturnFraction = Number.isFinite(targetReturn) ? targetReturn : null;
+    if (forwardReturnFraction !== null) labeledRows++;
+    trainingRows.push({ symbol, tradeDate, forwardReturnFraction, values: values.map(value => {
+      const rounded = value === null ? NaN : Math.fround(value);
+      return Number.isFinite(rounded) ? rounded : null;
+    }) });
+  }
+  if (!trainingRows.length) throw new Error("Factor mining replay has no rows with an in-training target date");
+  signal?.throwIfAborted();
+  return {
+    input: { ...input, factorIds, forwardSessions, correlationThreshold },
+    factorFormula: { ...factorFormula },
+    targets: {
+      basis: "exact-exchange-session-close-float32" as const,
+      alignment,
+      trainingRows: trainingRows.length,
+      labeledRows,
+      missingTargetRows: trainingRows.length - labeledRows,
+      purgedRows: rows.length - trainingRows.length,
+    },
+    screen: computeTspFactorMiningScreen({ factorIds, rows: trainingRows, correlationThreshold }),
   };
 }

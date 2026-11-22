@@ -2,12 +2,13 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { computeTspFactorMiningScreen } from "../../quant/index.ts";
 import {
   archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
   type StoredTradingDateBarObservation,
 } from "../../storage/index.ts";
-import { replayTspFactorEvaluation, replayTspFactorSignificance,
-  type FactorEvaluationReplayRequest } from "../data/factor-evaluation-replay.ts";
+import { replayTspFactorEvaluation, replayTspFactorMiningScreen, replayTspFactorSignificance,
+  type FactorEvaluationReplayRequest, type FactorMiningScreenReplayRequest } from "../data/factor-evaluation-replay.ts";
 
 const A = "600001.SH", B = "000001.SZ", C = "300001.SZ";
 const sessions = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-12", "2026-01-13", "2026-01-14"];
@@ -103,6 +104,60 @@ test("attaches dated turnover and verified unadjusted closing-limit observations
   const turnoverResult = await replayTspFactorEvaluation({ ...request, factorId: "turnover_rate" });
   expect(turnoverResult.panel.rows.map(row => row.factor)).toEqual([null, 2.5, null]);
   expect(turnoverResult.input.turnover[0]).toMatchObject({ ref: turnover, tradeDate: dates[19], observedAt, endpoint: "daily_basic" });
+});
+
+test("purges post-training targets and joins missing closes on the shared calendar in the mining screen", async () => {
+  const [a, revisedA, b, c] = await Promise.all([
+    archivePrices(A, sessions, [10, 11, 12, 13, 14, 15, 16, 17]),
+    archivePrices(A, sessions, [10, 11, 12, 13, 14, 15, 16, 50]),
+    archivePrices(B, sessions.filter((_, i) => i !== 5), [20, 19, 18, 17, 16, 14, 13]),
+    archivePrices(C, sessions, [12, 13, 14, 13, 13.5, 14, 12, 15]),
+  ]);
+  const request = {
+    sessions: sessions.slice(0, -1), evaluationStart: sessions[1]!, factorIds: ["log_amount"], correlationThreshold: 0.8,
+    forwardSessions: 3,
+    symbols: [{ symbol: A, dailyRefs: [a] }, { symbol: B, dailyRefs: [b] }, { symbol: C, dailyRefs: [c] }],
+  } satisfies FactorMiningScreenReplayRequest;
+  const http = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected provider call"));
+  try {
+    const result = await replayTspFactorMiningScreen(request);
+    expect(result.input).toMatchObject({ sessions: request.sessions, evaluationStart: sessions[1], forwardSessions: 3 });
+    expect(result.input.symbols.map(symbol => symbol.daily[0]!.ref)).toEqual([a, b, c]);
+    expect(result.targets).toEqual({
+      basis: "exact-exchange-session-close-float32",
+      alignment: [1, 2, 3].map(i => ({ tradeDate: sessions[i]!, targetDate: sessions[i + 3]! })),
+      trainingRows: 9, labeledRows: 8, missingTargetRows: 1, purgedRows: 8,
+    });
+    // Fixture amount is proportional to close, so the monotonic log amount has these same ranks.
+    const rows = [
+      [1, A, 11, 14], [1, B, 19, 16], [1, C, 13, 13.5],
+      [2, A, 12, 15], [2, B, 18, null], [2, C, 14, 14],
+      [3, A, 13, 16], [3, B, 17, 14], [3, C, 13, 12],
+    ] as const;
+    expect(result.screen).toEqual(computeTspFactorMiningScreen({
+      factorIds: request.factorIds, correlationThreshold: 0.8,
+      rows: rows.map(([i, symbol, close, target]) => ({
+        tradeDate: sessions[i]!, symbol, values: [close], forwardReturnFraction: target === null ? null : Math.fround(target / close - 1),
+      })),
+    }));
+    const revised = await replayTspFactorMiningScreen({ ...request, symbols: [
+      { symbol: A, dailyRefs: [revisedA] }, ...request.symbols.slice(1),
+    ] });
+    expect(revised.targets).toEqual(result.targets);
+    expect(revised.screen).toEqual(result.screen);
+    expect(revised.input.symbols[0]!.daily[0]!.ref).toEqual(revisedA);
+
+    const daily = await replayTspFactorMiningScreen({ ...request, forwardSessions: 1 });
+    expect(daily.targets).toMatchObject({ trainingRows: 14, labeledRows: 13, missingTargetRows: 1, purgedRows: 3 });
+    const defaultHorizon = await replayTspFactorMiningScreen({ ...request, forwardSessions: undefined });
+    expect(defaultHorizon.input.forwardSessions).toBe(5);
+    expect(defaultHorizon.targets.alignment).toEqual([{ tradeDate: sessions[1]!, targetDate: sessions[6]! }]);
+    expect(http).not.toHaveBeenCalled();
+
+    await expect(replayTspFactorMiningScreen({ ...request, forwardSessions: 2 as 1 })).rejects.toThrow("scope");
+    await expect(replayTspFactorMiningScreen({ ...request, evaluationStart: sessions[4] })).rejects.toThrow("in-training target");
+    await expect(replayTspFactorMiningScreen(request, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+  } finally { http.mockRestore(); }
 });
 
 test("replays one factor test family from the common revisions and preserves unavailable members", async () => {

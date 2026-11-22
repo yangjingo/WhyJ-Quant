@@ -494,6 +494,10 @@ whyj --json observation replay-analytics --revision DAILY_SHA --financial-report
 
 `replayTspFactorSignificance` 接受同一批 `factorIds` 和与单因子回放相同的日历、预热边界及归档引用。Runtime 共用这批归档，为每个因子生成日频单日向前的 Rank IC。显著性沿用 TSP 对四位小数 IC 计算滞后一阶 Newey–West t 值的约定，q 值按这批可检验因子计算。无 IC 的因子仍保留在结果中。输出包含每条 IC 的交易日、收益日和有效样本数，以及整批输入档案的版本。
 
+`replayTspFactorMiningScreen` 使用相同的归档、日历和预热规则，接受候选 `factorIds`、`correlationThreshold` 和 1、3 或 5 个交易日的 `forwardSessions`，默认 5。训练区间从 `evaluationStart` 到 `sessions` 的最后一天。按全市场交易日序列找到目标日，用同一标的的收盘价之比减一计算标签。目标日缺价时标签为空，仍将该行纳入因子覆盖率。目标日越过训练截止日时整行排除，归档内晚于截止日的价格不会进入计算。
+
+因子值和收益标签按 TSP 挖掘面板的 Float32 精度传入计算。回放保留信号日和目标日的对应关系、有效和缺失标签数、排除行数、归档出处及 WhyJ 公式版本。结果包括训练期 Rank IC、IR、覆盖率、换手、相关矩阵及去重结果。 [TSP 目标收益及训练口径](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/mining_runtime.py#L708)
+
 使用 `whyj --json observation replay-factor-evaluation --manifest factor.json`。用各采集回执中的 SHA-256 摘要替换示例占位符。提供完整的交易日序列，`evaluationStart` 可省略，默认从第一天检验。每个标的至少有一份日线归档。换手、财报、披露、涨跌停和分组设置均可按所选因子省略。日线已是不复权时，`exchange.rawRevisions` 可以省略。示例的费用和印花税为比例，滑点为基点。
 
 ```json
