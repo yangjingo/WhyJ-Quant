@@ -4,13 +4,14 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
-  computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
+  computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
   parseTspIntradaySignalRule, planTspStrategyGuardianCheck,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianPlanInput, type TspStrategyGuardianThresholds,
+  type TspPaperStatisticsInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { replayTspAbnormalSnapshot, type AbnormalSnapshotReplayRequest } from "../../../src/runtime/data/abnormal-snapshot-replay.ts";
@@ -259,6 +260,27 @@ function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInp
     return { date, equity, exposureFraction };
   });
   return { initialCapital, equityCurve: samples, trades: parseRealizedTrades(trades), includeMonteCarlo };
+}
+
+function parsePaperStatisticsManifest(value: unknown): TspPaperStatisticsInput {
+  const { schemaVersion, accountId, currency, fills: rawFills, finalizedNav: rawNav } =
+    observationManifestObject(value, ["schemaVersion", "accountId", "currency", "fills", "finalizedNav"]);
+  if (schemaVersion !== 1 || typeof accountId !== "string" || typeof currency !== "string" ||
+    !Array.isArray(rawFills) || !Array.isArray(rawNav)) throw invalid();
+  const fills = rawFills.map((entry: unknown): TspPaperStatisticsInput["fills"][number] => {
+    const { fillId, tradeDate, symbol, side, quantity, price, fee, currency } =
+      observationManifestObject(entry, ["fillId", "tradeDate", "symbol", "side", "quantity", "price", "fee", "currency"]);
+    if (typeof fillId !== "string" || typeof tradeDate !== "string" || typeof symbol !== "string" ||
+      (side !== "buy" && side !== "sell") || typeof quantity !== "number" || typeof price !== "number" ||
+      typeof fee !== "number" || typeof currency !== "string") throw invalid();
+    return { fillId, tradeDate, symbol, side, quantity, price, fee, currency };
+  });
+  const finalizedNav = rawNav.map((entry: unknown) => {
+    const { tradeDate, nav, currency } = observationManifestObject(entry, ["tradeDate", "nav", "currency"]);
+    if (typeof tradeDate !== "string" || typeof nav !== "number" || typeof currency !== "string") throw invalid();
+    return { tradeDate, nav, currency };
+  });
+  return { accountId, currency, fills, finalizedNav };
 }
 
 function parseParameterSegment(value: unknown): TspParameterSegmentEvidence {
@@ -1142,6 +1164,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const input = parseBacktestPortfolioManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspBacktestPortfolio(input); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-paper-statistics") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parsePaperStatisticsManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return computeTspPaperStatistics(input); }
     catch { throw invalid(); }
   }
   if (action === "replay-parameter-robustness") {
