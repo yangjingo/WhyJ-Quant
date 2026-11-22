@@ -68,7 +68,7 @@ function normalizeSegment(row: TspParameterSegmentEvidence, window: TspParameter
     objective: Number.isFinite(row.objective) ? row.objective : null };
 }
 
-function summarizeObjectives(values: (number | null)[]) {
+export function summarizeTspRobustObjectives(values: readonly (number | null)[]) {
   const sorted = values.filter((value): value is number => value !== null).sort((a, b) => a - b);
   if (!sorted.length) return { score: null, median: null, worst: null, spread: null };
   const center = Math.floor(sorted.length / 2);
@@ -182,7 +182,7 @@ export function computeTspParameterRobustness(input: TspParameterRobustnessInput
     const segments = Array.from(candidate.segments as readonly TspParameterSegmentEvidence[],
       (row, index) => normalizeSegment(row, windows[index]!));
     const normalizedObjectives = segments.map(row => normalized(row.objective));
-    const summary = summarizeObjectives(candidate.failed ? [] : normalizedObjectives);
+    const summary = summarizeTspRobustObjectives(candidate.failed ? [] : normalizedObjectives);
     const tradesTotal = segments.reduce((sum, row) => sum + (row.tradeCount ?? 0), 0);
     if (!Number.isSafeInteger(tradesTotal)) throw new RangeError("Total trade count exceeds the supported range.");
     const status = candidate.failed ? "failed" : summary.score === null ? "unavailable-score"
