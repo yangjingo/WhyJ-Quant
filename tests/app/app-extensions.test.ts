@@ -39,31 +39,40 @@ afterEach(async () => {
 });
 
 it("uses the managed core in default startup and updates actual Pi requests without replacing the session or refreshing prices", async () => {
+  const submitPrompt = async (activeRuntime: AppRuntime, input: string) => {
+    const before = requests.length;
+    const startedAt = performance.now();
+    await activeRuntime.submit(input);
+    expect(requests, `Expected one Pi request for "${input}" after ${Math.round(performance.now() - startedAt)} ms`)
+      .toHaveLength(before + 1);
+    return requests[before]!;
+  };
   let quotes = 0, refreshed = 0;
   runtime = new AppRuntime({ onMessages() {}, onActivity() {}, onSkillsChanged() { refreshed++; } }, async () => { quotes++; return []; }, async () => [], undefined, undefined, undefined, undefined, 0);
   await runtime.bootstrap(); await runtime.refreshOverviewPanel();
-  await runtime.submit("Remember this original discussion");
+  const original = await submitPrompt(runtime, "Remember this original discussion");
   const agent = (runtime as unknown as { agent: QuantAgentSession }).agent;
   const id = (await agent.getSessionMetadata())!.id;
-  expect(requests.at(-1)!.tools!.map(tool => tool.function.name)).toContain("run_backtest");
+  expect(original.tools!.map(tool => tool.function.name)).toContain("run_backtest");
   const before = quotes;
   await runtime.submit("/config --extensions disable whyj.core");
   expect(quotes).toBe(before); expect(refreshed).toBe(1);
-  await runtime.submit("Continue with the current tools");
-  expect(requests.at(-1)!.tools!.map(tool => tool.function.name)).toEqual(["research_task"]);
-  expect(JSON.stringify(requests.at(-1)!.messages)).toContain("Current active tools: research_task.");
-  expect(JSON.stringify(requests.at(-1)!.messages)).toContain("Remember this original discussion");
+  const continued = await submitPrompt(runtime, "Continue with the current tools");
+  expect(continued.tools!.map(tool => tool.function.name)).toEqual(["research_task"]);
+  expect(JSON.stringify(continued.messages)).toContain("Current active tools: research_task.");
+  expect(JSON.stringify(continued.messages)).toContain("Remember this original discussion");
   await runtime.submit("/config --extensions enable whyj.core");
   await runtime.submit("/config --extensions reload whyj.core");
-  await runtime.submit("Check restored availability");
-  expect(requests.at(-1)!.tools!.map(tool => tool.function.name)).toContain("run_backtest");
+  const restored = await submitPrompt(runtime, "Check restored availability");
+  expect(restored.tools!.map(tool => tool.function.name)).toContain("run_backtest");
   expect((await agent.getSessionMetadata())!.id).toBe(id);
   await runtime.shutdown();
   runtime = new AppRuntime({ onMessages() {}, onActivity() {} }, async () => [], async () => [], undefined, undefined, undefined, undefined, 0);
   const settings = loadSettings(); settings.disabledExtensions = ["whyj.core"]; saveSettings(settings);
-  await runtime.bootstrap(); await runtime.submit("Start with the saved selection");
-  expect(requests.at(-1)!.tools!.map(tool => tool.function.name)).toEqual(["research_task"]);
-});
+  await runtime.bootstrap();
+  const restarted = await submitPrompt(runtime, "Start with the saved selection");
+  expect(restarted.tools!.map(tool => tool.function.name)).toEqual(["research_task"]);
+}, 20_000);
 
 it("permits read-only inspection during a model turn but rejects capability changes explicitly", async () => {
   const statuses: AppState["composerStatus"][] = [];

@@ -79,6 +79,8 @@ When a Windows release gate fails with the tracked Desktop PowerShell test timeo
 
 The root release gate and the Desktop package test command run all Desktop test files with Node test-file concurrency one. This reduces simultaneous PowerShell subprocess load while preserving the tests' assertions and deadlines; the independent Desktop workflow uses the same package command. The serial schedule may take longer and does not establish the cause of earlier Windows timeouts in #174, including a timeout observed after serialization.
 
+The managed-core App integration test allows 20 seconds for two Runtime startups, four loopback Pi requests and extension transitions. It requires exactly one captured request per prompt before asserting the tools and history. A missing request reports the prompt and elapsed time. Other tests retain their existing deadlines. Issue #251 records the Windows timeouts observed under the previous default budget.
+
 The sample-variance research-evaluation regression reports the evaluation outcome and failed check names if its expected evidence does not pass. These synthetic fixture diagnostics distinguish a timeout from a failed evidence check without printing provider requests, answers or workspace data. The cause of the Windows failure recorded in #186 is still unknown.
 
 The portfolio-switch-during-initialization regression labels its setup, identity, submission, controlled skill-loading wait, switch, terminal outcome, assertions and cleanup phases. If its owned test body outlives a timeout, the existing research fixture diagnostic reports the active fixed label and synthetic provider request count before teardown; the cause of the Windows timeout recorded in #180 remains unknown.
