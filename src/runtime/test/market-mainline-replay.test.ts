@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveDailyTradingLimits, archiveMarketCrossSection, archiveRiskWarningObservations, archiveSectorObservations } from "../../storage/index.ts";
 import { replayTspMarketMainline } from "../data/market-mainline-replay.ts";
+import { replayTspMarketRegimeSummary } from "../data/market-regime-summary-replay.ts";
 
 const sessions = ["2025-01-02", "2025-01-03", "2025-01-06"] as const;
 const observedAt = "2025-01-07T03:00:00Z";
@@ -69,6 +70,41 @@ test("ranks all dated observed stocks and preserves coverage when a group archiv
       leaderSymbol: symbols[5], leaderAmountCny: 6_000, rank: 1 }]);
     expect(result.input.tradingLimits).toHaveLength(6);
     expect(await replayTspMarketMainline(request)).toEqual(result);
+    expect(fetcher).not.toHaveBeenCalled();
+  } finally { fetcher.mockRestore(); }
+});
+
+test("summarizes a closed display window using the same calendar and concept archives", async () => {
+  const { sectorHistory, ...market } = await fixture();
+  const request = { ...market, priceHistory: [], benchmark: { symbol: "000001.SH", refs: [] },
+    phaseMode: "retrospective-tsp" as const, concepts: { sectorHistory } };
+  const fetcher = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Archive replay must stay offline"));
+  try {
+    const full = await replayTspMarketRegimeSummary(request);
+    const window = { start: sessions[1], end: sessions[1] };
+    const one = await replayTspMarketRegimeSummary({ ...request, window });
+    expect(one.history).toEqual(full.history);
+    expect(one.history.phase.mode).toBe("retrospective-tsp");
+    expect(one.history.calendar.sessions).toEqual([...sessions]);
+    expect(full.history.rows[2]?.regime).toBeNull();
+    expect(one.mainline).toEqual(full.mainline);
+    expect(one.mainline?.rows[1]?.input.sector).toMatchObject({ catalogRef: sectorHistory[0]?.catalogRef });
+    expect(full.summary.window.sessions).toBe(3);
+    expect(one.summary.window).toEqual({ start: sessions[1], end: sessions[1], sessions: 1, observedStates: 1 });
+    expect(one.summary.segments[0]).toMatchObject({
+      phase: full.history.rows[1]?.phase.phase, days: 1, conceptDays: 1,
+      topConcepts: [{ name: "Fixture", topFiveDays: 1, maxBoards: 1, leaderSymbol: symbols[5] }],
+    });
+    const missing = await replayTspMarketRegimeSummary({ ...request, window, concepts: { sectorHistory: [] } });
+    expect(missing.mainline?.rows[1]?.status).toBe("missing-membership");
+    expect(missing.summary.segments[0]).toMatchObject({ conceptDays: 0, topConcepts: [] });
+    await expect(replayTspMarketRegimeSummary({ ...request, window: { start: sessions[2], end: sessions[0] } }))
+      .rejects.toThrow("display window");
+    await expect(replayTspMarketRegimeSummary({ ...request, window: { start: "2024-01-01", end: sessions[2] } }))
+      .rejects.toThrow("display window");
+    await expect(replayTspMarketRegimeSummary({ ...request,
+      concepts: { sectorHistory: [await sector(sessions[1], "industry")] } })).rejects.toThrow("concept mainlines");
+    await expect(replayTspMarketRegimeSummary(request, AbortSignal.abort())).rejects.toThrow();
     expect(fetcher).not.toHaveBeenCalled();
   } finally { fetcher.mockRestore(); }
 });
