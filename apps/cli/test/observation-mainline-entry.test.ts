@@ -100,7 +100,8 @@ test("CLI replays the market mainline from immutable inputs and keeps dated miss
     const summaryManifest = { ...marketScope, priceHistory: [], benchmark: { symbol: "000001.SH", revisions: [] },
       phaseMode: "retrospective-tsp", window: { start: activeDate, end: activeDate }, concepts: { sectorHistory } };
     const summaryAction = "replay-market-regime-summary";
-    expect(await replay(summaryManifest, summaryAction)).toMatchObject({ code: 0, output: { ok: true, data: {
+    const summaryResult = await replay(summaryManifest, summaryAction);
+    expect(summaryResult).toMatchObject({ code: 0, output: { ok: true, data: {
       summary: {
         window: { start: activeDate, end: activeDate, sessions: 1 }, segments: [
           { days: 1, conceptDays: 1, topConcepts: [{ name: "Fixture", topFiveDays: 1, maxBoards: 1 }] },
@@ -114,8 +115,10 @@ test("CLI replays the market mainline from immutable inputs and keeps dated miss
       },
       mainline: { scope: { kind: "concept" } },
     } } });
+    expect(await replay({ ...summaryManifest, version: 1 }, summaryAction)).toEqual(summaryResult);
     for (const input of [
       { ...summaryManifest, window: { start: missingDate, end: previousDate } },
+      { ...summaryManifest, version: 2 },
       { ...summaryManifest, window: { start: previousDate, end: "2024-01-01" } },
       { ...summaryManifest, concepts: { sectorHistory: [{ ...sectorHistory[0], catalogRevision: "bad" }] } },
     ]) expect(await replay(input, summaryAction)).toMatchObject(invalid);

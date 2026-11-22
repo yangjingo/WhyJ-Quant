@@ -287,7 +287,7 @@ Runtime 的 `replayTspMarketEmotion` 用升序交易日和固定归档回放最�
 whyj --json observation replay-market-regime-summary --manifest ./regime-summary.json
 ```
 
-CLI 清单沿用 `replay-market-environment` 的字段，可额外指定 `window` 和 `concepts`。其中 `concepts.sectorHistory` 的每项包含 `tradeDate`、`catalogRevision` 和 `memberRevisions`，可附 `concepts.filter`。读取和计算均在本地归档上完成。
+CLI 清单沿用 `replay-market-environment` 的字段，可额外指定 `window` 和 `concepts`。可声明 `version: 1`，已有无版本字段的清单也可读取。其中 `concepts.sectorHistory` 的每项包含 `tradeDate`、`catalogRevision` 和 `memberRevisions`，可附 `concepts.filter`。读取和计算均在本地归档上完成，清单校验由 Runtime 共用。
 
 Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必须与目标日相同，采集时刻必须早于或等于截止时刻，两项时间参数使用毫秒。回执分别列出已请求、已返回和参与封板判定的股票。盘口只修正符合条件的涨跌停候选，ST 筛选剔除的股票不参与。缺少盘口、空档和过期观测保持可见，原始价格梯队随回执保留。省略盘口归档时，五档盘口修正状态为不可用。
 
