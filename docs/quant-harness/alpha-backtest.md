@@ -48,6 +48,12 @@
 
 完整研究报告可能含模拟金额、股数和对话，公开分享则使用允许的单位净值曲线与假设，排除私人参数和执行身份。真实账户、下单与撤单继续属于独立[执行层](./execution.md)，回测成功不改变权限。
 
+## 固定证据的 TSP 组合绩效
+
+`computeTspBacktestPortfolio` 从初始本金、按交易日递增的组合净值和仓位暴露、已实现交易收益及持有天数计算 `tsp-backtest-portfolio-v1`。结果标记为 WhyJ 计算，并记录 TSP 参考修订和样本数。输入使用组合账户的同一货币单位，收益及仓位暴露均使用小数比例。调用方提供已确定的交易日样本。
+
+总收益以初始本金为基准，年化使用 252 除以净值点数，回撤以已提供的净值峰值为基准。Sharpe 和 Sortino 取相邻净值的收益。胜率、平均盈亏和可选 Bootstrap 使用已实现交易。其中 TSP 的 `profit_factor` 采用平均盈利除以平均非盈利交易的亏损绝对值，零收益交易计入后者。无有效亏损时该值为 `null`。在正净值之后，末点为零表示组合亏损全部本金。首次净值或计算下一期收益所需的净值必须为正。空净值曲线返回不可用。WhyJ Alpha 引擎继续使用自身的账本报告和按日历时间年化的约定。 [TSP 组合绩效实现](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/engine.py#L3549)
+
 ## References
 
 1. AKFamily. [AKQuant](https://github.com/akfamily/akquant). 上游框架；本仓库以已锁定适配版本为准。
