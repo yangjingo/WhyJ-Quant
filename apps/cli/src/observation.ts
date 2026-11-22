@@ -1,4 +1,5 @@
 import { open } from "node:fs/promises";
+import { archiveMarketRegimeManifest, loadMarketRegimeManifest, MARKET_REGIME_MANIFEST_MAX_BYTES } from "../../../src/storage/index.ts";
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import {
@@ -639,18 +640,37 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
         { code: "observation_collection_failed" });
     }
   }
-  if (action === "replay-market-environment" || action === "replay-market-regime-summary") {
+  if (action === "archive-market-regime-manifest") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");
     if (!path) throw invalid();
-    const manifest = await readObservationJsonFile(path, maxObservationManifestBytes, signal);
-    if (action === "replay-market-regime-summary") {
-      const request = parseRegimeSummaryManifest(manifest);
-      try { return await replayTspMarketRegimeSummary(request, signal); }
-      catch {
-        throw Object.assign(new Error("Could not replay the requested market regime summary archives."), { code: "observation_archive_unavailable" });
-      }
+    const manifest = await readObservationJsonFile(path, MARKET_REGIME_MANIFEST_MAX_BYTES, signal);
+    const request = parseRegimeSummaryManifest(manifest);
+    try {
+      const ref = await archiveMarketRegimeManifest(JSON.stringify(manifest), signal);
+      return { ref, sessionCount: request.sessions.length };
+    } catch {
+      throw Object.assign(new Error("Could not archive the requested market regime manifest."), { code: "observation_collection_failed" });
     }
-    const request = parseEnvironmentManifest(manifest);
+  }
+  if (action === "replay-market-regime-summary") {
+    const selection = parseOptions(options, ["--manifest", "--revision"]);
+    if (selection.size !== 1) throw invalid();
+    const path = selection.get("--manifest"), revision = selection.get("--revision");
+    if (!path && (!revision || !revisionPattern.test(revision))) throw invalid();
+    const request = path ? parseRegimeSummaryManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal)) : undefined;
+    try {
+      const input = request ?? parseRegimeSummaryManifest(await loadMarketRegimeManifest({
+        version: 1, kind: "market-regime-manifest", revision: revision!,
+      }, signal));
+      return await replayTspMarketRegimeSummary(input, signal);
+    } catch {
+      throw Object.assign(new Error("Could not replay the requested market regime summary archives."), { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-market-environment") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseEnvironmentManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return await replayTspMarketEnvironment(request, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested market environment archives."), { code: "observation_archive_unavailable" });
