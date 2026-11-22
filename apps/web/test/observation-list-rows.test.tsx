@@ -67,4 +67,23 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).toContain("<dt>signal_limit_up</dt><dd>未命中</dd>");
   expect(renderToStaticMarkup(<ObservationListResult result={{ ...result, rows: [] }} />)).toContain("清单没有请求股票");
   expect(renderToStaticMarkup(<ObservationListRows read={undefined} />)).toContain("当前服务不支持历史股票列表");
+
+  const timestamp = Date.parse(observedAt);
+  const quoted = renderToStaticMarkup(<ObservationListResult result={result} quotes={{
+    status: "observed", source: "tickflow", endpoint: "/v1/quotes", observedAt, units: "unknown",
+    rows: [{ symbol, status: "available", sourceTimestamp: timestamp,
+      snapshot: { symbol, timestamp, lastPrice: 12, previousClose: 10, open: 10, high: 12, low: 10, volume: 0, amount: null },
+      change: { producer: "whyj", changeAmount: 2, changeFraction: 0.2 } }],
+  }} />);
+  expect(quoted).toContain("收盘 10 元");
+  expect(quoted).toContain("报价 12 元");
+  expect(quoted).toContain("tickflow · /v1/quotes");
+  expect(quoted).toContain("原始数量单位未知");
+  expect(quoted).toContain("<dt>WHYJ 报价涨跌幅</dt><dd>20%</dd>");
+  expect(quoted).toContain("<dt>原始成交量</dt><dd>0</dd>");
+  expect(renderToStaticMarkup(<ObservationListResult result={result} quotes={{ status: "unavailable" }} />))
+    .toContain("当前数据源未能返回报价，仍可查看固定归档。");
+  expect(renderToStaticMarkup(<ObservationListRows read={async () => result} />)).not.toContain("读取当日报价");
+  expect(renderToStaticMarkup(<ObservationListRows read={async () => result}
+    readQuotes={async () => ({ fixed: result, quotes: { status: "outside-current-day" } })} />)).toContain("读取当日报价");
 });
