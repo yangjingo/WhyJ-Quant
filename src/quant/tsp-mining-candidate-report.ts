@@ -77,6 +77,36 @@ export function computeTspMiningCandidateReport(input: TspMiningCandidateReportI
   }
   if (!Number.isSafeInteger(tradeCount)) throw new Error("Mining candidate total trade count exceeds the supported range");
   const robust = summarizeTspRobustObjectives(sharpes);
+  const summary = {
+    robustScore: robust.score,
+    meanReturnFraction: returns.length ? mean(returns) : null,
+    meanSharpe: sharpes.length ? mean(sharpes) : null,
+    worstSharpe: robust.worst,
+    worstDrawdownFraction: drawdowns.length ? drawdowns.reduce((worst, value) => Math.min(worst, value)) : null,
+    positiveReturnFoldRatio: returns.length ? returns.filter(value => value > 0).length / returns.length : null,
+    tradeCount: tradeCountFolds ? tradeCount : null,
+    validFoldCount,
+    skippedFoldCount: folds.length - validFoldCount,
+    coverage: { returnFolds: returns.length, sharpeFolds: sharpes.length, drawdownFolds: drawdowns.length, tradeCountFolds },
+  };
+
+  const thresholds = {
+    minValidFolds: 2, minPositiveReturnFoldRatio: 2 / 3, minMeanSharpe: 0.5, minDrawdownFraction: -0.25, minTrades: 60,
+    minWorstSharpeExclusive: profile === "strict" ? 0 : null,
+  };
+  const reasons: ("exploratory-profile" | "insufficient-valid-folds" | "insufficient-positive-fold-ratio" |
+    "insufficient-mean-sharpe" | "nonpositive-worst-sharpe" | "excessive-drawdown" | "insufficient-trades")[] = [];
+  if (profile === "exploratory") reasons.push("exploratory-profile");
+  if (summary.validFoldCount < thresholds.minValidFolds) reasons.push("insufficient-valid-folds");
+  if (summary.positiveReturnFoldRatio === null || summary.positiveReturnFoldRatio < thresholds.minPositiveReturnFoldRatio) {
+    reasons.push("insufficient-positive-fold-ratio");
+  }
+  if (summary.meanSharpe === null || summary.meanSharpe < thresholds.minMeanSharpe) reasons.push("insufficient-mean-sharpe");
+  if (thresholds.minWorstSharpeExclusive !== null && summary.worstSharpe !== null && summary.worstSharpe <= thresholds.minWorstSharpeExclusive) {
+    reasons.push("nonpositive-worst-sharpe");
+  }
+  if (summary.worstDrawdownFraction === null || summary.worstDrawdownFraction < thresholds.minDrawdownFraction) reasons.push("excessive-drawdown");
+  if (summary.tradeCount === null || summary.tradeCount < thresholds.minTrades) reasons.push("insufficient-trades");
 
   return {
     producer: "whyj" as const,
@@ -84,17 +114,7 @@ export function computeTspMiningCandidateReport(input: TspMiningCandidateReportI
     referenceRevision: TSP_INDICATOR_REVISION,
     candidateId, profile, confidence: profileConfidence[profile],
     folds: [...indexed.values()].sort((a, b) => a.window.index - b.window.index),
-    summary: {
-      robustScore: robust.score,
-      meanReturnFraction: returns.length ? mean(returns) : null,
-      meanSharpe: sharpes.length ? mean(sharpes) : null,
-      worstSharpe: robust.worst,
-      worstDrawdownFraction: drawdowns.length ? drawdowns.reduce((worst, value) => Math.min(worst, value)) : null,
-      positiveReturnFoldRatio: returns.length ? returns.filter(value => value > 0).length / returns.length : null,
-      tradeCount: tradeCountFolds ? tradeCount : null,
-      validFoldCount,
-      skippedFoldCount: folds.length - validFoldCount,
-      coverage: { returnFolds: returns.length, sharpeFolds: sharpes.length, drawdownFolds: drawdowns.length, tradeCountFolds },
-    },
+    summary,
+    gate: { formulaVersion: "tsp-mining-candidate-gate-v1", qualified: reasons.length === 0, reasons, thresholds },
   };
 }
