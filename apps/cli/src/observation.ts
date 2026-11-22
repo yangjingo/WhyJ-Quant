@@ -3,10 +3,11 @@ import { archiveMarketRegimeManifest, loadMarketRegimeManifest, MARKET_REGIME_MA
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import {
-  computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward,
+  computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
+  computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward,
   parseTspIntradaySignalRule, TSP_DAILY_SIGNAL_FIELDS, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES, TSP_SECTOR_MONITOR_WINDOWS, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
-  type TspParameterSegmentEvidence, type TspWalkForwardInput,
+  type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { replayTspAbnormalSnapshot, type AbnormalSnapshotReplayRequest } from "../../../src/runtime/data/abnormal-snapshot-replay.ts";
@@ -427,6 +428,36 @@ function parseFactorMiningScreenManifest(value: unknown): FactorMiningScreenRepl
   const ids = parseFactorIds(factorIds);
   if (ids.length > TSP_MINING_MAX_FACTORS) throw invalid();
   return { ...parseFactorReplayScope(scope), factorIds: ids, forwardSessions, correlationThreshold };
+}
+
+function parseMiningCandidateManifest(value: unknown): TspMiningCandidateReportInput {
+  const { schemaVersion, candidateId, profile, folds } =
+    observationManifestObject(value, ["schemaVersion", "candidateId", "profile", "folds"]);
+  if (schemaVersion !== 1 || typeof candidateId !== "string" || !Array.isArray(folds) ||
+    (profile !== "exploratory" && profile !== "balanced" && profile !== "strict")) throw invalid();
+  return { candidateId, profile, folds: folds.map((value: unknown): TspMiningCandidateFoldEvidence => {
+    const { window: rawWindow, evaluationKind, testSessionCount, outcome: rawOutcome } =
+      observationManifestObject(value, ["window", "evaluationKind", "testSessionCount", "outcome"]);
+    const { index, trainStart, trainEnd, testStart, testEnd } =
+      observationManifestObject(rawWindow, ["index", "trainStart", "trainEnd", "testStart", "testEnd"]);
+    if (typeof index !== "number" || typeof testSessionCount !== "number" ||
+      typeof trainStart !== "string" || typeof trainEnd !== "string" || typeof testStart !== "string" || typeof testEnd !== "string" ||
+      (evaluationKind !== "selected" && evaluationKind !== "cross" && evaluationKind !== "benchmark")) throw invalid();
+    const window = { index, trainStart, trainEnd, testStart, testEnd };
+    const { status, reason, metrics } = observationManifestObject(rawOutcome, ["status", "reason", "metrics"]);
+    if (status === "skipped" && typeof reason === "string" && metrics === undefined) {
+      return { window, evaluationKind, testSessionCount, outcome: { status, reason } };
+    }
+    if (status !== "valid" || reason !== undefined) throw invalid();
+    const { totalReturnFraction, sharpe, maxDrawdownFraction, tradeCount } =
+      observationManifestObject(metrics, ["totalReturnFraction", "sharpe", "maxDrawdownFraction", "tradeCount"]);
+    if ((totalReturnFraction !== null && typeof totalReturnFraction !== "number") ||
+      (sharpe !== null && typeof sharpe !== "number") || (maxDrawdownFraction !== null && typeof maxDrawdownFraction !== "number") ||
+      (tradeCount !== null && typeof tradeCount !== "number")) throw invalid();
+    return { window, evaluationKind, testSessionCount, outcome: {
+      status, metrics: { totalReturnFraction, sharpe, maxDrawdownFraction, tradeCount },
+    } };
+  }) };
 }
 
 function parseAuctionManifest(value: unknown): AuctionBenchmarkReplayRequest {
@@ -1121,6 +1152,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       throw Object.assign(new Error("Could not replay the mining screen. Verify factor keys, archive revisions and the training calendar."),
         { code: "observation_archive_unavailable" });
     }
+  }
+  if (action === "replay-mining-candidate") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseMiningCandidateManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return computeTspMiningCandidateReport(request); }
+    catch { throw invalid(); }
   }
   if (action === "replay-analytics") {
     const fields = parseOptions(options, ["--revision", "--financial-report-revisions", "--financial-disclosure-revisions",
