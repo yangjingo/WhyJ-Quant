@@ -154,8 +154,16 @@ export async function projectMarketLadderReplay<T>(request: MarketLadderReplayRe
 
 /** Reopen dated market and exchange-limit archives and calculate the displayed ladder. */
 export function replayTspMarketLadders(request: MarketLadderReplayRequest, signal?: AbortSignal) {
-  return projectMarketLadderReplay(request, ({ universe, observations, ...row }) => ({
-    ...row,
-    metrics: universe ? computeTspMarketLadder(universe, row.previousTradingDate, observations) : null,
-  }), signal);
+  return projectMarketLadderReplay(request, ({ universe, observations, ...row }) => {
+    let known = 0, observed = 0;
+    for (const { limitDown } of observations) {
+      if (limitDown !== null) known++;
+      if (limitDown === true) observed++;
+    }
+    return {
+      ...row,
+      metrics: universe ? computeTspMarketLadder(universe, row.previousTradingDate, observations) : null,
+      ...(universe && { limitDown: { known, observed } }),
+    };
+  }, signal);
 }

@@ -46,8 +46,12 @@ async function fixture() {
     universe: { ...meta, endpoint: "bak_basic", universe: "provider-dated-stocks",
       members: symbols.map(symbol => ({ symbol, name: symbol, industry: null, listedOn: null })) },
     bars: { ...meta, endpoint: "daily", adjustment: "none", priceUnit: "CNY", volumeUnit: "hand", amountUnit: "CNY-thousand",
-      rows: [...symbols, "600005.SH"].map(symbol => ({ symbol, open: 9, high: 9, low: 9, close: 9,
-        exRightsPreviousClose: 9, changeCny: 0, returnPct: 0, volume: 100, amount: 1 })) },
+      rows: [...symbols, "600005.SH"].map((symbol, i) => {
+        const close = i === 4 ? 8 : 9;
+        return { symbol, open: close, high: close, low: close, close, exRightsPreviousClose: 9,
+          changeCny: close - 9, returnPct: (close / 9 - 1) * 100, volume: 100,
+          amount: [1, null, 0, 1, 1, 100][i]! };
+      }) },
     basics: { ...meta, endpoint: "daily_basic", priceUnit: "CNY", shareUnit: "ten-thousand-shares", marketValueUnit: "CNY-ten-thousand", rows: [] },
   });
   const limitRefs = await Promise.all(symbols.map(symbol => archiveDailyTradingLimits({ symbol, market: "A", source: "tushare",
@@ -80,9 +84,21 @@ test("uses adjusted returns, numeric median and strict MA20 against archived ind
     const result = await replayTspMarketEnvironment(request);
     const [gap, day] = result.rows;
     expect(gap?.regime).toBeNull();
+    expect(gap?.daily).toBeNull();
     expect(gap?.phase.futureFields).toEqual([]);
     expect(day?.inputs.prices).toMatchObject({ rowCount: 5, missingBars: 0, returnCount: 4, ma20Count: 3, aboveMa20: 1 });
     expect(day?.inputs.benchmark).toEqual({ ref: request.benchmark.refs[0], returnPct: -1.5 });
+    expect(day?.daily).toMatchObject({
+      breadth: { observedReturns: 4, matchedBars: 5, advances: 2, declines: 1, flat: 1, strongAdvances: 2, strongDeclines: 1,
+        advanceDeclineRatio: 2, advanceFraction: 0.4, declineFraction: 0.2, aboveMa20Fraction: 1 / 3, observedMa20: 3 },
+      activity: { unit: "CNY", sourceUnit: "CNY-thousand", matchedBars: 5, observedAmounts: 4,
+        totalAmountCny: 3_000, meanAmountCny: 750 },
+      exchange: {
+        limitUp: { count: 0, observed: 0, known: 5, roster: 5 },
+        brokenLimitUp: { count: 0, observed: 0, known: 5, roster: 5 },
+        limitDown: { count: 1, observed: 1, known: 5, roster: 5 },
+      },
+    });
     const evidence = day?.regime?.input.evidence;
     expect(evidence?.upFraction?.observed).toBe(2 / 5);
     expect(evidence?.averageFraction?.observed).toBeCloseTo(0.025);
@@ -112,6 +128,11 @@ test("keeps missing histories explicit and rejects incompatible or duplicate ref
   expect(row.inputs.benchmark?.returnPct).toBeNull();
   expect(row.regime?.input).toMatchObject({ availability: "unavailable", observed: 0 });
   expect(row.ladder?.seal.basis).toBe("partial-events");
+  expect(row.daily).toMatchObject({
+    breadth: { observedReturns: 0, advances: null, advanceDeclineRatio: null },
+    exchange: { limitDown: { count: null, observed: 0, known: 0, roster: 5 },
+      limitUp: { count: null }, brokenLimitUp: { count: null } },
+  });
   expect(row.regime?.score).toBeNull();
 
   const incompatible = [
@@ -171,6 +192,7 @@ test("uses an exact risk-warning capture for both price and ladder denominators"
     endpoint: "stock_st", observedAt, coverage: "unknown", rowCount: 2, excludedSymbols: [symbols[0]] });
   expect(day.inputs.prices).toMatchObject({ rowCount: 4, returnCount: 3, ma20Count: 2, aboveMa20: 0 });
   expect(day.ladder?.coverage.roster).toBe(4);
+  expect(day.daily?.activity).toMatchObject({ matchedBars: 4, observedAmounts: 3, totalAmountCny: 2_000 });
   expect(day.regime?.input.evidence.upFraction?.observed).toBe(1 / 4);
   expect(day.regime?.input.evidence.aboveMa20Fraction?.observed).toBe(0);
 
@@ -178,9 +200,10 @@ test("uses an exact risk-warning capture for both price and ladder denominators"
   expect(capturedEmpty.rows[1]?.inputs.riskWarnings).toMatchObject({ status: "matched", rowCount: 0, excludedSymbols: [] });
   expect(capturedEmpty.rows[1]?.ladder?.coverage.roster).toBe(5);
   const missing = await replayTspMarketEnvironment({ ...request, riskWarningRefs: [] });
-  expect(missing.rows[1]).toMatchObject({ regime: null, ladder: null, inputs: { prices: null, riskWarnings: { status: "missing" } } });
+  expect(missing.rows[1]).toMatchObject({ regime: null, ladder: null, daily: null, inputs: { prices: null, riskWarnings: { status: "missing" } } });
   const all = await replayTspMarketEnvironment({ ...request, riskWarningRefs: [await warnings(target, symbols)] });
   expect(all.rows[1]).toMatchObject({ regime: null, ladder: { coverage: { roster: 0 } }, inputs: { prices: { rowCount: 0 } } });
+  expect(all.rows[1]?.daily?.activity).toMatchObject({ matchedBars: 0, observedAmounts: 0, totalAmountCny: null, meanAmountCny: null });
 
   await expect(replayTspMarketEnvironment({ ...request, riskWarningRefs: [warning, empty] })).rejects.toThrow("Duplicate or off-calendar");
   await expect(replayTspMarketEnvironment({ ...request, riskWarningRefs: [await warnings("2024-08-26", [])] }))
