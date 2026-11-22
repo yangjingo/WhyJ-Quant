@@ -91,6 +91,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 市场截面通过 `archiveMarketCrossSection` 保存一个交易日的 Tushare `bak_basic` 股票池、`daily` 行情和 `daily_basic` 交易统计。各响应保存独立交易日、观察时刻和原始单位。未匹配到股票池的行情仍保留在归档，空响应和字段空值也原样保留。文件位于 `.ohquant/data/market-cross-section-archives-v1/`，通过 `loadMarketCrossSectionArchive` 按精确引用读取并验证摘要。股票池匹配、单位转换和覆盖率统计由回放层处理。观察时间记录采集时刻，历史数据的实际可得时间仍由数据使用方核实。
 
+`archiveMarketRegimeManifest` 保存市场状态回放的完整 JSON 清单。文件位于 `.ohquant/data/market-regime-manifests-v1/`，规范化归档总大小不超过 24 MiB，内容摘要即修订号。工作台可用一个修订号指向完整市场范围。读取会校验类型、大小和摘要，Runtime 仍负责验证交易日、股票池和底层归档。
+
 基准指数通过 `archiveBenchmarkIndexObservations` 保存一份 Tushare `index_daily` 响应。归档记录沪深指数代码、请求范围、采集时刻、按交易日排列的收盘点位、昨收点位、点数变化和供应商涨跌幅。涨跌幅保留百分点单位，缺值和空响应均保留。文件位于 `.ohquant/data/benchmark-index-archives-v1/`，`loadBenchmarkIndexArchive` 按精确引用读取并验证摘要。每次更正和重新采集都有独立的归档版本。数据覆盖和历史发布时间仍为未知。
 
 同一归档族也接收 TickFlow `/v1/klines` 的沪深指数和北证 50 `899050.BJ`。TickFlow 行必须保留原始毫秒时间戳，与上海交易日一致。昨收点位、点数变化和涨跌幅保留为空，后续计算使用独立的 WhyJ 结果。已有 Tushare 归档保持原有结构和摘要。

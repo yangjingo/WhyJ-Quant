@@ -1,12 +1,12 @@
 /** Immutable Source observations, independent of provider clients and the daily-bar cache. */
 import { createHash } from "node:crypto";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
 import type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../../types/money-flow.ts";
 import type { DatedPopularityList, PopularityArchiveRef } from "../../types/popularity.ts";
 import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedIndexDailyArchiveRef, DatedIndexMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
-  HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
+  HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, MarketRegimeManifestRef, ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
   StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDepthSnapshot,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
   StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
@@ -56,8 +56,11 @@ async function writeFixedArchive(dir: string, target: string, content: string, s
   }, signal);
 }
 
-async function readFixedArchive(target: string, revision: string, signal?: AbortSignal): Promise<unknown> {
+async function readFixedArchive(target: string, revision: string, signal?: AbortSignal, maxBytes?: number): Promise<unknown> {
+  signal?.throwIfAborted();
+  if (maxBytes !== undefined && (await stat(target)).size > maxBytes) throw fail();
   const content = await readFile(target, { encoding: "utf8", signal });
+  if (maxBytes !== undefined && Buffer.byteLength(content) > maxBytes) throw fail();
   if (digest(content) !== revision) throw new Error("Observation archive is damaged");
   let data: unknown;
   try { data = JSON.parse(content); } catch { throw fail(); }
@@ -969,4 +972,35 @@ export async function loadPopularityArchive(ref: PopularityArchiveRef, signal?: 
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== popularityKind) throw fail();
   validatePopularityList(data.batch);
   return data.batch;
+}
+
+const marketRegimeManifestKind = "market-regime-manifest";
+const marketRegimeManifestDir = () => join(resolveDataDir(), "market-regime-manifests-v1");
+export const MARKET_REGIME_MANIFEST_MAX_BYTES = 24 * 1_024 * 1_024;
+
+function marketRegimeManifestPath(ref: MarketRegimeManifestRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 ||
+    ref.kind !== marketRegimeManifestKind || typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(marketRegimeManifestDir(), ref.revision + ".json");
+}
+
+/** Store the fixed JSON input. Runtime validates its market scope and referenced observations. */
+export async function archiveMarketRegimeManifest(json: string, signal?: AbortSignal): Promise<MarketRegimeManifestRef> {
+  signal?.throwIfAborted();
+  if (typeof json !== "string" || Buffer.byteLength(json) > MARKET_REGIME_MANIFEST_MAX_BYTES) throw fail();
+  let manifest: unknown;
+  try { manifest = JSON.parse(json); } catch { throw fail(); }
+  if (!object(manifest) || Object.keys(manifest).length === 0) throw fail();
+  const content = canonical({ version: 1, kind: marketRegimeManifestKind, manifest });
+  if (Buffer.byteLength(content) > MARKET_REGIME_MANIFEST_MAX_BYTES) throw fail();
+  const ref: MarketRegimeManifestRef = { version: 1, kind: marketRegimeManifestKind, revision: digest(content) };
+  await writeFixedArchive(marketRegimeManifestDir(), marketRegimeManifestPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadMarketRegimeManifest(ref: MarketRegimeManifestRef, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  const data = await readFixedArchive(marketRegimeManifestPath(ref), ref.revision, signal, MARKET_REGIME_MANIFEST_MAX_BYTES);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "manifest"]) || data.version !== 1 ||
+    data.kind !== marketRegimeManifestKind || !object(data.manifest) || Object.keys(data.manifest).length === 0) throw fail();
+  return data.manifest;
 }
