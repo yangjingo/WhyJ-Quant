@@ -572,6 +572,10 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 输出的 `roundTrips` 保留买卖成交 ID 和每次配对股数，`summary` 提供已实现盈亏、胜率、盈亏比、持有天数、定版净值回撤和覆盖计数。无有效正净值时回撤为空。缺少可匹配的买入成交、币种不一致或顺序无效时返回 `invalid_arguments`。该命令以本地清单为输入。 [模拟账户指标定义](../quant-harness/tsp-panel-coverage.md#simulated-account-round-trip-and-nav-statistics)
 
+`replayTspPaperValuation` 从固定归档取得模拟账户估值价格。调用方确认 `priceBasisConfirmation: "caller-confirmed-unadjusted-CNY"`。定版估值逐只读取指定股票日线归档，只使用同日未复权收盘价。盘中估算读取一份同日 TickFlow 快照归档，只使用该次轮询的最新价。调用方提供账户现金、持仓成本、持仓数量及可卖数量，也可附带已定版净值序列。
+
+归档回执保留来源、接口、版本、接收时间和所用报价的源时间。日期匹配但未返回价格或价格为零时，相应持仓按成本估值。回执区分请求后缺价和未提供归档。当前这两类归档覆盖普通 A 股，ETF 持仓在本接口中按成本估值。该回放只读指定归档。
+
 ```json
 {
   "trades": [
