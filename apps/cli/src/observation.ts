@@ -427,14 +427,25 @@ function parseAuctionManifest(value: unknown): AuctionBenchmarkReplayRequest {
 }
 
 function parseEmotionDepth(value: unknown): NonNullable<MarketEmotionReplayRequest["depth"]> {
-  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length !== 3) throw invalid();
-  const { revision, asOf, maxAgeMs } = value as Record<string, unknown>;
+  const { revision, asOf, maxAgeMs, queue: rawQueue } = observationManifestObject(value, ["revision", "asOf", "maxAgeMs", "queue"]);
   if (typeof revision !== "string" || !revisionPattern.test(revision) || typeof asOf !== "string" ||
     !/^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,3})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/.test(asOf) ||
     !isDailyDate(asOf.slice(0, 10)) || typeof maxAgeMs !== "number" || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 0) throw invalid();
   const cutoff = Date.parse(asOf);
   if (!Number.isSafeInteger(cutoff) || cutoff <= 0) throw invalid();
-  return { ref: { version: 1, kind: "depth-snapshot", revision }, asOf: cutoff, maxAgeMs };
+  let queue: NonNullable<MarketEmotionReplayRequest["depth"]>["queue"];
+  if (rawQueue !== undefined) {
+    const { volumeUnit, rule } = observationManifestObject(rawQueue, ["volumeUnit", "rule"]);
+    if (volumeUnit !== undefined && volumeUnit !== "hand" && volumeUnit !== "share") throw invalid();
+    queue = { volumeUnit };
+    if (rule !== undefined) {
+      const { metric, threshold } = observationManifestObject(rule, ["metric", "threshold"]);
+      if ((metric !== "sealed_vol" && metric !== "sealed_amount") || typeof threshold !== "number" ||
+        !Number.isFinite(threshold) || threshold < 0) throw invalid();
+      queue.rule = { metric, threshold };
+    }
+  }
+  return { ref: { version: 1, kind: "depth-snapshot", revision }, asOf: cutoff, maxAgeMs, ...(queue && { queue }) };
 }
 
 function parseEmotionManifest(value: unknown): MarketEmotionReplayRequest {
