@@ -646,6 +646,10 @@ whyj --json observation replay-list-rows --manifest ./list-rows.json
 
 清单包含 `version: 1`、`marketRevision`、`adjustment` 和 `stocks`。每项至少提供 `symbol`，附上 `dailyRevision` 可回放技术指标与信号。如需交易所限价信号，可同时提供 `limitsRevision` 及必要的 `rawRevision`。
 
+`replayTspListRowsWithLiveQuotes` 可为同一列表读一批最多 100 只股票的当日报价。市场截面必须对应当前上海日期，报价时间和获取时间也要属于该日。历史列表与空列表不发起报价请求。批次获取失败仍返回固定列表，缺报价、日期不匹配、时间晚于获取时间与缺有效价格分别标记。
+
+结果的 `fixed` 保留原始历史列表，`quotes` 单独记录 TickFlow 的端点、获取时间、原始数量和行情时间。供应商数量单位仍为未知。WHYJ 以该报价自己的昨收计算涨跌额与小数涨幅，应用可按时间戳展示同日快照。报价请求成功无法证实实时权限或延迟。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
