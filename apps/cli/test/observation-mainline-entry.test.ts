@@ -67,6 +67,7 @@ test("CLI replays the market mainline from immutable inputs and keeps dated miss
       description: "Replay industry or concept mainlines from dated archives",
     });
     expect(help.map((entry: { command: string }) => entry.command)).toContain("whyj --json observation replay-market-regime-summary");
+    expect(help.map((entry: { command: string }) => entry.command)).toContain("whyj --json observation archive-market-regime-manifest");
     const plain = await replay(manifest);
     expect(plain).toMatchObject({ code: 0, output: { ok: true, data: { scope: { kind: "concept", taxonomy: "eastmoney" },
       rows: [
@@ -116,6 +117,20 @@ test("CLI replays the market mainline from immutable inputs and keeps dated miss
       mainline: { scope: { kind: "concept" } },
     } } });
     expect(await replay({ ...summaryManifest, version: 1 }, summaryAction)).toEqual(summaryResult);
+    const archiveAction = "archive-market-regime-manifest";
+    const archived = await replay({ ...summaryManifest, version: 1 }, archiveAction);
+    expect(archived).toMatchObject({ code: 0, output: { ok: true, data: {
+      ref: { version: 1, kind: "market-regime-manifest" }, sessionCount: 3,
+    } } });
+    const revision = archived.output.data.ref.revision;
+    expect(revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(await run("observation", summaryAction, "--revision", revision)).toEqual(summaryResult);
+    expect(await replay({ ...summaryManifest, version: 2 }, archiveAction)).toMatchObject(invalid);
+    expect(await run("observation", summaryAction, "--revision", revision, "--manifest", path)).toMatchObject(invalid);
+    expect(await run("observation", summaryAction, "--revision", "../invalid")).toMatchObject(invalid);
+    expect(await run("observation", summaryAction, "--revision", "0".repeat(64))).toMatchObject({
+      code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } },
+    });
     for (const input of [
       { ...summaryManifest, window: { start: missingDate, end: previousDate } },
       { ...summaryManifest, version: 2 },
