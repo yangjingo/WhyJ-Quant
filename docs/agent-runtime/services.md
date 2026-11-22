@@ -317,11 +317,13 @@ Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必
 
 已有固定盘口归档时，可加入 `"depth": {"revision": "DEPTH_SHA", "asOf": "2025-01-03T15:00:05+08:00", "maxAgeMs": 5000}`。截止时间须带时区，并与目标交易日一致。`maxAgeMs` 是盘口相对截止时间允许的最大年龄。归档基于其原始采集时间绑定到该截止时间，回执保留实际匹配的股票和封板修正依据。
 
-`collectQuotePollCapture` 使用选定 Source 分批采集指定股票当日的 TickFlow 快照。一轮全部请求成功后才写入单个不可变归档，回执列出缺失标的和时间不符的报价。`replayTspQuotePollDelta` 读取前后两轮的精确归档，要求请求范围一致、采集时间有序且不重叠。回放结果附带两轮归档来源和单位依据。省略上一轮时标记缺少基准，跨连续竞价时段时标记时间边界。已确认的单位可由调用方明确提供。
-
 如果已确认该盘口归档以股计量，可在 `depth` 内添加 `"queue": {"volumeUnit": "share", "rule": {"metric": "sealed_amount", "threshold": 25000}}`。结果在 `data.depthQueue` 返回每只候选的手数、人民币金额及阈值结果，原始单位保留在 `data.input.depth.volumeUnit`。省略 `queue` 时，回放仍提供盘口原始排队量。无效单位或阈值返回 `invalid_arguments`。
 
 选定 TickFlow 后，用 `whyj --json observation collect-depth --date YYYY-MM-DD --symbols-file symbols.json` 采集当前上海日期的盘口。`symbols.json` 是形如 `["600000.SH", "000001.SZ"]` 的股票代码数组。将回执中的 `data.ref.revision` 传给市场情绪清单的 `depth.revision`，将采集时刻 `data.observedAt` 作为 `depth.asOf`，并按用途选择 `maxAgeMs`。采集回执会列出缺少的标的。
+
+`collectQuotePollCapture` 使用选定 Source 分批采集指定股票当日的 TickFlow 快照。一轮全部请求成功后才写入单个不可变归档，回执列出缺失标的和时间不符的报价。`replayTspQuotePollDelta` 读取前后两轮的精确归档，要求请求范围一致、采集时间有序且不重叠。回放结果附带两轮归档来源和单位依据。省略上一轮时标记缺少基准，跨连续竞价时段时标记时间边界。已确认的单位可由调用方明确提供。
+
+用 `whyj --json observation collect-quote-poll --date YYYY-MM-DD --symbols-file symbols.json` 采集一轮，保存回执的 `data.ref.revision`。用 `whyj --json observation replay-quote-poll-delta --manifest polls.json` 离线比较指定的两轮。清单包含 `"version": 1`、`currentRevision` 和可选的 `previousRevision`。已确认单位时可添加 `volumeUnit`（`share` 或 `hand`）和 `amountUnit`（`CNY` 或 `CNY-thousand`）。可选的 `rule` 包含 `metric`（`volume` 或 `amount`）和大于等于 1 的 `threshold`，分别用手和人民币元比较。输出保留原始增量和换算结果。参数无效返回 `invalid_arguments`，归档缺失或两轮范围不匹配返回 `observation_archive_unavailable`。
 
 Runtime 的 `deriveTspArchiveAnalytics` 用精确的 v2 日线引用生成归档末日的 77 个研究因子字段和 11 组图表价格位。Tushare 的手数和千元成交额按明确单位参与计算，TickFlow 成交单位未确认时，对应因子保持空值。估值财务、历史换手和连板输入需独立归档。结果标记价格位的量分布口径、原行情来源、归档范围、可用成交额计数及两个计算的公式版本。读取只使用指定归档。
 
