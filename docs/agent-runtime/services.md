@@ -550,6 +550,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 有效折使用 `outcome.status: "valid"`，并在 `outcome.metrics` 写入 `totalReturnFraction`、`sharpe`、`maxDrawdownFraction` 和 `tradeCount`。缺测字段填写 `null`，观察到的零填写 `0`。跳过折使用 `outcome.status: "skipped"` 并填写 `outcome.reason`。返回各折、汇总结果、指标覆盖折数和 WhyJ 公式版本。训练和测试日期重叠、重复折号及无效字段返回 `invalid_arguments`。 [样本外指标定义](../quant-harness/tsp-panel-coverage.md#mining-candidate-out-of-sample-report)
 
+返回的 `gate` 给出候选指标是否达标、原因码、规则版本和阈值。严格档按 TSP 发布检查纳入最差折 Sharpe。复算仍使用同一份样本外清单。
+
 ### 策略健康度复验
 
 `whyj --json observation plan-strategy-guardian --manifest plan.json` 接受 `schemaVersion: 1`、基线数据截止日 `dataAsOf` 和严格升序的交易日 `sessions`。可在 `thresholds` 覆盖 `minNewTradingDays`、`maxSegments`、`watchFraction`、`retireFraction` 或 `maxSoftDrawdownFraction`。规划默认要求基线后至少有 30 个交易日，选择最多 4 个分段，每段至少 14 个自然日。结果返回分段起止日期，或数据量不足的具体原因。

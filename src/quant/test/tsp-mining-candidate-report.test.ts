@@ -63,6 +63,39 @@ describe("TSP held-out mining candidate report", () => {
     expect(zero).toMatchObject({ confidence: "standard", summary: {
       meanReturnFraction: 0, worstDrawdownFraction: 0, positiveReturnFoldRatio: 0, tradeCount: 0, validFoldCount: 1,
     }, folds: [{ evaluationKind: "benchmark" }] });
+    expect(empty.gate).toMatchObject({ qualified: false, reasons: [
+      "exploratory-profile", "insufficient-valid-folds", "insufficient-positive-fold-ratio",
+      "insufficient-mean-sharpe", "excessive-drawdown", "insufficient-trades",
+    ] });
+  });
+
+  test("uses inclusive published thresholds and strictly positive worst-fold Sharpe for strict profiles", () => {
+    const sample: TspMiningCandidateReportInput = {
+      ...evidence,
+      folds: evidence.folds.slice(0, 3).map((fold, index) => ({
+        ...fold,
+        outcome: { status: "valid", metrics: {
+          totalReturnFraction: index < 2 ? 0.1 : 0, sharpe: 0.5, maxDrawdownFraction: -0.25, tradeCount: 20,
+        } },
+      })),
+    };
+    expect(computeTspMiningCandidateReport(sample).gate).toEqual({
+      formulaVersion: "tsp-mining-candidate-gate-v1", qualified: true, reasons: [],
+      thresholds: {
+        minValidFolds: 2, minPositiveReturnFoldRatio: 2 / 3, minMeanSharpe: 0.5, minDrawdownFraction: -0.25, minTrades: 60,
+        minWorstSharpeExclusive: 0,
+      },
+    });
+    expect(computeTspMiningCandidateReport({ ...sample, profile: "exploratory" }).gate)
+      .toMatchObject({ qualified: false, reasons: ["exploratory-profile"] });
+
+    const zeroWorst: TspMiningCandidateReportInput = { ...sample, folds: sample.folds.map((fold, index) => {
+      if (fold.outcome.status === "skipped") return fold;
+      return { ...fold, outcome: { status: "valid", metrics: { ...fold.outcome.metrics, sharpe: index ? 0.75 : 0 } } };
+    }) };
+    expect(computeTspMiningCandidateReport(zeroWorst).gate).toMatchObject({ qualified: false, reasons: ["nonpositive-worst-sharpe"] });
+    expect(computeTspMiningCandidateReport({ ...zeroWorst, profile: "balanced" }).gate)
+      .toMatchObject({ qualified: true, reasons: [], thresholds: { minWorstSharpeExclusive: null } });
   });
 
   test("rejects duplicate folds, leakage windows and malformed statuses or metrics", () => {
