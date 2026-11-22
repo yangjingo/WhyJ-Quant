@@ -54,17 +54,19 @@ test("CLI replays the market mainline from immutable inputs and keeps dated miss
     expect(stderr).toBe("");
     return { code, output: JSON.parse(stdout) };
   };
-  const replay = (input: unknown) => {
+  const replay = (input: unknown, action = "replay-market-mainline") => {
     writeFileSync(path, JSON.stringify(input));
-    return run("observation", "replay-market-mainline", "--manifest", path);
+    return run("observation", action, "--manifest", path);
   };
   process.env.OHQUANT_DIR = root;
   try {
     const { manifest, warning } = await fixture();
-    expect((await run("--help")).output.data.commands).toContainEqual({
+    const help = (await run("--help")).output.data.commands;
+    expect(help).toContainEqual({
       command: "whyj --json observation replay-market-mainline",
       description: "Replay industry or concept mainlines from dated archives",
     });
+    expect(help.map((entry: { command: string }) => entry.command)).toContain("whyj --json observation replay-market-regime-summary");
     const plain = await replay(manifest);
     expect(plain).toMatchObject({ code: 0, output: { ok: true, data: { scope: { kind: "concept", taxonomy: "eastmoney" },
       rows: [
@@ -93,9 +95,36 @@ test("CLI replays the market mainline from immutable inputs and keeps dated miss
     expect(await replay({ ...manifest, marketRevisions: ["e".repeat(64)] })).toMatchObject({
       code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } },
     });
+
+    const { sectorHistory, ...marketScope } = manifest;
+    const summaryManifest = { ...marketScope, priceHistory: [], benchmark: { symbol: "000001.SH", revisions: [] },
+      phaseMode: "retrospective-tsp", window: { start: activeDate, end: activeDate }, concepts: { sectorHistory } };
+    const summaryAction = "replay-market-regime-summary";
+    expect(await replay(summaryManifest, summaryAction)).toMatchObject({ code: 0, output: { ok: true, data: {
+      summary: {
+        window: { start: activeDate, end: activeDate, sessions: 1 }, segments: [
+          { days: 1, conceptDays: 1, topConcepts: [{ name: "Fixture", topFiveDays: 1, maxBoards: 1 }] },
+        ],
+      },
+      history: {
+        calendar: { sessions: [previousDate, activeDate, missingDate] }, phase: { mode: "retrospective-tsp" },
+        rows: [{ tradingDate: previousDate }, { tradingDate: activeDate,
+          daily: { activity: { totalAmountCny: 21_000, meanAmountCny: 3_500 }, exchange: { limitUp: { count: 6 } } } },
+        { tradingDate: missingDate, daily: null }],
+      },
+      mainline: { scope: { kind: "concept" } },
+    } } });
+    for (const input of [
+      { ...summaryManifest, window: { start: missingDate, end: previousDate } },
+      { ...summaryManifest, window: { start: previousDate, end: "2024-01-01" } },
+      { ...summaryManifest, concepts: { sectorHistory: [{ ...sectorHistory[0], catalogRevision: "bad" }] } },
+    ]) expect(await replay(input, summaryAction)).toMatchObject(invalid);
+    expect(await replay({ ...summaryManifest, marketRevisions: ["e".repeat(64)] }, summaryAction)).toMatchObject({
+      code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } },
+    });
   } finally {
     if (previous === undefined) delete process.env.OHQUANT_DIR;
     else process.env.OHQUANT_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   }
-}, 30_000);
+}, 120_000);

@@ -283,6 +283,12 @@ Runtime 的 `replayTspMarketEmotion` 用升序交易日和固定归档回放最�
 
 响应的 `history` 和 `mainline` 保留归档证据，`summary` 提供状态分布、节奏、阶段段落、指标分位和段内主导概念。已观测但没有入榜概念的交易日与缺少归档的交易日分别计数。具体字段见 [市场状态页](../quant-harness/tsp-panel-coverage.md#market-regime-panel)。
 
+```sh
+whyj --json observation replay-market-regime-summary --manifest ./regime-summary.json
+```
+
+CLI 清单沿用 `replay-market-environment` 的字段，可额外指定 `window` 和 `concepts`。其中 `concepts.sectorHistory` 的每项包含 `tradeDate`、`catalogRevision` 和 `memberRevisions`，可附 `concepts.filter`。读取和计算均在本地归档上完成。
+
 Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必须与目标日相同，采集时刻必须早于或等于截止时刻，两项时间参数使用毫秒。回执分别列出已请求、已返回和参与封板判定的股票。盘口只修正符合条件的涨跌停候选，ST 筛选剔除的股票不参与。缺少盘口、空档和过期观测保持可见，原始价格梯队随回执保留。省略盘口归档时，五档盘口修正状态为不可用。
 
 在 CLI 中用 `whyj --json observation replay-market-emotion --manifest emotion.json` 回放。清单中的摘要取自每条采集回执的 `data.ref.revision`。补齐目标日以前的连续交易日及对应市场截面，才能验证五日量比和连板所需历史。
