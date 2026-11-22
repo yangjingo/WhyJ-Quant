@@ -315,6 +315,8 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .observation-indicator-values dd { margin: 4px 0 0; color: var(--cream); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .observation-list .field-row { margin: 12px 0; min-width: 0; }
 .observation-list .field-row input { width: 100%; min-width: 0; }
+.observation-list-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.observation-list-quote { margin-bottom: 14px; }
 .observation-list-result { overflow-wrap: anywhere; }
 .observation-list-stock { border-top: 1px solid var(--line); }
 .observation-list-stock > summary { cursor: pointer; padding: 10px 0; }
