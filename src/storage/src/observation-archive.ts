@@ -6,10 +6,10 @@ import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/d
 import type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../../types/money-flow.ts";
 import type { DatedPopularityList, PopularityArchiveRef } from "../../types/popularity.ts";
 import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedIndexDailyArchiveRef, DatedIndexMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
-  HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, MarketRegimeManifestRef, ObservationArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
+  HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, MarketRegimeManifestRef, ObservationArchiveRef, QuotePollArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
   StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDepthSnapshot,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
-  StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
+  StoredQuotePollCapture, StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../market/symbols.ts";
@@ -503,6 +503,52 @@ export async function loadDepthSnapshotArchive(ref: DepthSnapshotArchiveRef, sig
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== depthKind) throw fail();
   validateDepthSnapshot(data.batch);
   return data.batch;
+}
+
+const quotePollKind = "quote-poll";
+const quotePollDir = () => join(resolveDataDir(), "quote-poll-archives-v1");
+const quotePollKeys = ["source", "endpoint", "market", "tradeDate", "startedAt", "observedAt", "coverage", "units", "requestedSymbols", "rows"];
+
+function quotePollPath(ref: QuotePollArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== quotePollKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(quotePollDir(), `${ref.revision}.json`);
+}
+
+function validateQuotePollCapture(capture: unknown): asserts capture is StoredQuotePollCapture {
+  if (!object(capture) || !exactKeys(capture, quotePollKeys) || capture.source !== "tickflow" || capture.endpoint !== "/v1/quotes" ||
+    capture.market !== "A" || capture.coverage !== "unknown" || capture.units !== "unknown" || !dailyDate(capture.tradeDate) ||
+    typeof capture.startedAt !== "string" || !instant(capture.startedAt) || typeof capture.observedAt !== "string" || !instant(capture.observedAt) ||
+    !Array.isArray(capture.requestedSymbols) || !capture.requestedSymbols.length || capture.requestedSymbols.length > 6_999) throw fail();
+  const { tradeDate, requestedSymbols } = capture;
+  const start = Date.parse(capture.startedAt), end = Date.parse(capture.observedAt);
+  if (start > end || shanghaiDate(start) !== tradeDate || shanghaiDate(end) !== tradeDate ||
+    requestedSymbols.some((symbol, index) => typeof symbol !== "string" || !stockSymbol.test(symbol) ||
+      (index > 0 && symbol <= requestedSymbols[index - 1]))) throw fail();
+  const scope = new Set(requestedSymbols);
+  marketRows(capture.rows, scope.size, ["timestamp", "receivedAt", "lastPrice", "previousClose", "volume", "amount"], row => {
+    const { symbol, timestamp, receivedAt, lastPrice, previousClose, volume, amount } = row;
+    if (typeof symbol !== "string" || !scope.has(symbol) || typeof timestamp !== "number" || !Number.isSafeInteger(timestamp) ||
+      timestamp <= 0 || typeof receivedAt !== "string" || !instant(receivedAt)) return false;
+    const received = Date.parse(receivedAt);
+    return received >= start && received <= end && timestamp <= received && shanghaiDate(timestamp) === tradeDate &&
+      nonnegative(lastPrice) && nonnegative(previousClose) && nonnegative(volume) && nonnegativeOrNull(amount);
+  });
+}
+
+export async function archiveQuotePollCapture(capture: StoredQuotePollCapture, signal?: AbortSignal): Promise<QuotePollArchiveRef> {
+  validateQuotePollCapture(capture);
+  const content = canonical({ version: 1, kind: quotePollKind, capture });
+  const ref: QuotePollArchiveRef = { version: 1, kind: quotePollKind, revision: digest(content) };
+  await writeFixedArchive(quotePollDir(), quotePollPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadQuotePollArchive(ref: QuotePollArchiveRef, signal?: AbortSignal): Promise<StoredQuotePollCapture> {
+  const data = await readFixedArchive(quotePollPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "capture"]) || data.version !== 1 || data.kind !== quotePollKind) throw fail();
+  validateQuotePollCapture(data.capture);
+  return data.capture;
 }
 
 const sectorDir = () => join(resolveDataDir(), "sector-observation-archives-v1");

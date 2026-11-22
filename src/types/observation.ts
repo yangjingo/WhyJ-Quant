@@ -249,6 +249,33 @@ export interface DepthSnapshotArchiveRef {
   revision: string;
 }
 
+export interface StoredQuotePollCapture {
+  source: "tickflow";
+  endpoint: "/v1/quotes";
+  market: "A";
+  tradeDate: string;
+  startedAt: string;
+  observedAt: string;
+  coverage: "unknown";
+  units: "unknown";
+  requestedSymbols: readonly string[];
+  rows: readonly {
+    symbol: string;
+    timestamp: number;
+    receivedAt: string;
+    lastPrice: number;
+    previousClose: number;
+    volume: number;
+    amount: number | null;
+  }[];
+}
+
+export interface QuotePollArchiveRef {
+  version: 1;
+  kind: "quote-poll";
+  revision: string;
+}
+
 export type StoredSectorObservationBatch = {
   market: "A";
   source: "tushare";

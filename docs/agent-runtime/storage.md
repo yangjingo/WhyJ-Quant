@@ -103,6 +103,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 `archiveDepthSnapshot` 将同一上海交易日的 TickFlow 单标的或批量盘口观测（`/v1/depth`、`/v1/depth/batch`）保存到 `.ohquant/data/depth-snapshot-archives-v1/`。归档保留实际端点、已请求标的、每条盘口的原始时间戳、买卖档价格与数量、显式零和空档。未返回的标的可由请求清单和实际响应对照，数量单位和全市场覆盖仍为未知。`loadDepthSnapshotArchive` 只接受精确版本引用。时效筛选和封板判定使用 WhyJ 的回放逻辑。
 
+`archiveQuotePollCapture` 将一轮指定股票的 TickFlow `/v1/quotes` 观测保存到 `.ohquant/data/quote-poll-archives-v1/`。归档记录采集起止时间、每个批次的收包时间及报价时间，并保留最新价、昨收、累计成交量和累计成交额。显式零、空成交额与未返回标的分别保留。单位和覆盖仍为未知。`loadQuotePollArchive` 根据 SHA-256 引用读取精确版本。
+
 `archiveFinancialObservations` 分别保存 Tushare `fina_indicator` 的单标的报告期范围响应，或 `disclosure_date` 的单标的单报告期响应。两类归档各自记录请求、端点和取数时间，保留同报告期多行、返回顺序、修订标记、零值和空值。空响应也有独立归档引用，覆盖标为未知。`loadFinancialObservationArchive` 按种类和内容摘要读取 `.ohquant/data/financial-observation-archives-v1/` 下的精确版本。历史回放需另外证明所用财务指标版本在判断时点已公开。
 
 报告行还可携带基本每股收益与币种证据。`basicEarningsPerShare` 为供应商原值，允许负数、零和空值。`earningsPerShareCurrency` 同时存在并标为 `unknown`。旧版报告行保留原有字段和内容摘要。
