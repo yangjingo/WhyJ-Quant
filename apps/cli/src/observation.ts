@@ -4,7 +4,7 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward,
-  parseTspIntradaySignalRule, TSP_DAILY_SIGNAL_FIELDS, TSP_PARAMETER_OBJECTIVES, TSP_SECTOR_MONITOR_WINDOWS, type TspScreenerScoreInput,
+  parseTspIntradaySignalRule, TSP_DAILY_SIGNAL_FIELDS, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES, TSP_SECTOR_MONITOR_WINDOWS, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspParameterSegmentEvidence, type TspWalkForwardInput,
 } from "../../../src/quant/index.ts";
@@ -14,8 +14,9 @@ import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchma
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
 import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-collection.ts";
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
-import { replayTspFactorEvaluation, replayTspFactorSignificance,
-  type FactorEvaluationReplayRequest, type FactorSignificanceReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
+import { replayTspFactorEvaluation, replayTspFactorMiningScreen, replayTspFactorSignificance,
+  type FactorEvaluationReplayRequest, type FactorMiningScreenReplayRequest,
+  type FactorSignificanceReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
 import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
 import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
@@ -402,12 +403,30 @@ function parseFactorEvaluationManifest(value: unknown): FactorEvaluationReplayRe
   return { ...parseFactorReplayScope(scope), factorId, rebalance, groups, marketEnvironment };
 }
 
+function parseFactorIds(value: unknown): string[] {
+  if (!Array.isArray(value) || !value.length ||
+    value.some(id => typeof id !== "string" || !factorKey.test(id)) || new Set(value).size !== value.length) throw invalid();
+  return value;
+}
+
 function parseFactorSignificanceManifest(value: unknown): FactorSignificanceReplayRequest {
   const { schemaVersion, factorIds, ...scope } = observationManifestObject(value,
     ["schemaVersion", "factorIds", "sessions", "evaluationStart", "symbols", "turnoverRevisions"]);
-  if (schemaVersion !== 1 || !Array.isArray(factorIds) || !factorIds.length ||
-    factorIds.some(id => typeof id !== "string" || !factorKey.test(id)) || new Set(factorIds).size !== factorIds.length) throw invalid();
-  return { ...parseFactorReplayScope(scope), factorIds };
+  if (schemaVersion !== 1) throw invalid();
+  const ids = parseFactorIds(factorIds);
+  return { ...parseFactorReplayScope(scope), factorIds: ids };
+}
+
+function parseFactorMiningScreenManifest(value: unknown): FactorMiningScreenReplayRequest {
+  const { schemaVersion, factorIds, forwardSessions, correlationThreshold, ...scope } = observationManifestObject(value,
+    ["schemaVersion", "factorIds", "sessions", "evaluationStart", "symbols", "turnoverRevisions", "forwardSessions", "correlationThreshold"]);
+  if (schemaVersion !== 1 ||
+    (forwardSessions !== undefined && forwardSessions !== 1 && forwardSessions !== 3 && forwardSessions !== 5) ||
+    typeof correlationThreshold !== "number" || !Number.isFinite(correlationThreshold) ||
+    correlationThreshold <= 0 || correlationThreshold > 1) throw invalid();
+  const ids = parseFactorIds(factorIds);
+  if (ids.length > TSP_MINING_MAX_FACTORS) throw invalid();
+  return { ...parseFactorReplayScope(scope), factorIds: ids, forwardSessions, correlationThreshold };
 }
 
 function parseAuctionManifest(value: unknown): AuctionBenchmarkReplayRequest {
@@ -1089,6 +1108,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       signal?.throwIfAborted();
       throw Object.assign(new Error("Could not replay the requested factor family. Verify factor keys, archive revisions and calendar."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-factor-mining-screen") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseFactorMiningScreenManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspFactorMiningScreen(request, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay the mining screen. Verify factor keys, archive revisions and the training calendar."),
         { code: "observation_archive_unavailable" });
     }
   }
