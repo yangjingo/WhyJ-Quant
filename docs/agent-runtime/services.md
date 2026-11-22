@@ -530,6 +530,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 使用 `whyj --json observation backtest-robustness --manifest trades.json` 计算已实现交易的稳健性。输入收益都是小数比例，持仓天数为非负整数，未知可填 `null`。可选的 `periodicReturns` 只替换 Sortino 的样本，并省略初始权益快照。默认 `periodsPerYear` 为 252，`includeMonteCarlo` 为 `true`。自助重抽样仅用清单里的已实现交易，不读取行情或连接数据提供商。
 
+使用 `whyj --json observation replay-backtest-portfolio --manifest portfolio.json` 从固定组合证据重放 [TSP 组合绩效](../quant-harness/alpha-backtest.md#固定证据的-tsp-组合绩效)。清单的 `schemaVersion` 为 `1`，包括 `initialCapital`、按日期递增的 `equityCurve` 和 `trades`。净值行包含 `date`、`equity` 和小数比例 `exposureFraction`。交易行包含 `pnlFraction` 和 `holdingDays`。将 `includeMonteCarlo` 设为 `false` 可跳过重抽样。JSON 中的 `portfolio` 和 `realizedTrades` 分别报告组合净值与已实现交易的统计。空净值曲线返回 `status: "unavailable"`，无效清单返回 `invalid_arguments`。命令只读取本地清单。
+
 ```json
 {
   "trades": [
