@@ -198,6 +198,50 @@ test("actual CLI replays the fixed mining screen and exposes the target calendar
   }
 }, 120_000);
 
+test("actual CLI summarizes saved mining candidate folds and exposes covered and skipped evidence", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-mining-candidate-cli-"));
+  const path = join(root, "manifest.json");
+  const measured = {
+    window: { index: 0, trainStart: "2025-12-01", trainEnd: "2026-01-02", testStart: "2026-01-05", testEnd: "2026-01-09" },
+    evaluationKind: "selected", testSessionCount: 5,
+    outcome: { status: "valid", metrics: { totalReturnFraction: 0, sharpe: null, maxDrawdownFraction: -0.1, tradeCount: 0 } },
+  };
+  const skipped = {
+    window: { index: 1, trainStart: "2025-12-08", trainEnd: "2026-01-09", testStart: "2026-01-12", testEnd: "2026-01-16" },
+    evaluationKind: "cross", testSessionCount: 5,
+    outcome: { status: "skipped", reason: "trial budget exhausted" },
+  };
+  const manifest = { schemaVersion: 1, candidateId: "momentum-volume", profile: "strict", folds: [skipped, measured] };
+  function replay(value: unknown) {
+    writeFileSync(path, JSON.stringify(value));
+    return runCli(root, "observation", "replay-mining-candidate", "--manifest", path);
+  }
+  try {
+    const help = await runCli(root, "--help");
+    expect(help.output.data.commands).toContainEqual({
+      command: "whyj --json observation replay-mining-candidate",
+      description: "Summarize fixed mining candidate out-of-sample folds",
+    });
+    const result = await replay(manifest);
+    expect(result).toMatchObject({ code: 0, output: { ok: true, data: {
+      producer: "whyj", formulaVersion: "tsp-mining-candidate-report-v1", candidateId: manifest.candidateId,
+      confidence: "high", folds: [measured, skipped],
+      summary: { meanReturnFraction: 0, robustScore: null, worstDrawdownFraction: -0.1, tradeCount: 0,
+        validFoldCount: 1, skippedFoldCount: 1, coverage: { returnFolds: 1, sharpeFolds: 0, drawdownFolds: 1, tradeCountFolds: 1 } },
+    } } });
+    expect(await replay(manifest)).toEqual(result);
+    const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
+    expect(await replay({ ...manifest, schemaVersion: 2 })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, folds: [measured, measured] })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, folds: [{ ...measured, window: { ...measured.window, trainEnd: measured.window.testStart } }] }))
+      .toMatchObject(invalid);
+    expect(await replay({ ...manifest, folds: [{ ...skipped, outcome: { ...skipped.outcome, metrics: measured.outcome.metrics } }] }))
+      .toMatchObject(invalid);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
 test("actual CLI replays a fixed factor test family and distinguishes invalid and unavailable evidence", async () => {
   const root = mkdtempSync(join(tmpdir(), "whyj-factor-significance-cli-"));
   const path = join(root, "manifest.json");
