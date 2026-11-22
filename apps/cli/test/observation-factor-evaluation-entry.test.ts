@@ -8,12 +8,12 @@ import { archiveBenchmarkIndexObservations, archiveMarketCrossSection, archiveTr
 
 const sessions = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-12", "2026-01-13", "2026-01-14"];
 
-function archivePrices(symbol: string, closes: number[]) {
-  const bars: StoredTradingDateBarObservation[] = sessions.map((tradeDate, index) => {
+function archivePrices(symbol: string, closes: number[], dates = sessions) {
+  const bars: StoredTradingDateBarObservation[] = dates.map((tradeDate, index) => {
     const close = closes[index]!;
     return {
       kind: "trading_date_daily_bar", schemaVersion: 2, symbol, tradeDate, sourceTimestamp: null,
-      requested: { startDate: sessions[0]!, endDate: sessions.at(-1)! }, market: "A", assetType: "stock",
+      requested: { startDate: dates[0]!, endDate: dates.at(-1)! }, market: "A", assetType: "stock",
       calendarTimeZone: "Asia/Shanghai", source: "tushare", endpoint: "daily", observedAt: "2026-03-04T08:00:00Z",
       interval: "1d", adjustment: "none", volumeUnit: "hand", amountUnit: "CNY-thousand", coverage: "unknown",
       values: { open: close, high: close + 0.2, low: close - 0.2, close, volume: 100, amount: close * 10 },
@@ -134,6 +134,65 @@ test("actual CLI projects fixed research factor archives into Rank IC and equal-
     expect(await replay({ ...manifest, symbols: [{ ...manifest.symbols[0], dailyRevisions: ["0".repeat(64)] }] })).toMatchObject(unavailable);
     writeFileSync(join(root, "data", "observation-archives-v2", up.revision + ".json"), "{}");
     expect(await replay(manifest)).toMatchObject(unavailable);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("actual CLI replays the fixed mining screen and exposes the target calendar", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-factor-mining-cli-"));
+  const path = join(root, "manifest.json");
+  function replay(value: unknown) {
+    writeFileSync(path, JSON.stringify(value));
+    return runCli(root, "observation", "replay-factor-mining-screen", "--manifest", path);
+  }
+  try {
+    const previous = process.env.OHQUANT_DIR;
+    process.env.OHQUANT_DIR = root;
+    const symbols = ["600001.SH", "000001.SZ", "300001.SZ"];
+    let refs;
+    try {
+      refs = await Promise.all([
+        archivePrices(symbols[0]!, [10, 11, 12, 13, 14, 15, 16, 17]),
+        archivePrices(symbols[1]!, [20, 19, 18, 17, 16, 14, 13], sessions.filter((_, i) => i !== 5)),
+        archivePrices(symbols[2]!, [12, 13, 14, 13, 13.5, 14, 12, 15]),
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.OHQUANT_DIR;
+      else process.env.OHQUANT_DIR = previous;
+    }
+    const manifest = {
+      schemaVersion: 1, factorIds: ["log_amount", "change_pct"], sessions: sessions.slice(0, -1),
+      evaluationStart: sessions[1], forwardSessions: 3, correlationThreshold: 0.8,
+      symbols: refs.map(({ revision }, i) => ({ symbol: symbols[i]!, dailyRevisions: [revision] })),
+    };
+    const help = await runCli(root, "--help");
+    expect(help.output.data.commands).toContainEqual({
+      command: "whyj --json observation replay-factor-mining-screen",
+      description: "Replay fixed training factor quality and correlation pruning",
+    });
+    const result = await replay(manifest);
+    expect(result).toMatchObject({ code: 0, output: { ok: true, data: {
+      input: { forwardSessions: 3, correlationThreshold: 0.8 },
+      targets: {
+        alignment: [1, 2, 3].map(i => ({ tradeDate: sessions[i], targetDate: sessions[i + 3] })),
+        trainingRows: 9, labeledRows: 8, missingTargetRows: 1, purgedRows: 8,
+      },
+      screen: {
+        producer: "whyj", inputRows: 9, factorIds: manifest.factorIds,
+        formula: { id: "tsp_factor_mining_screen", version: 1 },
+        correlation: { threshold: 0.8, pairCounts: [[3, 3], [3, 3]] },
+        metrics: [{ factorId: "log_amount" }, { factorId: "change_pct" }],
+      },
+    } } });
+    expect(result.output.data.input.symbols.map((entry: { daily: { ref: unknown }[] }) => entry.daily[0]!.ref)).toEqual(refs);
+    expect(await replay(manifest)).toEqual(result);
+    const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
+    expect(await replay({ ...manifest, forwardSessions: 2 })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, correlationThreshold: 0 })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, symbols: [{ ...manifest.symbols[0], dailyRevisions: ["../outside"] }] })).toMatchObject(invalid);
+    expect(await replay({ ...manifest, symbols: [{ ...manifest.symbols[0], dailyRevisions: ["0".repeat(64)] }] }))
+      .toMatchObject({ code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } } });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
