@@ -53,7 +53,7 @@ export function averageTspFactorRanks(values: number[]): number[] {
   return ranks;
 }
 
-function correlation(factorRanks: number[], returnRanks: number[]): number | null {
+export function correlateTspFactorRanks(factorRanks: number[], returnRanks: number[]): number | null {
   if (factorRanks.length < 2) return null;
   const factors = standardScores(factorRanks);
   const returns = standardScores(returnRanks);
@@ -82,7 +82,7 @@ function rankIc(rows: DatedFactor[], target?: PriceRows, fullFactorRanks?: numbe
     outcomes.push(outcome);
   });
   const factorRanks = fullFactorRanks ? signals : averageTspFactorRanks(signals);
-  return { ic: correlation(factorRanks, averageTspFactorRanks(outcomes)), pairCount: outcomes.length };
+  return { ic: correlateTspFactorRanks(factorRanks, averageTspFactorRanks(outcomes)), pairCount: outcomes.length };
 }
 
 function periodKey(date: string, rebalance: "weekly" | "monthly"): string {
