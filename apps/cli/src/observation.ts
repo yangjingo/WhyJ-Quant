@@ -4,7 +4,7 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward,
-  parseTspIntradaySignalRule, TSP_DAILY_SIGNAL_FIELDS, TSP_PARAMETER_OBJECTIVES, type TspScreenerScoreInput,
+  parseTspIntradaySignalRule, TSP_DAILY_SIGNAL_FIELDS, TSP_PARAMETER_OBJECTIVES, TSP_SECTOR_MONITOR_WINDOWS, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspParameterSegmentEvidence, type TspWalkForwardInput,
 } from "../../../src/quant/index.ts";
@@ -39,6 +39,7 @@ import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "../..
 import { collectQuotePollCapture, replayTspQuotePollDelta, type QuotePollReplayRequest } from "../../../src/runtime/data/quote-poll-replay.ts";
 import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-warning-collection.ts";
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
+import { replayTspSectorMonitor, type SectorMonitorReplayRequest } from "../../../src/runtime/data/sector-monitor-replay.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
@@ -509,6 +510,64 @@ function parseQuotePollManifest(value: unknown): QuotePollReplayRequest {
   };
 }
 
+function parseIndexPreviousClose(
+  dailyRevision: unknown,
+  calendar: unknown,
+): NonNullable<DatedIndexMinuteReplayRequest["previousClose"]> {
+  const { revision, previousTradeDate, tradeDate } = observationManifestObject(calendar, ["revision", "previousTradeDate", "tradeDate"]);
+  if (typeof dailyRevision !== "string" || !revisionPattern.test(dailyRevision) || typeof revision !== "string" || !revision.trim() ||
+    typeof previousTradeDate !== "string" || !isDailyDate(previousTradeDate) || typeof tradeDate !== "string" ||
+    !isDailyDate(tradeDate) || previousTradeDate >= tradeDate) throw invalid();
+  return { dailyRef: { version: 1, kind: "benchmark-index", revision: dailyRevision }, calendar: { revision, previousTradeDate, tradeDate } };
+}
+
+function parseSectorMonitorRule(value: unknown): SectorMonitorReplayRequest["rule"] {
+  if (value === undefined) return undefined;
+  const { trigger, direction, thresholdFraction, cooldownMs, windowMinutes } =
+    observationManifestObject(value, ["trigger", "direction", "thresholdFraction", "cooldownMs", "windowMinutes"]);
+  if ((direction !== "up" && direction !== "down") || typeof thresholdFraction !== "number" ||
+    !Number.isFinite(thresholdFraction) || thresholdFraction <= 0 || thresholdFraction > 0.2 ||
+    typeof cooldownMs !== "number" || !Number.isSafeInteger(cooldownMs) || cooldownMs < 0) throw invalid();
+  const settings = { direction, thresholdFraction, cooldownMs } as const;
+  if (trigger === "change_pct" && windowMinutes === undefined) return { trigger, ...settings };
+  const window = TSP_SECTOR_MONITOR_WINDOWS.find(candidate => candidate === windowMinutes);
+  if (trigger !== "momentum" || window === undefined) throw invalid();
+  return { trigger, windowMinutes: window, ...settings };
+}
+
+function parseSectorMonitorManifest(value: unknown): SectorMonitorReplayRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
+  const { kind } = value as Record<string, unknown>;
+  if (kind === "sector") {
+    const { version, catalogRevision, memberRevision, quoteRevisions, rule } =
+      observationManifestObject(value, ["version", "kind", "catalogRevision", "memberRevision", "quoteRevisions", "rule"]);
+    if (version !== 1 || typeof catalogRevision !== "string" || !revisionPattern.test(catalogRevision) ||
+      typeof memberRevision !== "string" || !revisionPattern.test(memberRevision)) throw invalid();
+    const revisions = validateRevisions(quoteRevisions);
+    if (!revisions.length) throw invalid();
+    return {
+      kind, rule: parseSectorMonitorRule(rule),
+      catalogRef: { version: 1, kind: "dated-sector-catalog", revision: catalogRevision },
+      memberRef: { version: 1, kind: "dated-sector-members", revision: memberRevision },
+      quoteRefs: revisions.map(revision => ({ version: 1, kind: "quote-poll", revision })),
+    };
+  }
+  if (kind !== "index") throw invalid();
+  const { version, minuteRevision, previousClose, name, rule } =
+    observationManifestObject(value, ["version", "kind", "minuteRevision", "previousClose", "name", "rule"]);
+  if (version !== 1 || typeof minuteRevision !== "string" || !revisionPattern.test(minuteRevision) ||
+    (name !== undefined && (typeof name !== "string" || !name.trim()))) throw invalid();
+  const request: Extract<SectorMonitorReplayRequest, { kind: "index" }> = {
+    kind, name, rule: parseSectorMonitorRule(rule),
+    minuteRef: { version: 1, kind: "dated-index-minute", revision: minuteRevision },
+  };
+  if (previousClose !== undefined) {
+    const { dailyRevision, calendar } = observationManifestObject(previousClose, ["dailyRevision", "calendar"]);
+    request.previousClose = parseIndexPreviousClose(dailyRevision, calendar);
+  }
+  return request;
+}
+
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
   if (action === "collect-depth" || action === "collect-quote-poll") {
@@ -685,14 +744,9 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!revision || !revisionPattern.test(revision)) throw invalid();
     const request: DatedIndexMinuteReplayRequest = { minuteRef: { version: 1, kind: "dated-index-minute", revision } };
     if (fields.size > 1) {
-      const dailyRevision = fields.get("--daily-revision");
-      const previousTradeDate = fields.get("--previous-date");
-      const tradeDate = fields.get("--date");
-      const calendarRevision = fields.get("--calendar-revision");
-      if (!dailyRevision || !revisionPattern.test(dailyRevision) || !previousTradeDate || !isDailyDate(previousTradeDate) ||
-        !tradeDate || !isDailyDate(tradeDate) || previousTradeDate >= tradeDate || !calendarRevision?.trim()) throw invalid();
-      request.previousClose = { dailyRef: { version: 1, kind: "benchmark-index", revision: dailyRevision },
-        calendar: { revision: calendarRevision, previousTradeDate, tradeDate } };
+      request.previousClose = parseIndexPreviousClose(fields.get("--daily-revision"), {
+        revision: fields.get("--calendar-revision"), previousTradeDate: fields.get("--previous-date"), tradeDate: fields.get("--date"),
+      });
     }
     try { return await replayDatedIndexMinutes(request, signal); }
     catch {
@@ -904,6 +958,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     try { return await replayTspSectorRotation(requests, days, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested sector rotation archives."), { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-sector-monitor") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseSectorMonitorManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspSectorMonitor(request, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay the requested sector monitor archives. Verify the date, revisions and scope."),
+        { code: "observation_archive_unavailable" });
     }
   }
   if (action === "collect-daily" || action === "collect-minutes") {
