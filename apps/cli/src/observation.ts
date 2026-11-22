@@ -514,7 +514,7 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
   if (action === "collect-depth" || action === "collect-quote-poll") {
     const fields = parseOptions(options, ["--date", "--symbols-file"]);
     const tradeDate = fields.get("--date"), path = fields.get("--symbols-file");
-    if (!tradeDate || !isDailyDate(tradeDate) || tradeDate !== shanghaiDate.format() || !path) throw invalid();
+    if (!tradeDate || !isDailyDate(tradeDate) || tradeDate !== shanghaiDate.format(Date.now()) || !path) throw invalid();
     const symbols = await readObservationJsonFile(path, maxRevisionFileBytes, signal);
     if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length >= 7_000 || new Set(symbols).size !== symbols.length ||
       symbols.some(symbol => typeof symbol !== "string" || !datedStock.test(symbol))) throw invalid();

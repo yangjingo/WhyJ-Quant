@@ -26,16 +26,32 @@ test("CLI captures an explicit TickFlow quote poll and replays fixed increments 
   const previousRoot = process.env.OHQUANT_DIR;
   const symbolsFile = join(root, "poll symbols.json");
   const manifestFile = join(root, "delta manifest.json");
+  const clock = join(root, "capture-clock.cjs");
+  const captureTime = Date.parse("2025-01-03T09:45:00+08:00");
+  const quoteTime = captureTime - 1_000;
+  // The CLI uses Date.now() for its capture, while Source stamps the receipt with new Date().
+  writeFileSync(clock, `
+const fixed = ${captureTime};
+globalThis.Date = new Proxy(Date, {
+  apply(target) { return new target(fixed).toString(); },
+  construct(target, args, newTarget) {
+    return Reflect.construct(target, args.length ? args : [fixed], newTarget);
+  },
+  get(target, key, receiver) {
+    return key === "now" ? () => fixed : Reflect.get(target, key, receiver);
+  },
+});
+`);
   const requests: URL[] = [];
   let available = true;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     requests.push(new URL(request.url));
     if (!available || request.headers.get("x-api-key") !== "poll-cli-fixture") return new Response("", { status: 403 });
-    return Response.json({ data: [{ symbol, region: "CN", timestamp: Date.now(),
+    return Response.json({ data: [{ symbol, region: "CN", timestamp: quoteTime,
       last_price: 11, prev_close: 10, open: 10, high: 11, low: 10, volume: 100, amount: null }] });
   } });
   async function run(...args: string[]) {
-    const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
+    const child = Bun.spawn([process.execPath, "run", "--preload", clock, "src/index.ts", "--json", ...args], {
       cwd: fileURLToPath(new URL("..", import.meta.url)),
       env: { ...process.env, OHQUANT_DIR: root, NO_PROXY: "127.0.0.1,localhost" }, stdout: "pipe", stderr: "pipe",
     });
@@ -58,7 +74,7 @@ test("CLI captures an explicit TickFlow quote poll and replays fixed increments 
       description: "Replay volume and amount increments from fixed quote polls" });
 
     const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
-    const collect = () => run("observation", "collect-quote-poll", "--date", shanghai.format(Date.now()), "--symbols-file", symbolsFile);
+    const collect = () => run("observation", "collect-quote-poll", "--date", shanghai.format(captureTime), "--symbols-file", symbolsFile);
     writeFileSync(symbolsFile, JSON.stringify([symbol, symbol]));
     expect(await collect()).toMatchObject(invalid);
     expect(requests).toHaveLength(0);
@@ -68,8 +84,10 @@ test("CLI captures an explicit TickFlow quote poll and replays fixed increments 
       status: "archived", requestedSymbols: [symbol, missing], rowCount: 1, missingSymbols: [missing], units: "unknown" } } });
     expect(requests.map(url => [url.pathname, url.searchParams.get("symbols")])).toEqual([["/v1/quotes", symbol + "," + missing]]);
     const capturedRef = collected.output.data.ref;
+    const observedAt = new Date(captureTime).toISOString();
+    expect(collected.output.data.observedAt).toBe(observedAt);
     expect(await loadQuotePollArchive(capturedRef)).toMatchObject({
-      observedAt: collected.output.data.observedAt, rows: [{ symbol, volume: 100, amount: null }],
+      observedAt, rows: [{ symbol, timestamp: quoteTime, receivedAt: observedAt, volume: 100, amount: null }],
     });
     available = false;
     expect(await replay({ version: 1, currentRevision: capturedRef.revision })).toMatchObject({ code: 0, output: { data: {
