@@ -1,4 +1,5 @@
-import { computeTspDashboardEmotion, tspDashboardDepthCandidates, TSP_DASHBOARD_CORE_INDICES, type TspDashboardEmotionInput } from "../../quant/index.ts";
+import { computeTspDashboardEmotion, computeTspDepthQueue, tspDashboardDepthCandidates, TSP_DASHBOARD_CORE_INDICES,
+  type TspDashboardEmotionInput, type TspDepthQueueRule } from "../../quant/index.ts";
 import { loadBenchmarkIndexArchive, loadDepthSnapshotArchive, loadMarketCrossSectionArchive,
   type BenchmarkIndexArchiveRef, type DepthSnapshotArchiveRef, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
 import { deriveTickFlowBenchmarkReturn } from "./benchmark-return-replay.ts";
@@ -16,7 +17,12 @@ export interface MarketEmotionReplayRequest extends MarketLadderReplayRequest {
   /** At most one point-pair archive per core index, covering the final session. */
   indexRefs: readonly BenchmarkIndexArchiveRef[];
   sectors?: { concept?: SectorArchives; industry?: SectorArchives };
-  depth?: { ref: DepthSnapshotArchiveRef; asOf: number; maxAgeMs: number };
+  depth?: {
+    ref: DepthSnapshotArchiveRef;
+    asOf: number;
+    maxAgeMs: number;
+    queue?: { volumeUnit?: "hand" | "share"; rule?: TspDepthQueueRule };
+  };
 }
 
 async function loadCoreIndices(tradeDate: string, previousTradingDate: string | null,
@@ -55,7 +61,7 @@ export async function replayTspMarketEmotion(request: MarketEmotionReplayRequest
   if (!target) throw new Error("Market emotion replay requires a target exchange session");
   const priceRefs = request.priceRefs.map(ref => ({ ...ref }));
   const indexRefs = request.indexRefs.map(ref => ({ ...ref }));
-  const depthRequest = request.depth && { ...request.depth, ref: { ...request.depth.ref } };
+  const depthRequest = request.depth && structuredClone(request.depth);
   if (depthRequest && (!Number.isSafeInteger(depthRequest.asOf) || depthRequest.asOf <= 0 ||
     !Number.isFinite(new Date(depthRequest.asOf).getTime()) || shanghai.format(depthRequest.asOf) !== target ||
     !Number.isSafeInteger(depthRequest.maxAgeMs) || depthRequest.maxAgeMs < 0)) {
@@ -119,17 +125,30 @@ export async function replayTspMarketEmotion(request: MarketEmotionReplayRequest
           volumeShares: bar.volume === null ? null : bar.volume * 100, volumeRatio5d: ratios.get(row.symbol) ?? null }];
       });
       let depth: TspDashboardEmotionInput["depth"];
+      let depthQueue;
       if (capturedDepth && depthEvidence) {
-        const candidates = new Set(tspDashboardDepthCandidates(stocks).map(row => row.symbol));
-        const quotes = capturedDepth.archive.rows.filter(row => candidates.has(row.symbol))
+        const candidates = tspDashboardDepthCandidates(stocks);
+        const candidateSymbols = new Set(candidates.map(row => row.symbol));
+        const quotes = capturedDepth.archive.rows.filter(row => candidateSymbols.has(row.symbol))
           .map(({ symbol, timestamp, bids, asks }) => ({
             symbol, timestamp, bestBidVolume: bids[0]?.volume ?? null, bestAskVolume: asks[0]?.volume ?? null,
           }));
         depth = { asOf: depthEvidence.asOf, maxAgeMs: depthEvidence.maxAgeMs, quotes };
         depthEvidence.usedSymbols = quotes.map(row => row.symbol);
+        const unit = capturedDepth.queue?.volumeUnit;
+        depthQueue = {
+          ...computeTspDepthQueue({
+            ...depth, tradingDate,
+            candidates: candidates.map(candidate => ({ ...candidate, closeCny: bars.get(candidate.symbol)?.close ?? null })),
+            volumeUnit: unit ?? capturedDepth.archive.volumeUnit,
+            rule: capturedDepth.queue?.rule,
+          }),
+          volumeUnitBasis: unit ? "caller-declared" as const : "archive" as const,
+        };
       }
       return { status: "computed" as const, input: { ...input, prices, volumes: evidence.volumes },
-        dashboard: computeTspDashboardEmotion({ universe, stocks, indices: index.indices, sectors, depth }) };
+        dashboard: computeTspDashboardEmotion({ universe, stocks, indices: index.indices, sectors, depth }),
+        ...(depthQueue && { depthQueue }) };
     }, signal);
   return { producer: "whyj" as const, tradingDate: target, calendar: replay.calendar, tradingLimits: replay.input.tradingLimits,
     ...replay.rows.at(-1)! };

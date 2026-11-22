@@ -298,6 +298,8 @@ whyj --json observation replay-market-regime-summary --revision MANIFEST_SHA256
 
 Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必须与目标日相同，采集时刻必须早于或等于截止时刻，两项时间参数使用毫秒。回执分别列出已请求、已返回和参与封板判定的股票。盘口只修正符合条件的涨跌停候选，ST 筛选剔除的股票不参与。缺少盘口、空档和过期观测保持可见，原始价格梯队随回执保留。省略盘口归档时，五档盘口修正状态为不可用。
 
+有盘口证据的市场回放同时返回 `depthQueue`。该结果使用同一批涨跌停候选及其未复权收盘价，分别测量涨停买一和跌停卖一排队量。入口可传 `depth.queue.volumeUnit` 指明该归档的已确认单位（`hand` 或 `share`）。`volumeUnitBasis` 会记录该单位由调用方声明，`input.depth.volumeUnit` 仍保留原归档的单位。未知单位只返回原始量。可选 `depth.queue.rule` 使用 `sealed_vol`（手）或 `sealed_amount`（元）及非负 `threshold`，返回该候选是否达到预警阈值。
+
 在 CLI 中用 `whyj --json observation replay-market-emotion --manifest emotion.json` 回放。清单中的摘要取自每条采集回执的 `data.ref.revision`。补齐目标日以前的连续交易日及对应市场截面，才能验证五日量比和连板所需历史。
 
 ```json
