@@ -6,7 +6,8 @@ import {
   archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
   type StoredTradingDateBarObservation,
 } from "../../storage/index.ts";
-import { replayTspFactorEvaluation, type FactorEvaluationReplayRequest } from "../data/factor-evaluation-replay.ts";
+import { replayTspFactorEvaluation, replayTspFactorSignificance,
+  type FactorEvaluationReplayRequest } from "../data/factor-evaluation-replay.ts";
 
 const A = "600001.SH", B = "000001.SZ", C = "300001.SZ";
 const sessions = ["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09", "2026-01-12", "2026-01-13", "2026-01-14"];
@@ -102,6 +103,46 @@ test("attaches dated turnover and verified unadjusted closing-limit observations
   const turnoverResult = await replayTspFactorEvaluation({ ...request, factorId: "turnover_rate" });
   expect(turnoverResult.panel.rows.map(row => row.factor)).toEqual([null, 2.5, null]);
   expect(turnoverResult.input.turnover[0]).toMatchObject({ ref: turnover, tradeDate: dates[19], observedAt, endpoint: "daily_basic" });
+});
+
+test("replays one factor test family from the common revisions and preserves unavailable members", async () => {
+  const [a, b, c] = await Promise.all([
+    archivePrices(A, sessions, [10, 11, 12, 11, 13, 14, 13, 16]),
+    archivePrices(B, sessions, [20, 18, 19, 20, 18, 17, 18, 16]),
+    archivePrices(C, sessions, [15, 15, 14, 15, 16, 16, 17, 18]),
+  ]);
+  const scope = { sessions, symbols: [
+    { symbol: A, dailyRefs: [a] }, { symbol: B, dailyRefs: [b] }, { symbol: C, dailyRefs: [c] },
+  ] };
+  const request = { ...scope, factorIds: ["change_pct", "roe_latest", "log_amount"] };
+  const http = spyOn(globalThis, "fetch").mockRejectedValue(new Error("Unexpected provider call"));
+  try {
+    const result = await replayTspFactorSignificance(request);
+    expect(result.input).toMatchObject({ factorIds: request.factorIds, rebalance: "daily", sessions, evaluationStart: sessions[0] });
+    expect(result.input.symbols.map(symbol => symbol.daily[0]!.ref)).toEqual([a, b, c]);
+    expect(result.series.map(row => row.samples.map(entry => entry.ic))).toEqual([
+      [0.5, -1, -0.5, 1, -0.5, -0.5], [], [-1, -0.5, 0.5, -1, -1, 0.5, -1],
+    ]);
+    for (const row of result.series) {
+      const single = await replayTspFactorEvaluation({ ...scope, factorId: row.factorId, rebalance: "daily" });
+      expect(row.samples).toEqual(single.information.series);
+    }
+    expect(result.significance).toMatchObject({ lag: 1, testedFactorCount: 2, results: [
+      { factorId: "change_pct", observedSamples: 6, missingSamples: 1 },
+      { factorId: "roe_latest", observedSamples: 0, missingSamples: 7, pValue: null, qValue: null },
+      { factorId: "log_amount", observedSamples: 7, missingSamples: 0 },
+    ] });
+    // TSP stats_v2.py evaluated on the independently enumerated rank correlations above.
+    expect(result.significance.results[0]!.qValue).toBeCloseTo(0.4668542708227256, 13);
+    expect(result.significance.results[2]!.qValue).toBeCloseTo(0.016301943187005407, 13);
+    expect(await replayTspFactorSignificance(request)).toEqual(result);
+    expect(http).not.toHaveBeenCalled();
+    await expect(replayTspFactorSignificance({ ...scope, factorIds: ["change_pct", "change_pct"] })).rejects.toThrow("scope");
+    await expect(replayTspFactorSignificance({ ...scope, factorIds: ["unknown"] })).rejects.toThrow("Unknown TSP research factor");
+    await expect(replayTspFactorSignificance({ ...request, sessions: sessions.slice(0, 1).concat(sessions.slice(2)) }))
+      .rejects.toThrow("off-calendar");
+    await expect(replayTspFactorSignificance(request, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+  } finally { http.mockRestore(); }
 });
 
 test("resolves financial evidence per date and needs explicit PB basis for each eligible revision", async () => {

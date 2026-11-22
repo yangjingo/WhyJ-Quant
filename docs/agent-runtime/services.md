@@ -480,6 +480,8 @@ whyj --json observation replay-analytics --revision DAILY_SHA --financial-report
 
 换手率按标的和交易日读取固定截面归档。涨停因子使用同日未复权收盘价和交易所有效涨停阈值。财务因子使用信号日前已经采集并披露的报告和独立披露证据，PB 还需要对该归档版本和报告期确认未复权人民币口径。每个缺口保留为空，相邻日期和后续财务修订不会补写更早的信号。回放结果保留输入归档出处，历史价格和交易所数据的原始发布时点及覆盖范围仍未知。
 
+`replayTspFactorSignificance` 接受同一批 `factorIds` 和与单因子回放相同的日历、预热边界及归档引用。Runtime 共用这批归档，为每个因子生成日频单日向前的 Rank IC。显著性沿用 TSP 对四位小数 IC 计算滞后一阶 Newey–West t 值的约定，q 值按这批可检验因子计算。无 IC 的因子仍保留在结果中。输出包含每条 IC 的交易日、收益日和有效样本数，以及整批输入档案的版本。
+
 使用 `whyj --json observation replay-factor-evaluation --manifest factor.json`。用各采集回执中的 SHA-256 摘要替换示例占位符。提供完整的交易日序列，`evaluationStart` 可省略，默认从第一天检验。每个标的至少有一份日线归档。换手、财报、披露、涨跌停和分组设置均可按所选因子省略。日线已是不复权时，`exchange.rawRevisions` 可以省略。示例的费用和印花税为比例，滑点为基点。
 
 ```json

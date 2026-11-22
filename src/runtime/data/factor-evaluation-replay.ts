@@ -1,8 +1,9 @@
 import { isDailyDate } from "../../market/bars.ts";
 import {
-  computeTspDailyLadderFlags, computeTspFactorGroups, computeTspFactorInformation, computeTspResearchFactors,
-  tspTradingLimitThresholds, TSP_INDICATOR_REVISION, TSP_RESEARCH_FACTOR_FORMULA_VERSION,
-  type TspFactorGroupsInput, type TspFactorInformationRow, type TspFactorRegimeObservation, type TspResearchFactorId,
+  computeTspDailyLadderFlags, computeTspFactorGroups, computeTspFactorInformation, computeTspFactorSignificance,
+  computeTspResearchFactors, tspTradingLimitThresholds, TSP_FACTOR_INFORMATION_FORMULA_VERSION, TSP_INDICATOR_REVISION,
+  TSP_RESEARCH_FACTOR_FORMULA_VERSION, type TspFactorGroupsInput, type TspFactorInformationInput,
+  type TspFactorRegimeObservation, type TspResearchFactorId,
 } from "../../quant/index.ts";
 import {
   loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadTradingDateArchive, type FinancialObservationArchiveRef,
@@ -23,19 +24,28 @@ export interface FactorEvaluationSymbolInput {
   };
 }
 
-export interface FactorEvaluationReplayRequest {
-  factorId: string;
-  rebalance: TspFactorGroupsInput["rebalance"];
+interface FactorReplayScope {
   sessions: readonly string[];
   evaluationStart?: string;
   symbols: readonly FactorEvaluationSymbolInput[];
   turnoverRefs?: readonly MarketCrossSectionArchiveRef[];
+}
+
+export interface FactorEvaluationReplayRequest extends FactorReplayScope {
+  factorId: string;
+  rebalance: TspFactorGroupsInput["rebalance"];
   marketEnvironment?: Omit<MarketEnvironmentReplayRequest, "phaseMode">;
   groups?: Pick<TspFactorGroupsInput, "groupCount" | "weight" | "feesFraction" | "commissionFraction" | "stampTaxFraction" | "slippageBps">;
 }
 
+export interface FactorSignificanceReplayRequest extends FactorReplayScope {
+  factorIds: readonly string[];
+}
+
 const financialFactors = new Set<string>(["pb_latest", "roe_latest", "gross_margin_latest", "net_margin_latest",
   "revenue_yoy_latest", "net_income_yoy_latest", "debt_ratio_latest"] satisfies TspResearchFactorId[]);
+
+const factorFormula = { producer: "whyj" as const, version: TSP_RESEARCH_FACTOR_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION };
 
 async function readPrices(symbol: string, refs: readonly TradingDateArchiveRef[],
   inScope: (date: string) => boolean, signal?: AbortSignal, raw = false) {
@@ -108,14 +118,14 @@ async function readFactorRegimes(
   return { scope, precedingSession, observations };
 }
 
-export async function replayTspFactorEvaluation(request: FactorEvaluationReplayRequest, signal?: AbortSignal) {
+async function readFactorReplay(scope: FactorReplayScope, factorIds: readonly string[], signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { factorId, rebalance, sessions, evaluationStart: requestedStart, symbols, turnoverRefs = [], groups,
-    marketEnvironment } = structuredClone(request);
+  const { sessions, evaluationStart: requestedStart, symbols, turnoverRefs = [] } = scope;
   const start = sessions[0], end = sessions.at(-1);
   const evaluationStart = requestedStart ?? start;
   if (!start || !end || sessions.length >= 7000 || sessions.some((date, i) => !isDailyDate(date) || (i > 0 && date <= sessions[i - 1]!)) ||
-    typeof factorId !== "string" || !factorId || !["daily", "weekly", "monthly"].includes(rebalance) ||
+    !Array.isArray(factorIds) || !factorIds.length || factorIds.some(id => typeof id !== "string" || !id) ||
+    new Set(factorIds).size !== factorIds.length ||
     !evaluationStart || !sessions.includes(evaluationStart) || !symbols.length || new Set(symbols.map(entry => entry.symbol)).size !== symbols.length) {
     throw new Error("Invalid factor evaluation scope");
   }
@@ -135,7 +145,9 @@ export async function replayTspFactorEvaluation(request: FactorEvaluationReplayR
     turnoverEvidence.push({ ref, tradeDate, source, endpoint: basics.endpoint, observedAt: basics.observedAt, coverage: basics.coverage });
   }
 
-  const rows: TspFactorInformationRow[] = [];
+  const rows: { symbol: string; tradeDate: string; close: number; values: (number | null)[] }[] = [];
+  const ids = factorIds as readonly TspResearchFactorId[];
+  const needsFinancial = ids.some(id => financialFactors.has(id));
   const inputs = [];
   let adjustment: StoredTradingDateBarObservation["adjustment"] | undefined;
   for (const input of symbols) {
@@ -152,8 +164,7 @@ export async function replayTspFactorEvaluation(request: FactorEvaluationReplayR
     });
     const volumeUnit = prices.evidence[0]!.volumeUnit === "hand" ? "hand" as const : undefined;
     const research = computeTspResearchFactors(bars, { volumeUnit });
-    if (!Object.hasOwn(research[0]!.values, factorId)) throw new Error("Unknown TSP research factor");
-    const id = factorId as TspResearchFactorId;
+    if (ids.some(id => !Object.hasOwn(research[0]!.values, id))) throw new Error("Unknown TSP research factor");
     for (const { reportRevision, periodEnd, basis } of bookValueBasis) {
       if (basis !== "caller-confirmed-unadjusted-CNY" || !isDailyDate(periodEnd) ||
         !financialRefs.some(ref => ref.kind === "report-financial-indicators" && ref.revision === reportRevision)) {
@@ -167,16 +178,18 @@ export async function replayTspFactorEvaluation(request: FactorEvaluationReplayR
     const financeByDate = new Map(financial.map(row => [row.tradingDate, row]));
     for (const [index, bar] of bars.entries()) {
       if (bar.date < evaluationStart) continue;
-      let factor = research[index]!.values[id];
+      const technical = research[index]!.values;
       const facts = financeByDate.get(bar.date);
-      if (facts?.status === "available" && financialFactors.has(id)) {
+      let financialValues: typeof technical | undefined;
+      if (facts?.status === "available" && needsFinancial) {
         const confirmed = adjustment === "none" && bookValueBasis.some(entry => entry.periodEnd === facts.periodEnd &&
           facts.reportEvidence.some(({ ref }) => ref.revision === entry.reportRevision));
-        factor = computeTspResearchFactors([bar], {
+        financialValues = computeTspResearchFactors([bar], {
           volumeUnit, financialReports: [researchFinancialReport(facts, confirmed)],
-        })[0]!.values[id];
+        })[0]!.values;
       }
-      rows.push({ symbol, tradeDate: bar.date, close: bar.close, factor });
+      rows.push({ symbol, tradeDate: bar.date, close: bar.close,
+        values: ids.map(id => financialValues && financialFactors.has(id) ? financialValues[id] : technical[id]) });
     }
     inputs.push({ symbol, daily: prices.evidence, financialRefs, bookValueBasis, financial,
       exchange: exchange && { raw: exchange.raw, limits: exchange.limits } });
@@ -184,15 +197,51 @@ export async function replayTspFactorEvaluation(request: FactorEvaluationReplayR
   signal?.throwIfAborted();
   const evaluationIndex = sessions.indexOf(evaluationStart);
   const evaluationSessions = sessions.slice(evaluationIndex);
-  const regimes = marketEnvironment && await readFactorRegimes(marketEnvironment, evaluationSessions, sessions[evaluationIndex - 1], signal);
-  signal?.throwIfAborted();
-  const panel = { factorId, rebalance, sessions: evaluationSessions, rows };
   return {
-    input: { exchangeTimeZone: "Asia/Shanghai" as const, sessions, evaluationStart, adjustment, symbols: inputs, turnover: turnoverEvidence,
-      ...(regimes && { marketEnvironment: regimes }) },
-    factorFormula: { producer: "whyj" as const, version: TSP_RESEARCH_FACTOR_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
+    input: { exchangeTimeZone: "Asia/Shanghai" as const, sessions, evaluationStart, adjustment, symbols: inputs, turnover: turnoverEvidence },
+    evaluationSessions,
+    precedingSession: sessions[evaluationIndex - 1],
+    panelFor(index: number, rebalance: TspFactorInformationInput["rebalance"]) {
+      return { factorId: ids[index]!, rebalance, sessions: evaluationSessions,
+        rows: rows.map(({ symbol, tradeDate, close, values }) => ({ symbol, tradeDate, close, factor: values[index] ?? null })) };
+    },
+  };
+}
+
+export async function replayTspFactorEvaluation(request: FactorEvaluationReplayRequest, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const { factorId, rebalance, groups, marketEnvironment, ...scope } = structuredClone(request);
+  if (!["daily", "weekly", "monthly"].includes(rebalance)) throw new Error("Invalid factor evaluation scope");
+  const { input, evaluationSessions, precedingSession, panelFor } = await readFactorReplay(scope, [factorId], signal);
+  const regimes = marketEnvironment && await readFactorRegimes(marketEnvironment, evaluationSessions, precedingSession, signal);
+  signal?.throwIfAborted();
+  const panel = panelFor(0, rebalance);
+  return {
+    input: { ...input, ...(regimes && { marketEnvironment: regimes }) },
+    factorFormula: { ...factorFormula },
     panel,
     information: computeTspFactorInformation(panel, regimes),
     grouping: computeTspFactorGroups({ ...groups, ...panel }),
+  };
+}
+
+export async function replayTspFactorSignificance(request: FactorSignificanceReplayRequest, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const { factorIds, ...scope } = structuredClone(request);
+  const { input, evaluationSessions, panelFor } = await readFactorReplay(scope, factorIds, signal);
+  const series = factorIds.map((factorId, index) => {
+    signal?.throwIfAborted();
+    return { factorId, samples: computeTspFactorInformation(panelFor(index, "daily")).series };
+  });
+  const significance = computeTspFactorSignificance({ lag: 1, factors: series.map(({ factorId, samples }) => {
+    const byDate = new Map(samples.map(({ tradeDate, ic }) => [tradeDate, ic]));
+    return { factorId, series: evaluationSessions.slice(0, -1).map(tradeDate => ({ tradeDate, ic: byDate.get(tradeDate) ?? null })) };
+  }) });
+  return {
+    input: { ...input, factorIds, rebalance: "daily" as const },
+    factorFormula: { ...factorFormula },
+    informationFormulaVersion: TSP_FACTOR_INFORMATION_FORMULA_VERSION,
+    series,
+    significance,
   };
 }
