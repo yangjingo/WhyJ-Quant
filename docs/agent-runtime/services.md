@@ -576,6 +576,10 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 归档回执保留来源、接口、版本、接收时间和所用报价的源时间。日期匹配但未返回价格或价格为零时，相应持仓按成本估值。回执区分请求后缺价和未提供归档。当前这两类归档覆盖普通 A 股，ETF 持仓在本接口中按成本估值。该回放只读指定归档。
 
+使用 `whyj --json observation replay-paper-valuation --manifest valuation.json`。清单包含 `schemaVersion: 1`、`accountId`、`tradeDate`、`currency: "CNY"`、`cash`、`initialCash` 及上述 `priceBasisConfirmation`。每笔 `positions` 提供 `symbol`、`assetType`（`stock` 或 `etf`）、`currency`、`quantity`、`averageCost` 和 `availableQuantity`。可选的 `finalizedNav` 沿用模拟账户统计的格式。
+
+`basis: "finalized"` 使用 `dailyRevisions` 数组，`basis: "snapshot"` 使用一条 `quoteRevision`。两种版本字段均使用采集回执中的 SHA-256。格式或版本号错误返回 `invalid_arguments`，无法复算的归档或账户输入返回 `observation_archive_unavailable`。
+
 ```json
 {
   "trades": [

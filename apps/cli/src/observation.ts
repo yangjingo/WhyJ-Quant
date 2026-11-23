@@ -23,6 +23,7 @@ import { replayTspFactorEvaluation, replayTspFactorMiningScreen, replayTspFactor
   type FactorEvaluationReplayRequest, type FactorMiningScreenReplayRequest,
   type FactorSignificanceReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
 import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
+import { replayTspPaperValuation, type PaperValuationReplayRequest } from "../../../src/runtime/data/paper-valuation-replay.ts";
 import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
@@ -262,11 +263,20 @@ function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInp
   return { initialCapital, equityCurve: samples, trades: parseRealizedTrades(trades), includeMonteCarlo };
 }
 
+function parsePaperNavRows(value: unknown): TspPaperStatisticsInput["finalizedNav"] {
+  if (!Array.isArray(value)) throw invalid();
+  return value.map((entry: unknown) => {
+    const { tradeDate, nav, currency } = observationManifestObject(entry, ["tradeDate", "nav", "currency"]);
+    if (typeof tradeDate !== "string" || typeof nav !== "number" || typeof currency !== "string") throw invalid();
+    return { tradeDate, nav, currency };
+  });
+}
+
 function parsePaperStatisticsManifest(value: unknown): TspPaperStatisticsInput {
   const { schemaVersion, accountId, currency, fills: rawFills, finalizedNav: rawNav } =
     observationManifestObject(value, ["schemaVersion", "accountId", "currency", "fills", "finalizedNav"]);
   if (schemaVersion !== 1 || typeof accountId !== "string" || typeof currency !== "string" ||
-    !Array.isArray(rawFills) || !Array.isArray(rawNav)) throw invalid();
+    !Array.isArray(rawFills)) throw invalid();
   const fills = rawFills.map((entry: unknown): TspPaperStatisticsInput["fills"][number] => {
     const { fillId, tradeDate, symbol, side, quantity, price, fee, currency } =
       observationManifestObject(entry, ["fillId", "tradeDate", "symbol", "side", "quantity", "price", "fee", "currency"]);
@@ -275,12 +285,34 @@ function parsePaperStatisticsManifest(value: unknown): TspPaperStatisticsInput {
       typeof fee !== "number" || typeof currency !== "string") throw invalid();
     return { fillId, tradeDate, symbol, side, quantity, price, fee, currency };
   });
-  const finalizedNav = rawNav.map((entry: unknown) => {
-    const { tradeDate, nav, currency } = observationManifestObject(entry, ["tradeDate", "nav", "currency"]);
-    if (typeof tradeDate !== "string" || typeof nav !== "number" || typeof currency !== "string") throw invalid();
-    return { tradeDate, nav, currency };
+  return { accountId, currency, fills, finalizedNav: parsePaperNavRows(rawNav) };
+}
+
+function parsePaperValuationManifest(value: unknown): PaperValuationReplayRequest {
+  const { schemaVersion, accountId, tradeDate, currency, cash, initialCash, basis, priceBasisConfirmation,
+    positions: rawPositions, finalizedNav: rawNav, dailyRevisions, quoteRevision } = observationManifestObject(value,
+    ["schemaVersion", "accountId", "tradeDate", "currency", "cash", "initialCash", "basis", "priceBasisConfirmation",
+      "positions", "finalizedNav", "dailyRevisions", "quoteRevision"]);
+  if (schemaVersion !== 1 || typeof accountId !== "string" || !accountId.trim() || typeof tradeDate !== "string" ||
+    !isDailyDate(tradeDate) || currency !== "CNY" || priceBasisConfirmation !== "caller-confirmed-unadjusted-CNY" ||
+    typeof cash !== "number" || typeof initialCash !== "number" || !Array.isArray(rawPositions)) throw invalid();
+  const positions = rawPositions.map((entry: unknown): PaperValuationReplayRequest["positions"][number] => {
+    const { symbol, assetType, currency: unit, quantity, averageCost, availableQuantity } =
+      observationManifestObject(entry, ["symbol", "assetType", "currency", "quantity", "averageCost", "availableQuantity"]);
+    if (typeof symbol !== "string" || (assetType !== "stock" && assetType !== "etf") || unit !== currency ||
+      typeof quantity !== "number" || typeof averageCost !== "number" || typeof availableQuantity !== "number") throw invalid();
+    return { symbol, assetType, currency: unit, quantity, averageCost, availableQuantity };
   });
-  return { accountId, currency, fills, finalizedNav };
+  const finalizedNav = rawNav === undefined ? undefined : parsePaperNavRows(rawNav);
+  if (finalizedNav?.some(row => row.currency !== currency)) throw invalid();
+  const scope = { accountId, tradeDate, currency, cash, initialCash, priceBasisConfirmation, positions, finalizedNav } as const;
+  if (basis === "finalized" && quoteRevision === undefined) {
+    return { ...scope, basis, dailyRefs: validateRevisions(dailyRevisions).map(revision => ({ version: 2, revision })) };
+  }
+  if (basis === "snapshot" && dailyRevisions === undefined && typeof quoteRevision === "string" && revisionPattern.test(quoteRevision)) {
+    return { ...scope, basis, quoteRef: { version: 1, kind: "quote-poll", revision: quoteRevision } };
+  }
+  throw invalid();
 }
 
 function parseParameterSegment(value: unknown): TspParameterSegmentEvidence {
@@ -1172,6 +1204,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     const input = parsePaperStatisticsManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspPaperStatistics(input); }
     catch { throw invalid(); }
+  }
+  if (action === "replay-paper-valuation") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parsePaperValuationManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspPaperValuation(request, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay paper valuation. Verify holdings and fixed market archive revisions."),
+        { code: "observation_archive_unavailable" });
+    }
   }
   if (action === "replay-parameter-robustness") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");

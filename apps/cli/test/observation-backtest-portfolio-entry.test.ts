@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { archiveQuotePollCapture, archiveTradingDateObservations } from "../../../src/storage/index.ts";
 
 async function runCli(root: string, ...args: string[]) {
   const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
@@ -103,6 +104,80 @@ test("actual CLI replays completed paper fills and finalized NAV", async () => {
     expect(await replay({ ...manifest, fills: [buy, { ...sell, currency: "USD" }] })).toMatchObject(invalid);
     expect(await replay({ ...manifest, fills: [{ ...buy, extra: true }] })).toMatchObject(invalid);
     expect(await replay({ ...manifest, finalizedNav: manifest.finalizedNav.toReversed() })).toMatchObject(invalid);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("actual CLI values fixed holdings from either dated bars or a captured quote", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-paper-valuation-cli-"));
+  const path = join(root, "valuation.json");
+  const tradeDate = "2026-01-07", symbol = "600001.SH", fund = "510300.SH";
+  const startedAt = "2026-01-07T02:00:00Z", observedAt = "2026-01-07T02:00:01Z";
+  const base = {
+    schemaVersion: 1, accountId: "paper-fixture", tradeDate, currency: "CNY", cash: 1000, initialCash: 2500,
+    priceBasisConfirmation: "caller-confirmed-unadjusted-CNY",
+    positions: [
+      { symbol, assetType: "stock", currency: "CNY", quantity: 100, averageCost: 10, availableQuantity: 100 },
+      { symbol: fund, assetType: "etf", currency: "CNY", quantity: 50, averageCost: 10, availableQuantity: 50 },
+    ],
+  };
+  function replay(value: unknown) {
+    writeFileSync(path, JSON.stringify(value));
+    return runCli(root, "observation", "replay-paper-valuation", "--manifest", path);
+  }
+  try {
+    const previous = process.env.OHQUANT_DIR;
+    process.env.OHQUANT_DIR = root;
+    let daily, quote;
+    try {
+      [daily, quote] = await Promise.all([
+        archiveTradingDateObservations([{
+          schemaVersion: 2, kind: "trading_date_daily_bar", symbol, tradeDate, sourceTimestamp: null,
+          requested: { startDate: tradeDate, endDate: tradeDate }, market: "A", assetType: "stock",
+          calendarTimeZone: "Asia/Shanghai", source: "tushare", endpoint: "daily", observedAt: "2026-01-07T08:00:00Z",
+          interval: "1d", adjustment: "none", volumeUnit: "hand", amountUnit: "CNY-thousand", coverage: "unknown",
+          values: { open: 10, high: 13, low: 10, close: 12, volume: 50, amount: null },
+        }]),
+        archiveQuotePollCapture({
+          source: "tickflow", endpoint: "/v1/quotes", market: "A", tradeDate, startedAt, observedAt,
+          coverage: "unknown", units: "unknown", requestedSymbols: [symbol],
+          rows: [{ symbol, timestamp: Date.parse(startedAt), receivedAt: observedAt, lastPrice: 13,
+            previousClose: 10, volume: 10, amount: null }],
+        }),
+      ]);
+    } finally {
+      if (previous === undefined) delete process.env.OHQUANT_DIR;
+      else process.env.OHQUANT_DIR = previous;
+    }
+    const help = await runCli(root, "--help");
+    expect(help.output.data.commands).toContainEqual({
+      command: "whyj --json observation replay-paper-valuation",
+      description: "Value a simulated account from fixed market archives",
+    });
+    const finalized = { ...base, basis: "finalized", dailyRevisions: [daily.revision] };
+    const snapshot = { ...base, basis: "snapshot", quoteRevision: quote.revision };
+    expect(await replay(finalized)).toMatchObject({ code: 0, output: { ok: true, data: {
+      producer: "whyj", formulaVersion: "tsp-paper-valuation-v1", basis: "finalized", equity: 2700, totalPnl: 200,
+      coverage: { marketMarks: 1, costFallbackSymbols: [fund] },
+      inputs: { daily: [{ ref: daily, source: "tushare", endpoint: "daily", price: 12 }] },
+    } } });
+    const live = await replay(snapshot);
+    expect(live).toMatchObject({ code: 0, output: { ok: true, data: {
+      basis: "snapshot", equity: 2800, totalPnl: 300, coverage: { marketMarks: 1, costFallbackSymbols: [fund] },
+      inputs: { quotePoll: { ref: quote, quotes: [{ symbol, price: 13, sourceTimestamp: Date.parse(startedAt) }] } },
+    } } });
+    expect(await replay(snapshot)).toEqual(live);
+    const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
+    expect(await replay({ ...finalized, schemaVersion: 2 })).toMatchObject(invalid);
+    expect(await replay({ ...finalized, quoteRevision: quote.revision })).toMatchObject(invalid);
+    expect(await replay({ ...finalized, dailyRevisions: ["../invalid"] })).toMatchObject(invalid);
+    expect(await replay({ ...snapshot, priceBasisConfirmation: "unknown" })).toMatchObject(invalid);
+    expect(await replay({ ...snapshot, positions: [{ ...base.positions[0]!, currency: "USD" }] })).toMatchObject(invalid);
+    expect(await replay({ ...snapshot, unexpected: true })).toMatchObject(invalid);
+    const unavailable = { code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } } };
+    expect(await replay({ ...snapshot, tradeDate: "2026-01-08" })).toMatchObject(unavailable);
+    expect(await replay({ ...finalized, dailyRevisions: ["0".repeat(64)] })).toMatchObject(unavailable);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
