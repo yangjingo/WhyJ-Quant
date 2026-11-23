@@ -1,7 +1,9 @@
 import { isDailyDate } from "../../market/bars.ts";
+import { isAIndexSymbol, isDatedEtfSymbol } from "../../market/symbols.ts";
 import { computeTspQuotePollDelta, type TspQuotePollDeltaRule } from "../../quant/index.ts";
 import { TICKFLOW_SYMBOL_BATCH_SIZE, type SourceRequestOptions } from "../../source/index.ts";
-import { archiveQuotePollCapture, loadQuotePollArchive, type QuotePollArchiveRef, type StoredQuotePollCapture } from "../../storage/index.ts";
+import { archiveQuotePollCapture, archiveValuationQuotePollCapture, loadQuotePollArchive,
+  type QuotePollArchiveRef, type StoredQuotePollCapture, type ValuationQuotePollArchiveRef } from "../../storage/index.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
 
 export interface QuotePollCollectionRequest {
@@ -20,12 +22,30 @@ export interface QuotePollReplayRequest {
 const stock = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 const shanghai = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 
-export async function collectQuotePollCapture(request: QuotePollCollectionRequest, options: SourceRequestOptions = {}) {
+function isStockQuoteSymbol(symbol: string): boolean {
+  return stock.test(symbol);
+}
+
+export function collectQuotePollCapture(request: QuotePollCollectionRequest, options: SourceRequestOptions = {}) {
+  return collectFixedQuotePoll(request, isStockQuoteSymbol, archiveQuotePollCapture, options);
+}
+
+export function collectValuationQuotePollCapture(request: QuotePollCollectionRequest, options: SourceRequestOptions = {}) {
+  return collectFixedQuotePoll(request, symbol => (isStockQuoteSymbol(symbol) && !isAIndexSymbol(symbol)) || isDatedEtfSymbol(symbol),
+    archiveValuationQuotePollCapture, options);
+}
+
+async function collectFixedQuotePoll<Ref extends QuotePollArchiveRef | ValuationQuotePollArchiveRef>(
+  request: QuotePollCollectionRequest,
+  validSymbol: (symbol: string) => boolean,
+  archive: (capture: StoredQuotePollCapture, signal?: AbortSignal) => Promise<Ref>,
+  options: SourceRequestOptions,
+) {
   const { tradeDate } = request;
   const started = Date.now();
   if (!isDailyDate(tradeDate) || shanghai.format(started) !== tradeDate ||
     !Array.isArray(request.symbols) || !request.symbols.length || request.symbols.length > 6_999 ||
-    request.symbols.some(symbol => typeof symbol !== "string" || !stock.test(symbol))) throw new Error("Invalid current-day quote poll scope");
+    request.symbols.some(symbol => typeof symbol !== "string" || !validSymbol(symbol))) throw new Error("Invalid current-day quote poll scope");
   const requestedSymbols = [...new Set(request.symbols)].sort();
   if (requestedSymbols.length !== request.symbols.length) throw new Error("Duplicate quote poll symbol");
   const { signal, timeoutMs } = options;
@@ -61,7 +81,7 @@ export async function collectQuotePollCapture(request: QuotePollCollectionReques
   const capture = { tradeDate, startedAt: new Date(started).toISOString(), observedAt: new Date(finished).toISOString(),
     source: "tickflow", endpoint: "/v1/quotes", market: "A", coverage: "unknown", units: "unknown", requestedSymbols } as const;
   activeSignal?.throwIfAborted();
-  const ref = await archiveQuotePollCapture({ ...capture, rows: rows.sort((left, right) => left.symbol.localeCompare(right.symbol)) }, activeSignal);
+  const ref = await archive({ ...capture, rows: rows.sort((left, right) => left.symbol.localeCompare(right.symbol)) }, activeSignal);
   return {
     ...capture, ref, status: rows.length ? "archived" as const : "empty" as const,
     batches, rowCount: rows.length, outsideCaptureSymbols, missingSymbols: requestedSymbols.filter(symbol => !observed.has(symbol)),

@@ -1,19 +1,23 @@
 import { isDailyDate } from "../../market/bars.ts";
 import { computeTspPaperValuation, type TspPaperPriceMark, type TspPaperValuationInput } from "../../quant/index.ts";
-import { loadDatedEtfDailyArchive, loadQuotePollArchive, loadTradingDateArchive, type DatedEtfDailyArchiveRef, type QuotePollArchiveRef,
-  type TradingDateArchiveRef } from "../../storage/index.ts";
+import { loadDatedEtfDailyArchive, loadQuotePollArchive, loadTradingDateArchive, loadValuationQuotePollArchive,
+  type DatedEtfDailyArchiveRef, type QuotePollArchiveRef, type TradingDateArchiveRef, type ValuationQuotePollArchiveRef } from "../../storage/index.ts";
 
 export type PaperValuationReplayRequest = Omit<TspPaperValuationInput, "basis" | "marks"> & {
   priceBasisConfirmation: "caller-confirmed-unadjusted-CNY";
 } & (
-  { basis: "finalized"; dailyRefs: readonly TradingDateArchiveRef[]; etfDailyRefs?: readonly DatedEtfDailyArchiveRef[]; quoteRef?: never } |
-  { basis: "snapshot"; quoteRef: QuotePollArchiveRef; dailyRefs?: never; etfDailyRefs?: never }
+  { basis: "finalized"; dailyRefs: readonly TradingDateArchiveRef[]; etfDailyRefs?: readonly DatedEtfDailyArchiveRef[];
+    quoteRef?: never; valuationQuoteRef?: never } |
+  ({ basis: "snapshot"; dailyRefs?: never; etfDailyRefs?: never } & (
+    { quoteRef: QuotePollArchiveRef; valuationQuoteRef?: never } |
+    { valuationQuoteRef: ValuationQuotePollArchiveRef; quoteRef?: never }
+  ))
 );
 
 /** Revalue fixed private holdings using the exact dated market evidence supplied by the caller. */
 export async function replayTspPaperValuation(request: PaperValuationReplayRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { basis, priceBasisConfirmation, dailyRefs, etfDailyRefs, quoteRef, ...scope } = structuredClone(request);
+  const { basis, priceBasisConfirmation, dailyRefs, etfDailyRefs, quoteRef, valuationQuoteRef, ...scope } = structuredClone(request);
   const { currency, tradeDate, positions } = scope;
   if (!isDailyDate(tradeDate) || currency !== "CNY" || priceBasisConfirmation !== "caller-confirmed-unadjusted-CNY" ||
     !Array.isArray(positions)) throw new Error("Paper valuation replay requires exact dated unadjusted CNY evidence");
@@ -21,7 +25,8 @@ export async function replayTspPaperValuation(request: PaperValuationReplayReque
   const marks: TspPaperPriceMark[] = [];
 
   if (basis === "finalized") {
-    if (!Array.isArray(dailyRefs) || (etfDailyRefs !== undefined && !Array.isArray(etfDailyRefs)) || quoteRef !== undefined) {
+    if (!Array.isArray(dailyRefs) || (etfDailyRefs !== undefined && !Array.isArray(etfDailyRefs)) ||
+      quoteRef !== undefined || valuationQuoteRef !== undefined) {
       throw new Error("Invalid finalized paper valuation archive scope");
     }
     const seen = new Set<string>();
@@ -63,24 +68,31 @@ export async function replayTspPaperValuation(request: PaperValuationReplayReque
     };
   }
 
-  if (basis !== "snapshot" || !quoteRef || dailyRefs !== undefined || etfDailyRefs !== undefined) {
+  const ref = valuationQuoteRef ?? quoteRef;
+  if (basis !== "snapshot" || !ref || (valuationQuoteRef !== undefined && quoteRef !== undefined) ||
+    dailyRefs !== undefined || etfDailyRefs !== undefined) {
     throw new Error("Invalid quote-poll paper valuation archive scope");
   }
-  const { rows, requestedSymbols, ...capture } = await loadQuotePollArchive(quoteRef, signal);
+  const { rows, requestedSymbols, ...capture } = valuationQuoteRef !== undefined
+    ? await loadValuationQuotePollArchive(valuationQuoteRef, signal)
+    : await loadQuotePollArchive(quoteRef!, signal);
   if (capture.tradeDate !== tradeDate) throw new Error("Mismatched paper valuation quote-poll date");
   const quoted = new Map(rows.map(row => [row.symbol, row]));
   const requested = new Set(requestedSymbols);
-  const quotes = [...stocks].sort().map(symbol => {
+  const eligibleSymbols = valuationQuoteRef !== undefined
+    ? [...stocks, ...positions.filter(position => position?.assetType === "etf" && position.quantity > 0).map(position => position.symbol)]
+    : [...stocks];
+  const quotes = eligibleSymbols.sort().map(symbol => {
     const row = quoted.get(symbol);
     const price = row?.lastPrice ?? null;
     if (price !== null && price > 0) {
-      marks.push({ symbol, currency, tradeDate, basis, adjustment: "none", source: capture.source, revision: quoteRef.revision, price });
+      marks.push({ symbol, currency, tradeDate, basis, adjustment: "none", source: capture.source, revision: ref.revision, price });
     }
     return { symbol, requested: requested.has(symbol), price, sourceTimestamp: row?.timestamp ?? null, receivedAt: row?.receivedAt ?? null };
   });
   signal?.throwIfAborted();
   return {
     ...computeTspPaperValuation({ ...scope, basis, marks }),
-    inputs: { priceBasisConfirmation, quotePoll: { ref: quoteRef, ...capture, quotes } },
+    inputs: { priceBasisConfirmation, quotePoll: { ref, ...capture, quotes } },
   };
 }
