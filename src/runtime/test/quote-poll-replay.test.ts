@@ -2,9 +2,11 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveQuotePollCapture, loadQuotePollArchive, saveSettings, type StoredQuotePollCapture } from "../../storage/index.ts";
+import { archiveQuotePollCapture, loadQuotePollArchive, loadValuationQuotePollArchive, saveSettings,
+  type QuotePollArchiveRef, type StoredQuotePollCapture } from "../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../types/config.ts";
-import { collectQuotePollCapture, replayTspQuotePollDelta } from "../data/quote-poll-replay.ts";
+import { replayTspPaperValuation, type PaperValuationReplayRequest } from "../data/paper-valuation-replay.ts";
+import { collectQuotePollCapture, collectValuationQuotePollCapture, replayTspQuotePollDelta } from "../data/quote-poll-replay.ts";
 
 const shanghai = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const symbols = Array.from({ length: 102 }, (_, i) => `${600001 + i}.SH`);
@@ -62,6 +64,70 @@ test("commits no partial poll on a later provider failure", async () => {
     await expect(collectQuotePollCapture({ tradeDate, symbols })).rejects.toThrow("HTTP 403");
     expect(http).toHaveBeenCalledTimes(2);
     expect(existsSync(join(root, "data", "quote-poll-archives-v1"))).toBe(false);
+  } finally { http.mockRestore(); }
+});
+
+test("collects a mixed valuation revision and replays exact stock and ETF marks offline", async () => {
+  const timestamp = Date.now(), tradeDate = shanghai.format(timestamp);
+  const zero = "159915.SZ", etf = "510300.SH", missing = "510500.SH";
+  const requested = [zero, etf, missing, first];
+  const http = spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({
+    data: [
+      nativeRow(first, timestamp),
+      { ...nativeRow(etf, timestamp), last_price: 4.5, prev_close: 4, open: 4, high: 5, low: 4 },
+      { ...nativeRow(zero, timestamp), last_price: 0 },
+    ],
+  })).mockRejectedValue(new Error("Unexpected provider call"));
+  try {
+    await expect(collectValuationQuotePollCapture({ tradeDate, symbols: ["399001.SZ"] })).rejects.toThrow("quote poll scope");
+    const result = await collectValuationQuotePollCapture({ tradeDate, symbols: requested.toReversed() });
+    expect(result).toMatchObject({ ref: { kind: "valuation-quote-poll" }, requestedSymbols: requested, batches: 1,
+      rowCount: 3, missingSymbols: [missing], outsideCaptureSymbols: [] });
+    expect(await loadValuationQuotePollArchive(result.ref)).toMatchObject({ rows: [
+      { symbol: zero, lastPrice: 0, timestamp }, { symbol: etf, lastPrice: 4.5, timestamp }, { symbol: first, lastPrice: 11, timestamp },
+    ] });
+    const input = {
+      accountId: "mixed-fixture", currency: "CNY", tradeDate, basis: "snapshot", cash: 500, initialCash: 2000,
+      priceBasisConfirmation: "caller-confirmed-unadjusted-CNY", valuationQuoteRef: result.ref,
+      positions: [
+        { symbol: first, currency: "CNY", assetType: "stock", quantity: 100, availableQuantity: 20, averageCost: 10 },
+        { symbol: etf, currency: "CNY", assetType: "etf", quantity: 50, availableQuantity: 50, averageCost: 4 },
+        { symbol: missing, currency: "CNY", assetType: "etf", quantity: 10, availableQuantity: 10, averageCost: 5 },
+        { symbol: zero, currency: "CNY", assetType: "etf", quantity: 20, availableQuantity: 20, averageCost: 7 },
+      ],
+    } satisfies PaperValuationReplayRequest;
+    const report = await replayTspPaperValuation(input);
+    expect(report).toMatchObject({
+      equity: 2015, totalPnl: 15, coverage: { marketMarks: 2, costFallbackSymbols: [zero, missing] },
+      inputs: { quotePoll: { ref: result.ref, units: "unknown", quotes: [
+        { symbol: zero, requested: true, price: 0, sourceTimestamp: timestamp },
+        { symbol: etf, requested: true, price: 4.5, sourceTimestamp: timestamp, receivedAt: expect.any(String) },
+        { symbol: missing, requested: true, price: null, sourceTimestamp: null, receivedAt: null },
+        { symbol: first, requested: true, price: 11, sourceTimestamp: timestamp },
+      ] } },
+    });
+    expect(await replayTspPaperValuation(input)).toEqual(report);
+    await expect(replayTspPaperValuation({ ...input, tradeDate: "2025-01-01" })).rejects.toThrow("quote-poll date");
+    const asStockRef = result.ref as unknown as QuotePollArchiveRef;
+    await expect(replayTspPaperValuation({ ...input, valuationQuoteRef: undefined, quoteRef: asStockRef }))
+      .rejects.toThrow("Invalid observation archive");
+    await expect(replayTspPaperValuation({ ...input, quoteRef: asStockRef } as unknown as PaperValuationReplayRequest))
+      .rejects.toThrow("archive scope");
+    expect(http).toHaveBeenCalledTimes(1);
+  } finally { http.mockRestore(); }
+});
+
+test("a canceled or partially failed valuation poll leaves no mixed archive", async () => {
+  const now = Date.now(), tradeDate = shanghai.format(now), etf = "510300.SH";
+  const http = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json({ data: [nativeRow(etf, now)] }))
+    .mockResolvedValueOnce(new Response("fixture failure", { status: 403 }));
+  try {
+    const request = { tradeDate, symbols: [etf, ...symbols] };
+    await expect(collectValuationQuotePollCapture(request, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(collectValuationQuotePollCapture(request)).rejects.toThrow("HTTP 403");
+    expect(http).toHaveBeenCalledTimes(2);
+    expect(existsSync(join(root, "data", "valuation-quote-poll-archives-v1"))).toBe(false);
   } finally { http.mockRestore(); }
 });
 
