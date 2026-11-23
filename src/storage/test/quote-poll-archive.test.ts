@@ -2,7 +2,8 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveQuotePollCapture, loadQuotePollArchive, type StoredQuotePollCapture } from "../index.ts";
+import { archiveQuotePollCapture, loadQuotePollArchive, archiveValuationQuotePollCapture, loadValuationQuotePollArchive,
+  type QuotePollArchiveRef, type StoredQuotePollCapture, type ValuationQuotePollArchiveRef } from "../index.ts";
 
 const timestamp = Date.parse("2025-01-03T01:34:00Z");
 const capture: StoredQuotePollCapture = {
@@ -74,4 +75,47 @@ test("rejects missing, damaged and malformed references", async () => {
   await expect(loadQuotePollArchive(ref, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
   writeFileSync(join(directory(), ref.revision + ".json"), "{}");
   await expect(loadQuotePollArchive(ref)).rejects.toThrow("Observation archive is damaged");
+});
+
+test("archives exact mixed stock and ETF valuation quotes in an independent immutable kind", async () => {
+  const mixed: StoredQuotePollCapture = {
+    ...capture, requestedSymbols: ["159915.SZ", "510300.SH", "600001.SH"],
+    rows: [{ ...capture.rows[1]!, symbol: "510300.SH" }, capture.rows[0]!],
+  };
+  const [legacy, first, repeat] = await Promise.all([
+    archiveQuotePollCapture(capture), archiveValuationQuotePollCapture(mixed), archiveValuationQuotePollCapture(mixed),
+  ]);
+  expect(first).toMatchObject({ version: 1, kind: "valuation-quote-poll" });
+  expect(first).toEqual(repeat);
+  expect(await loadQuotePollArchive(legacy)).toEqual(capture);
+  expect(await loadValuationQuotePollArchive(first)).toEqual(mixed);
+  const revised = { ...mixed, rows: [{ ...mixed.rows[0]!, lastPrice: 4.25 }, mixed.rows[1]!] };
+  for (const batch of [revised, { ...mixed, rows: [] }]) {
+    const next = await archiveValuationQuotePollCapture(batch);
+    expect(next.revision).not.toBe(first.revision);
+    expect(await loadValuationQuotePollArchive(next)).toEqual(batch);
+  }
+  expect(await loadValuationQuotePollArchive(first)).toEqual(mixed);
+  await expect(archiveQuotePollCapture(mixed)).rejects.toThrow("Invalid observation archive");
+  await expect(loadQuotePollArchive(first as unknown as QuotePollArchiveRef)).rejects.toThrow("Invalid observation archive");
+  await expect(loadValuationQuotePollArchive(legacy as unknown as ValuationQuotePollArchiveRef)).rejects.toThrow("Invalid observation archive");
+});
+
+test("rejects ambiguous mixed capture identities, incompatible dates and revision corruption", async () => {
+  const etf = "510300.SH";
+  const row = { ...capture.rows[0]!, symbol: etf };
+  const mixed = { ...capture, requestedSymbols: [etf], rows: [row] };
+  for (const item of [
+    { ...mixed, requestedSymbols: ["399001.SZ"] }, { ...mixed, requestedSymbols: ["501001.SH"] },
+    { ...mixed, requestedSymbols: [etf, etf] }, { ...mixed, rows: [row, row] },
+    { ...mixed, rows: [{ ...row, symbol: "159915.SZ" }] },
+    { ...mixed, rows: [{ ...row, timestamp: timestamp - 86_400_000 }] },
+  ]) await expect(archiveValuationQuotePollCapture(item)).rejects.toThrow("Invalid observation archive");
+  await expect(archiveValuationQuotePollCapture(mixed, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+  const ref = await archiveValuationQuotePollCapture(mixed);
+  await expect(loadValuationQuotePollArchive({ ...ref, revision: "../other.json" })).rejects.toThrow("Invalid observation archive");
+  await expect(loadValuationQuotePollArchive(ref, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+  const path = join(root, "data", "valuation-quote-poll-archives-v1", ref.revision + ".json");
+  writeFileSync(path, "{}");
+  await expect(loadValuationQuotePollArchive(ref)).rejects.toThrow("Observation archive is damaged");
 });

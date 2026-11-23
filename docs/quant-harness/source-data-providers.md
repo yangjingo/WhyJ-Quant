@@ -175,3 +175,5 @@ Source 可将选定供应商的交易日日线转换为版本 2 记录。Tushare
 `fetchDatedEtfDailyBars` 读取沪深 ETF 交易代码在已结束上海日期内的未复权日线，最多 366 个日历日。Tushare 使用 `fund_daily`，保留元、手、千元及交易日，源时间戳为空。TickFlow 使用 `/v1/klines` 的 `adjust=none`，保留供应商时间戳，价格和量额单位保持未知。两者均将空结果与查询范围一同返回，拒绝重复日期、区间外行及身份不符。代码段校验用于选择接口，标的存续和账户权限需由独立数据确认。 [Tushare ETF 日线](https://tushare.pro/document/2?doc_id=127) · [TickFlow API](https://api.tickflow.org/openapi.json) · [上交所代码段](https://big5.sse.com.cn/site/cht/www.sse.com.cn/lawandrules/guide/stock/jyglywznylc/zn/c/c_20260831_10830435.shtml) · [深交所代码段](https://www.szse.cn/marketServices/technicalservice/notice/t20230825_602945.html)
 
 Storage 将上述 ETF 批次存入 `dated-etf-daily-archives-v1`，使用 `dated-etf-daily` 类型和内容 SHA-256 引用。读取时校验供应商、时间、单位、价格口径、日期顺序及内容摘要。固定归档支持空批次和可空成交额，行情修订生成新引用。普通股票、指数和 ETF 各自使用对应归档类型。
+
+`valuation-quote-poll` 固定一轮 TickFlow 估值快照，可在同一次请求中包含普通 A 股及沪深 ETF。归档保留所请求的标的清单、上海交易日、供应商时间和逐条接收时间，以及原始报价和未知单位。零报价和空结果按原样保存。同一内容生成同一引用，修订生成新引用。普通股票轮询继续使用 `quote-poll`，两种归档引用各自校验。 [TickFlow 快照接口](https://api.tickflow.org/openapi.json)

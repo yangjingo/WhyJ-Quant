@@ -276,6 +276,12 @@ export interface QuotePollArchiveRef {
   revision: string;
 }
 
+export interface ValuationQuotePollArchiveRef {
+  version: 1;
+  kind: "valuation-quote-poll";
+  revision: string;
+}
+
 export type StoredSectorObservationBatch = {
   market: "A";
   source: "tushare";
