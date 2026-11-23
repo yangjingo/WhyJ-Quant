@@ -1,7 +1,7 @@
 import { open } from "node:fs/promises";
 import { archiveMarketRegimeManifest, loadMarketRegimeManifest, MARKET_REGIME_MANIFEST_MAX_BYTES } from "../../../src/storage/index.ts";
 import { isDailyDate } from "../../../src/market/bars.ts";
-import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../../src/market/symbols.ts";
+import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from "../../../src/market/symbols.ts";
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
@@ -23,6 +23,7 @@ import { replayTspFactorEvaluation, replayTspFactorMiningScreen, replayTspFactor
   type FactorEvaluationReplayRequest, type FactorMiningScreenReplayRequest,
   type FactorSignificanceReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
 import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
+import { collectDatedEtfDailyBars } from "../../../src/runtime/data/etf-daily-observations.ts";
 import { replayTspPaperValuation, type PaperValuationReplayRequest } from "../../../src/runtime/data/paper-valuation-replay.ts";
 import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
@@ -290,9 +291,9 @@ function parsePaperStatisticsManifest(value: unknown): TspPaperStatisticsInput {
 
 function parsePaperValuationManifest(value: unknown): PaperValuationReplayRequest {
   const { schemaVersion, accountId, tradeDate, currency, cash, initialCash, basis, priceBasisConfirmation,
-    positions: rawPositions, finalizedNav: rawNav, dailyRevisions, quoteRevision } = observationManifestObject(value,
+    positions: rawPositions, finalizedNav: rawNav, dailyRevisions, etfDailyRevisions, quoteRevision } = observationManifestObject(value,
     ["schemaVersion", "accountId", "tradeDate", "currency", "cash", "initialCash", "basis", "priceBasisConfirmation",
-      "positions", "finalizedNav", "dailyRevisions", "quoteRevision"]);
+      "positions", "finalizedNav", "dailyRevisions", "etfDailyRevisions", "quoteRevision"]);
   if (schemaVersion !== 1 || typeof accountId !== "string" || !accountId.trim() || typeof tradeDate !== "string" ||
     !isDailyDate(tradeDate) || currency !== "CNY" || priceBasisConfirmation !== "caller-confirmed-unadjusted-CNY" ||
     typeof cash !== "number" || typeof initialCash !== "number" || !Array.isArray(rawPositions)) throw invalid();
@@ -307,9 +308,14 @@ function parsePaperValuationManifest(value: unknown): PaperValuationReplayReques
   if (finalizedNav?.some(row => row.currency !== currency)) throw invalid();
   const scope = { accountId, tradeDate, currency, cash, initialCash, priceBasisConfirmation, positions, finalizedNav } as const;
   if (basis === "finalized" && quoteRevision === undefined) {
-    return { ...scope, basis, dailyRefs: validateRevisions(dailyRevisions).map(revision => ({ version: 2, revision })) };
+    return {
+      ...scope, basis, dailyRefs: validateRevisions(dailyRevisions).map(revision => ({ version: 2, revision })),
+      etfDailyRefs: etfDailyRevisions === undefined ? undefined : validateRevisions(etfDailyRevisions)
+        .map(revision => ({ version: 1, kind: "dated-etf-daily", revision })),
+    };
   }
-  if (basis === "snapshot" && dailyRevisions === undefined && typeof quoteRevision === "string" && revisionPattern.test(quoteRevision)) {
+  if (basis === "snapshot" && dailyRevisions === undefined && etfDailyRevisions === undefined &&
+    typeof quoteRevision === "string" && revisionPattern.test(quoteRevision)) {
     return { ...scope, basis, quoteRef: { version: 1, kind: "quote-poll", revision: quoteRevision } };
   }
   throw invalid();
@@ -843,15 +849,18 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
         { code: "observation_archive_unavailable" });
     }
   }
-  if (action === "collect-index-daily") {
+  if (action === "collect-index-daily" || action === "collect-etf-daily") {
     const fields = parseOptions(options, ["--symbol", "--start", "--end"]);
     const symbol = fields.get("--symbol")?.trim().toUpperCase();
     const start = fields.get("--start"), end = fields.get("--end");
-    if (!symbol || !isDatedBenchmarkIndexSymbol(symbol) || !start || !end || !isDailyDate(start) || !isDailyDate(end) ||
+    const etf = action === "collect-etf-daily";
+    const validateSymbol = etf ? isDatedEtfSymbol : isDatedBenchmarkIndexSymbol;
+    if (!symbol || !validateSymbol(symbol) || !start || !end || !isDailyDate(start) || !isDailyDate(end) ||
       start < "0001-01-01" || start > end || end >= shanghaiDate.format() || Date.parse(end) - Date.parse(start) >= 366 * dayMs) throw invalid();
-    try { return await collectDatedIndexDailyBars({ symbol, start, end }, { signal }); }
+    const collect = etf ? collectDatedEtfDailyBars : collectDatedIndexDailyBars;
+    try { return await collect({ symbol, start, end }, { signal }); }
     catch {
-      throw Object.assign(new Error("Could not collect the dated index daily candles. Check the configured Source and provider access."),
+      throw Object.assign(new Error(`Could not collect the dated ${etf ? "ETF" : "index"} daily candles. Check the configured Source and provider access.`),
         { code: "observation_collection_failed" });
     }
   }
