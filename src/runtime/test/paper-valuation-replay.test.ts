@@ -2,8 +2,10 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveQuotePollCapture, archiveTradingDateObservations,
-  type StoredQuotePollCapture, type StoredTradingDateBarObservation } from "../../storage/index.ts";
+import { archiveQuotePollCapture, archiveTradingDateObservations, loadDatedEtfDailyArchive, saveSettings,
+  type DatedEtfDailyArchiveRef, type StoredQuotePollCapture, type StoredTradingDateBarObservation } from "../../storage/index.ts";
+import { DEFAULT_SETTINGS } from "../../types/config.ts";
+import { collectDatedEtfDailyBars } from "../data/etf-daily-observations.ts";
 import { replayTspPaperValuation, type PaperValuationReplayRequest } from "../data/paper-valuation-replay.ts";
 
 const tradeDate = "2026-01-07", previous = "2026-01-06";
@@ -88,6 +90,50 @@ test("snapshot replay preserves a zero quote, an unrequested stock and exact sou
       { symbol: unrequested, requested: false, price: null, receivedAt: null },
     ] } },
   });
+});
+
+test("collects the selected ETF provider and replays mixed holdings using exact registered references", async () => {
+  saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tushare" },
+    env: { WHYJ_QUANT_TUSHARE_TOKEN: "etf-valuation-fixture" } });
+  const current = await daily(first, tradeDate, 12);
+  const fields = ["ts_code", "trade_date", "open", "high", "low", "close", "vol", "amount"];
+  const provider = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json({ code: 0, data: { fields, items: [[etf, "20260107", 11, 15, 10, 14, 1, null]] } }))
+    .mockResolvedValueOnce(Response.json({ code: 0, data: { fields, items: [] } }))
+    .mockRejectedValue(new Error("Unexpected provider request during replay"));
+  try {
+    const query = { symbol: etf, start: previous, end: tradeDate };
+    await expect(collectDatedEtfDailyBars(query, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(collectDatedEtfDailyBars({ ...query, symbol: first })).rejects.toThrow("ETF daily request");
+    const collected = await collectDatedEtfDailyBars(query);
+    const empty = await collectDatedEtfDailyBars(query);
+    expect(JSON.parse(String(provider.mock.calls[0]?.[1]?.body))).toMatchObject({ api_name: "fund_daily",
+      params: { ts_code: etf, start_date: "20260106", end_date: "20260107" } });
+    expect(collected).toMatchObject({ source: "tushare", endpoint: "fund_daily", priceUnit: "CNY", rowCount: 1, status: "archived" });
+    expect(empty).toMatchObject({ rowCount: 0, status: "empty" });
+    expect((await loadDatedEtfDailyArchive(collected.ref)).rows).toMatchObject([{ tradeDate, close: 14, amount: null }]);
+    expect((await loadDatedEtfDailyArchive(empty.ref)).rows).toEqual([]);
+
+    const input = { ...scope, basis: "finalized", dailyRefs: [current], etfDailyRefs: [collected.ref] } satisfies PaperValuationReplayRequest;
+    const replay = await replayTspPaperValuation(input);
+    expect(replay).toMatchObject({
+      marketValue: 2400, equity: 3400, totalPnl: 400,
+      coverage: { marketMarks: 2, costFallbackSymbols: [second] },
+      inputs: { noEtfDailyReferenceSymbols: [], etfDaily: [
+        { ref: collected.ref, source: "tushare", endpoint: "fund_daily", priceUnit: "CNY", price: 14, sourceTimestamp: null },
+      ] },
+    });
+    expect(await replayTspPaperValuation(input)).toEqual(replay);
+    expect(await replayTspPaperValuation({ ...input, dailyRefs: [], etfDailyRefs: [empty.ref] })).toMatchObject({
+      coverage: { marketMarks: 0 }, inputs: { noEtfDailyReferenceSymbols: [], etfDaily: [{ ref: empty.ref, price: null }] },
+    });
+    await expect(replayTspPaperValuation({ ...input, etfDailyRefs: [collected.ref, empty.ref] })).rejects.toThrow("ETF daily archive");
+    await expect(replayTspPaperValuation({ ...input, positions: scope.positions.slice(0, 2) })).rejects.toThrow("ETF daily archive");
+    await expect(replayTspPaperValuation({ ...input, dailyRefs: [], tradeDate: "2026-01-08" })).rejects.toThrow("ETF daily archive");
+    await expect(replayTspPaperValuation({ ...input, etfDailyRefs: [current as unknown as DatedEtfDailyArchiveRef] }))
+      .rejects.toThrow("Invalid observation archive");
+    expect(provider).toHaveBeenCalledTimes(2);
+  } finally { provider.mockRestore(); }
 });
 
 test("rejects mismatched price basis, ambiguous revisions, wrong date and cancellation", async () => {
