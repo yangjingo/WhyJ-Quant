@@ -55,7 +55,12 @@ export async function fetchTickFlowTradingDateRows(request: Pick<TradingDateKlin
   return validateRows(result.rows.map(({ timestamp, ...row }) => ({ tradeDate: tradingDate(timestamp), sourceTimestamp: timestamp, ...row })), request);
 }
 
-async function tushare(request: TradingDateKlineRequest, connection: SourceConnection, options?: SourceRequestOptions): Promise<TradingDateKline[]> {
+export async function fetchTushareTradingDateRows(
+  request: Pick<TradingDateKlineRequest, "symbol" | "startDate" | "endDate" | "adjustment">,
+  endpoint: "daily" | "fund_daily",
+  connection: SourceConnection,
+  options?: SourceRequestOptions,
+): Promise<TradingDateKline[]> {
   if (request.adjustment !== "none") throw new Error("Source capability not implemented: tushare forward-adjusted daily bars");
   options?.signal?.throwIfAborted();
   const env = connection.env ?? process.env, key = connection.apiKey ?? env.WHYJ_QUANT_TUSHARE_TOKEN;
@@ -66,7 +71,7 @@ async function tushare(request: TradingDateKlineRequest, connection: SourceConne
   if (url.username || url.password || url.search || url.hash || (url.protocol !== "https:" && !(url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)))) throw new Error("Invalid Tushare base URL");
   let payload: unknown;
   try {
-    payload = await postJsonLimited(url.href, { api_name: "daily", token: key, params: { ts_code: request.symbol,
+    payload = await postJsonLimited(url.href, { api_name: endpoint, token: key, params: { ts_code: request.symbol,
       start_date: request.startDate.replaceAll("-", ""), end_date: request.endDate.replaceAll("-", "") },
       fields: "ts_code,trade_date,open,high,low,close,vol,amount" }, 2 * 1024 * 1024, options);
   } catch (error) {
@@ -93,7 +98,8 @@ export async function fetchTradingDateKlines(request: TradingDateKlineRequest, c
   validate(input, control);
   control?.signal?.throwIfAborted();
   if (selected.source !== "tickflow" && selected.source !== "tushare") throw new Error(`Source capability not implemented: ${selected.source}`);
-  const data = selected.source === "tushare" ? await tushare(input, selected, control) : await fetchTickFlowTradingDateRows(input, selected, control);
+  const data = selected.source === "tushare" ? await fetchTushareTradingDateRows(input, "daily", selected, control)
+    : await fetchTickFlowTradingDateRows(input, selected, control);
   control?.signal?.throwIfAborted();
   return { timeMode: "trading-date", symbol: input.symbol, market: "A", assetType: "stock", calendarTimeZone: "Asia/Shanghai",
     requested: { startDate: input.startDate, endDate: input.endDate }, interval: "1d", adjustment: input.adjustment, source: selected.source,

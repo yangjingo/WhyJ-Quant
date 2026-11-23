@@ -39,3 +39,9 @@ export function isAIndexSymbol(symbol: string): boolean {
 export function isDatedBenchmarkIndexSymbol(symbol: string): boolean {
   return /^(?:000\d{3}\.SH|399\d{3}\.SZ|899050\.BJ)$/.test(symbol);
 }
+
+/** Trading code ranges for Shanghai and Shenzhen ETF requests. Listing status is separate. */
+export function isDatedEtfSymbol(symbol: string): boolean {
+  return symbol !== "159900.SZ" &&
+    /^(?:(?:51[0-35-8]|526|530|551|56[0-35-7]|58[1789])\d{3}\.SH|520[5-9]\d{2}\.SH|15[89]\d{3}\.SZ)$/.test(symbol);
+}
