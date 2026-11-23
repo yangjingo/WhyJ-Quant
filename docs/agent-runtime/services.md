@@ -574,7 +574,9 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 `replayTspPaperValuation` 从固定归档取得模拟账户估值价格。调用方确认 `priceBasisConfirmation: "caller-confirmed-unadjusted-CNY"`。定版估值逐只读取指定股票日线归档，只使用同日未复权收盘价。盘中估算读取一份同日 TickFlow 快照归档，只使用该次轮询的最新价。调用方提供账户现金、持仓成本、持仓数量及可卖数量，也可附带已定版净值序列。
 
-归档回执保留来源、接口、版本、接收时间和所用报价的源时间。日期匹配但未返回价格或价格为零时，相应持仓按成本估值。回执区分请求后缺价和未提供归档。当前这两类归档覆盖普通 A 股，ETF 持仓在本接口中按成本估值。该回放只读指定归档。
+归档回执保留来源、接口、版本、接收时间和所用报价的源时间。日期匹配但未返回价格或价格为零时，相应持仓按成本估值。回执区分请求后缺价和未提供归档。定版估值可另传 `etfDailyRefs`，以同日未复权 ETF 收盘价标记对应持仓。盘中快照归档覆盖普通 A 股，ETF 盘中仍按成本估值。该回放只读指定归档。
+
+`collectDatedEtfDailyBars` 在显式选择的供应商上读取单只 ETF 的指定交易日区间并保存固定归档。回执包含原始单位、日期、接口、实际来源、SHA-256 版本和行数。空窗口仍生成可回放的空归档。
 
 使用 `whyj --json observation replay-paper-valuation --manifest valuation.json`。清单包含 `schemaVersion: 1`、`accountId`、`tradeDate`、`currency: "CNY"`、`cash`、`initialCash` 及上述 `priceBasisConfirmation`。每笔 `positions` 提供 `symbol`、`assetType`（`stock` 或 `etf`）、`currency`、`quantity`、`averageCost` 和 `availableQuantity`。可选的 `finalizedNav` 沿用模拟账户统计的格式。
 

@@ -1,19 +1,19 @@
 import { isDailyDate } from "../../market/bars.ts";
 import { computeTspPaperValuation, type TspPaperPriceMark, type TspPaperValuationInput } from "../../quant/index.ts";
-import { loadQuotePollArchive, loadTradingDateArchive, type QuotePollArchiveRef,
+import { loadDatedEtfDailyArchive, loadQuotePollArchive, loadTradingDateArchive, type DatedEtfDailyArchiveRef, type QuotePollArchiveRef,
   type TradingDateArchiveRef } from "../../storage/index.ts";
 
 export type PaperValuationReplayRequest = Omit<TspPaperValuationInput, "basis" | "marks"> & {
   priceBasisConfirmation: "caller-confirmed-unadjusted-CNY";
 } & (
-  { basis: "finalized"; dailyRefs: readonly TradingDateArchiveRef[]; quoteRef?: never } |
-  { basis: "snapshot"; quoteRef: QuotePollArchiveRef; dailyRefs?: never }
+  { basis: "finalized"; dailyRefs: readonly TradingDateArchiveRef[]; etfDailyRefs?: readonly DatedEtfDailyArchiveRef[]; quoteRef?: never } |
+  { basis: "snapshot"; quoteRef: QuotePollArchiveRef; dailyRefs?: never; etfDailyRefs?: never }
 );
 
 /** Revalue fixed private holdings using the exact dated market evidence supplied by the caller. */
 export async function replayTspPaperValuation(request: PaperValuationReplayRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { basis, priceBasisConfirmation, dailyRefs, quoteRef, ...scope } = structuredClone(request);
+  const { basis, priceBasisConfirmation, dailyRefs, etfDailyRefs, quoteRef, ...scope } = structuredClone(request);
   const { currency, tradeDate, positions } = scope;
   if (!isDailyDate(tradeDate) || currency !== "CNY" || priceBasisConfirmation !== "caller-confirmed-unadjusted-CNY" ||
     !Array.isArray(positions)) throw new Error("Paper valuation replay requires exact dated unadjusted CNY evidence");
@@ -21,7 +21,9 @@ export async function replayTspPaperValuation(request: PaperValuationReplayReque
   const marks: TspPaperPriceMark[] = [];
 
   if (basis === "finalized") {
-    if (!Array.isArray(dailyRefs) || quoteRef !== undefined) throw new Error("Invalid finalized paper valuation archive scope");
+    if (!Array.isArray(dailyRefs) || (etfDailyRefs !== undefined && !Array.isArray(etfDailyRefs)) || quoteRef !== undefined) {
+      throw new Error("Invalid finalized paper valuation archive scope");
+    }
     const seen = new Set<string>();
     const evidence = [];
     for (const ref of dailyRefs as readonly TradingDateArchiveRef[]) {
@@ -37,14 +39,33 @@ export async function replayTspPaperValuation(request: PaperValuationReplayReque
       }
       evidence.push({ symbol, ref, requested, adjustment, coverage, source, endpoint, observedAt, price, sourceTimestamp: bar?.sourceTimestamp ?? null });
     }
+    const etfs = new Set(positions.filter(position => position?.assetType === "etf" && position.quantity > 0).map(position => position.symbol));
+    const etfEvidence = [];
+    for (const ref of (etfDailyRefs ?? []) as readonly DatedEtfDailyArchiveRef[]) {
+      const { rows, ...batch } = await loadDatedEtfDailyArchive(ref, signal);
+      const { symbol, requested, adjustment, source } = batch;
+      if (!etfs.has(symbol) || seen.has(symbol) || tradeDate < requested.start || tradeDate > requested.end) {
+        throw new Error("Mismatched paper valuation ETF daily archive");
+      }
+      seen.add(symbol);
+      const bar = rows.find(row => row.tradeDate === tradeDate);
+      if (bar) marks.push({ symbol, currency, tradeDate, basis, adjustment, source, revision: ref.revision, price: bar.close });
+      etfEvidence.push({ ...batch, ref, price: bar?.close ?? null, sourceTimestamp: bar?.sourceTimestamp ?? null });
+    }
     signal?.throwIfAborted();
     return {
       ...computeTspPaperValuation({ ...scope, basis, marks }),
-      inputs: { priceBasisConfirmation, daily: evidence, noDailyReferenceSymbols: [...stocks].filter(symbol => !seen.has(symbol)).sort() },
+      inputs: {
+        priceBasisConfirmation, daily: evidence, etfDaily: etfEvidence,
+        noDailyReferenceSymbols: [...stocks].filter(symbol => !seen.has(symbol)).sort(),
+        noEtfDailyReferenceSymbols: [...etfs].filter(symbol => !seen.has(symbol)).sort(),
+      },
     };
   }
 
-  if (basis !== "snapshot" || !quoteRef || dailyRefs !== undefined) throw new Error("Invalid quote-poll paper valuation archive scope");
+  if (basis !== "snapshot" || !quoteRef || dailyRefs !== undefined || etfDailyRefs !== undefined) {
+    throw new Error("Invalid quote-poll paper valuation archive scope");
+  }
   const { rows, requestedSymbols, ...capture } = await loadQuotePollArchive(quoteRef, signal);
   if (capture.tradeDate !== tradeDate) throw new Error("Mismatched paper valuation quote-poll date");
   const quoted = new Map(rows.map(row => [row.symbol, row]));
