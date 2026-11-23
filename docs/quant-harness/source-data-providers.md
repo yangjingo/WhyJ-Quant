@@ -173,3 +173,5 @@ Source 可将选定供应商的交易日日线转换为版本 2 记录。Tushare
 `fetchDatedIndexDailyBars` 读取一个交易所限定的 A 股基准指数和已结束的上海日期区间，最多 366 个日历日。它复用 `/v1/klines` 日线日期校验，以 `adjust=none` 保留指数点位 OHLC、原始毫秒时间戳、成交量、可空成交额及本地观测时间。量额与时间标签保留 `provider-native`。同一日期的重复 bar、区间外行和身份错配报错，空行保留查询区间。覆盖仍为 `unknown`。日线归档与图表指标消费通过独立接口衔接。 [TSP 指数日线](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/indices.py#L41)
 
 `fetchDatedEtfDailyBars` 读取沪深 ETF 交易代码在已结束上海日期内的未复权日线，最多 366 个日历日。Tushare 使用 `fund_daily`，保留元、手、千元及交易日，源时间戳为空。TickFlow 使用 `/v1/klines` 的 `adjust=none`，保留供应商时间戳，价格和量额单位保持未知。两者均将空结果与查询范围一同返回，拒绝重复日期、区间外行及身份不符。代码段校验用于选择接口，标的存续和账户权限需由独立数据确认。 [Tushare ETF 日线](https://tushare.pro/document/2?doc_id=127) · [TickFlow API](https://api.tickflow.org/openapi.json) · [上交所代码段](https://big5.sse.com.cn/site/cht/www.sse.com.cn/lawandrules/guide/stock/jyglywznylc/zn/c/c_20260831_10830435.shtml) · [深交所代码段](https://www.szse.cn/marketServices/technicalservice/notice/t20230825_602945.html)
+
+Storage 将上述 ETF 批次存入 `dated-etf-daily-archives-v1`，使用 `dated-etf-daily` 类型和内容 SHA-256 引用。读取时校验供应商、时间、单位、价格口径、日期顺序及内容摘要。固定归档支持空批次和可空成交额，行情修订生成新引用。普通股票、指数和 ETF 各自使用对应归档类型。

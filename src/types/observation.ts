@@ -376,6 +376,41 @@ export interface DatedIndexDailyArchiveRef {
   revision: string;
 }
 
+export interface StoredDatedEtfDailyBar {
+  tradeDate: string;
+  sourceTimestamp: number | null;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  amount: number | null;
+}
+
+export interface StoredDatedEtfDailyBatch {
+  market: "A";
+  assetType: "etf";
+  symbol: string;
+  source: "tickflow" | "tushare";
+  endpoint: "/v1/klines" | "fund_daily";
+  requested: { start: string; end: string };
+  observedAt: string;
+  coverage: "unknown";
+  interval: "1d";
+  adjustment: "none";
+  priceUnit: "CNY" | "unknown";
+  volumeUnit: "hand" | "unknown";
+  amountUnit: "CNY-thousand" | "unknown";
+  timeZone: "Asia/Shanghai";
+  rows: StoredDatedEtfDailyBar[];
+}
+
+export interface DatedEtfDailyArchiveRef {
+  version: 1;
+  kind: "dated-etf-daily";
+  revision: string;
+}
+
 export interface StoredAuctionBenchmark {
   source: "fuyao";
   endpoint: "/api/a-share/auction/short-term-benchmark";
