@@ -44,7 +44,8 @@ import { collectDatedMoneyFlow, replayDatedMoneyFlow } from "../../../src/runtim
 import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
 import { collectDatedPopularityList, replayDatedPopularityList } from "../../../src/runtime/data/popularity-list.ts";
 import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "../../../src/runtime/data/price-deviation-replay.ts";
-import { collectQuotePollCapture, replayTspQuotePollDelta, type QuotePollReplayRequest } from "../../../src/runtime/data/quote-poll-replay.ts";
+import { collectQuotePollCapture, collectValuationQuotePollCapture, replayTspQuotePollDelta,
+  type QuotePollReplayRequest } from "../../../src/runtime/data/quote-poll-replay.ts";
 import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-warning-collection.ts";
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
 import { replayTspSectorMonitor, type SectorMonitorReplayRequest } from "../../../src/runtime/data/sector-monitor-replay.ts";
@@ -291,9 +292,9 @@ function parsePaperStatisticsManifest(value: unknown): TspPaperStatisticsInput {
 
 function parsePaperValuationManifest(value: unknown): PaperValuationReplayRequest {
   const { schemaVersion, accountId, tradeDate, currency, cash, initialCash, basis, priceBasisConfirmation,
-    positions: rawPositions, finalizedNav: rawNav, dailyRevisions, etfDailyRevisions, quoteRevision } = observationManifestObject(value,
+    positions: rawPositions, finalizedNav: rawNav, dailyRevisions, etfDailyRevisions, quoteRevision, valuationQuoteRevision } = observationManifestObject(value,
     ["schemaVersion", "accountId", "tradeDate", "currency", "cash", "initialCash", "basis", "priceBasisConfirmation",
-      "positions", "finalizedNav", "dailyRevisions", "etfDailyRevisions", "quoteRevision"]);
+      "positions", "finalizedNav", "dailyRevisions", "etfDailyRevisions", "quoteRevision", "valuationQuoteRevision"]);
   if (schemaVersion !== 1 || typeof accountId !== "string" || !accountId.trim() || typeof tradeDate !== "string" ||
     !isDailyDate(tradeDate) || currency !== "CNY" || priceBasisConfirmation !== "caller-confirmed-unadjusted-CNY" ||
     typeof cash !== "number" || typeof initialCash !== "number" || !Array.isArray(rawPositions)) throw invalid();
@@ -307,16 +308,20 @@ function parsePaperValuationManifest(value: unknown): PaperValuationReplayReques
   const finalizedNav = rawNav === undefined ? undefined : parsePaperNavRows(rawNav);
   if (finalizedNav?.some(row => row.currency !== currency)) throw invalid();
   const scope = { accountId, tradeDate, currency, cash, initialCash, priceBasisConfirmation, positions, finalizedNav } as const;
-  if (basis === "finalized" && quoteRevision === undefined) {
+  if (basis === "finalized" && quoteRevision === undefined && valuationQuoteRevision === undefined) {
     return {
       ...scope, basis, dailyRefs: validateRevisions(dailyRevisions).map(revision => ({ version: 2, revision })),
       etfDailyRefs: etfDailyRevisions === undefined ? undefined : validateRevisions(etfDailyRevisions)
         .map(revision => ({ version: 1, kind: "dated-etf-daily", revision })),
     };
   }
-  if (basis === "snapshot" && dailyRevisions === undefined && etfDailyRevisions === undefined &&
-    typeof quoteRevision === "string" && revisionPattern.test(quoteRevision)) {
-    return { ...scope, basis, quoteRef: { version: 1, kind: "quote-poll", revision: quoteRevision } };
+  if (basis === "snapshot" && dailyRevisions === undefined && etfDailyRevisions === undefined) {
+    if (valuationQuoteRevision === undefined && typeof quoteRevision === "string" && revisionPattern.test(quoteRevision)) {
+      return { ...scope, basis, quoteRef: { version: 1, kind: "quote-poll", revision: quoteRevision } };
+    }
+    if (quoteRevision === undefined && typeof valuationQuoteRevision === "string" && revisionPattern.test(valuationQuoteRevision)) {
+      return { ...scope, basis, valuationQuoteRef: { version: 1, kind: "valuation-quote-poll", revision: valuationQuoteRevision } };
+    }
   }
   throw invalid();
 }
@@ -717,17 +722,20 @@ function parseSectorMonitorManifest(value: unknown): SectorMonitorReplayRequest 
 
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
-  if (action === "collect-depth" || action === "collect-quote-poll") {
+  if (action === "collect-depth" || action === "collect-quote-poll" || action === "collect-valuation-quotes") {
     const fields = parseOptions(options, ["--date", "--symbols-file"]);
     const tradeDate = fields.get("--date"), path = fields.get("--symbols-file");
     if (!tradeDate || !isDailyDate(tradeDate) || tradeDate !== shanghaiDate.format(Date.now()) || !path) throw invalid();
     const symbols = await readObservationJsonFile(path, maxRevisionFileBytes, signal);
+    const valuation = action === "collect-valuation-quotes";
     if (!Array.isArray(symbols) || symbols.length < 1 || symbols.length >= 7_000 || new Set(symbols).size !== symbols.length ||
-      symbols.some(symbol => typeof symbol !== "string" || !datedStock.test(symbol))) throw invalid();
-    const collect = action === "collect-depth" ? collectDepthSnapshot : collectQuotePollCapture;
+      symbols.some(symbol => typeof symbol !== "string" || !(valuation
+        ? (datedStock.test(symbol) && !isAIndexSymbol(symbol)) || isDatedEtfSymbol(symbol)
+        : datedStock.test(symbol)))) throw invalid();
+    const collect = action === "collect-depth" ? collectDepthSnapshot : valuation ? collectValuationQuotePollCapture : collectQuotePollCapture;
     try { return await collect({ tradeDate, symbols }, { signal }); }
     catch {
-      const scope = action === "collect-depth" ? "market depth" : "quote poll";
+      const scope = action === "collect-depth" ? "market depth" : valuation ? "valuation quote poll" : "quote poll";
       throw Object.assign(new Error(`Could not collect the requested ${scope}. Check the configured source with whyj --json doctor --phase data.`),
         { code: "observation_collection_failed" });
     }

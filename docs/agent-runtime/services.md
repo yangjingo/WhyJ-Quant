@@ -582,7 +582,9 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 使用 `whyj --json observation replay-paper-valuation --manifest valuation.json`。清单包含 `schemaVersion: 1`、`accountId`、`tradeDate`、`currency: "CNY"`、`cash`、`initialCash` 及上述 `priceBasisConfirmation`。每笔 `positions` 提供 `symbol`、`assetType`（`stock` 或 `etf`）、`currency`、`quantity`、`averageCost` 和 `availableQuantity`。可选的 `finalizedNav` 沿用模拟账户统计的格式。
 
-`basis: "finalized"` 使用 `dailyRevisions` 数组，可另传 `etfDailyRevisions` 数组。只有 ETF 持仓时可将 `dailyRevisions` 设为空数组。`basis: "snapshot"` 使用一条 `quoteRevision`。各版本字段均使用采集回执中的 SHA-256。格式或版本号错误返回 `invalid_arguments`，无法复算的归档或账户输入返回 `observation_archive_unavailable`。
+`basis: "finalized"` 使用 `dailyRevisions` 数组，可另传 `etfDailyRevisions` 数组。只有 ETF 持仓时可将 `dailyRevisions` 设为空数组。`basis: "snapshot"` 必须在股票专用的 `quoteRevision` 与支持股票和 ETF 的 `valuationQuoteRevision` 中选一项。各版本字段均使用采集回执中的 SHA-256。格式或版本号错误返回 `invalid_arguments`，无法复算的归档或账户输入返回 `observation_archive_unavailable`。
+
+使用 `whyj --json observation collect-valuation-quotes --date YYYY-MM-DD --symbols-file symbols.json`，为 JSON 数组中的股票和 ETF 采集一轮当日估值行情。将回执的 `data.ref.revision` 填入 `valuationQuoteRevision`，即可离线复算。报价缺失或价格为零的持仓使用成本估值，结果保留报价源时间和接收时间。
 
 使用 `whyj --json observation collect-etf-daily --symbol 510330.SH --start 2025-06-17 --end 2025-06-18`，从显式选择的供应商采集未复权 ETF 日线。将回执的 `ref.revision` 放入收盘估值清单的 `etfDailyRevisions`，回放时读取估值日对应的收盘价。价格缺失会在回执中保留并使用成本估值。 [ETF 日线来源及归档](../quant-harness/source-data-providers.md)
 
