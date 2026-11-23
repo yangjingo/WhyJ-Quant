@@ -10,7 +10,7 @@ import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedEtfDail
   StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedEtfDailyBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDepthSnapshot,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
   StoredQuotePollCapture, StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
-  TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
+  TradingDateArchiveRef, TradingLimitArchiveRef, ValuationQuotePollArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from "../../market/symbols.ts";
 import { resolveDataDir } from "./dirs.ts";
@@ -393,12 +393,13 @@ function marketSlice(value: unknown, endpoint: string, tradeDate: string, keys: 
   return value;
 }
 
-function marketRows(rows: unknown, max: number, keys: string[], valid: (row: Record<string, unknown>) => boolean) {
+function marketRows(rows: unknown, max: number, keys: string[], valid: (row: Record<string, unknown>) => boolean,
+  validSymbol = (symbol: string) => stockSymbol.test(symbol)) {
   if (!Array.isArray(rows) || rows.length > max) throw fail();
   let previous = "";
   for (const row of rows) {
     if (!object(row) || !exactKeys(row, ["symbol", ...keys]) || typeof row.symbol !== "string" ||
-      !stockSymbol.test(row.symbol) || row.symbol <= previous || !valid(row)) throw fail();
+      !validSymbol(row.symbol) || row.symbol <= previous || !valid(row)) throw fail();
     previous = row.symbol;
   }
 }
@@ -506,24 +507,28 @@ export async function loadDepthSnapshotArchive(ref: DepthSnapshotArchiveRef, sig
 }
 
 const quotePollKind = "quote-poll";
-const quotePollDir = () => join(resolveDataDir(), "quote-poll-archives-v1");
+const valuationQuotePollKind = "valuation-quote-poll";
+type QuoteCaptureKind = typeof quotePollKind | typeof valuationQuotePollKind;
+const quotePollDir = (kind: QuoteCaptureKind) => join(resolveDataDir(), `${kind}-archives-v1`);
 const quotePollKeys = ["source", "endpoint", "market", "tradeDate", "startedAt", "observedAt", "coverage", "units", "requestedSymbols", "rows"];
 
-function quotePollPath(ref: QuotePollArchiveRef): string {
-  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== quotePollKind ||
+function quotePollPath(ref: { version: 1; kind: QuoteCaptureKind; revision: string }, kind: QuoteCaptureKind): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== kind ||
     typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
-  return join(quotePollDir(), `${ref.revision}.json`);
+  return join(quotePollDir(kind), `${ref.revision}.json`);
 }
 
-function validateQuotePollCapture(capture: unknown): asserts capture is StoredQuotePollCapture {
+function validateQuotePollCapture(capture: unknown, kind: QuoteCaptureKind): asserts capture is StoredQuotePollCapture {
   if (!object(capture) || !exactKeys(capture, quotePollKeys) || capture.source !== "tickflow" || capture.endpoint !== "/v1/quotes" ||
     capture.market !== "A" || capture.coverage !== "unknown" || capture.units !== "unknown" || !dailyDate(capture.tradeDate) ||
     typeof capture.startedAt !== "string" || !instant(capture.startedAt) || typeof capture.observedAt !== "string" || !instant(capture.observedAt) ||
     !Array.isArray(capture.requestedSymbols) || !capture.requestedSymbols.length || capture.requestedSymbols.length > 6_999) throw fail();
   const { tradeDate, requestedSymbols } = capture;
+  const validSymbol = (symbol: string) => kind === quotePollKind ? stockSymbol.test(symbol) :
+    (stockSymbol.test(symbol) && !isAIndexSymbol(symbol)) || isDatedEtfSymbol(symbol);
   const start = Date.parse(capture.startedAt), end = Date.parse(capture.observedAt);
   if (start > end || shanghaiDate(start) !== tradeDate || shanghaiDate(end) !== tradeDate ||
-    requestedSymbols.some((symbol, index) => typeof symbol !== "string" || !stockSymbol.test(symbol) ||
+    requestedSymbols.some((symbol, index) => typeof symbol !== "string" || !validSymbol(symbol) ||
       (index > 0 && symbol <= requestedSymbols[index - 1]))) throw fail();
   const scope = new Set(requestedSymbols);
   marketRows(capture.rows, scope.size, ["timestamp", "receivedAt", "lastPrice", "previousClose", "volume", "amount"], row => {
@@ -533,22 +538,38 @@ function validateQuotePollCapture(capture: unknown): asserts capture is StoredQu
     const received = Date.parse(receivedAt);
     return received >= start && received <= end && timestamp <= received && shanghaiDate(timestamp) === tradeDate &&
       nonnegative(lastPrice) && nonnegative(previousClose) && nonnegative(volume) && nonnegativeOrNull(amount);
-  });
+  }, validSymbol);
 }
 
-export async function archiveQuotePollCapture(capture: StoredQuotePollCapture, signal?: AbortSignal): Promise<QuotePollArchiveRef> {
-  validateQuotePollCapture(capture);
-  const content = canonical({ version: 1, kind: quotePollKind, capture });
-  const ref: QuotePollArchiveRef = { version: 1, kind: quotePollKind, revision: digest(content) };
-  await writeFixedArchive(quotePollDir(), quotePollPath(ref), content, signal);
+async function archiveQuotePoll<K extends QuoteCaptureKind>(capture: StoredQuotePollCapture, kind: K, signal?: AbortSignal) {
+  validateQuotePollCapture(capture, kind);
+  const content = canonical({ version: 1, kind, capture });
+  const ref = { version: 1 as const, kind, revision: digest(content) };
+  await writeFixedArchive(quotePollDir(kind), quotePollPath(ref, kind), content, signal);
   return ref;
 }
 
-export async function loadQuotePollArchive(ref: QuotePollArchiveRef, signal?: AbortSignal): Promise<StoredQuotePollCapture> {
-  const data = await readFixedArchive(quotePollPath(ref), ref.revision, signal);
-  if (!object(data) || !exactKeys(data, ["version", "kind", "capture"]) || data.version !== 1 || data.kind !== quotePollKind) throw fail();
-  validateQuotePollCapture(data.capture);
+async function readQuotePoll(ref: QuotePollArchiveRef | ValuationQuotePollArchiveRef, kind: QuoteCaptureKind, signal?: AbortSignal) {
+  const data = await readFixedArchive(quotePollPath(ref, kind), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "capture"]) || data.version !== 1 || data.kind !== kind) throw fail();
+  validateQuotePollCapture(data.capture, kind);
   return data.capture;
+}
+
+export function archiveQuotePollCapture(capture: StoredQuotePollCapture, signal?: AbortSignal): Promise<QuotePollArchiveRef> {
+  return archiveQuotePoll(capture, quotePollKind, signal);
+}
+
+export function loadQuotePollArchive(ref: QuotePollArchiveRef, signal?: AbortSignal): Promise<StoredQuotePollCapture> {
+  return readQuotePoll(ref, quotePollKind, signal);
+}
+
+export function archiveValuationQuotePollCapture(capture: StoredQuotePollCapture, signal?: AbortSignal): Promise<ValuationQuotePollArchiveRef> {
+  return archiveQuotePoll(capture, valuationQuotePollKind, signal);
+}
+
+export function loadValuationQuotePollArchive(ref: ValuationQuotePollArchiveRef, signal?: AbortSignal): Promise<StoredQuotePollCapture> {
+  return readQuotePoll(ref, valuationQuotePollKind, signal);
 }
 
 const sectorDir = () => join(resolveDataDir(), "sector-observation-archives-v1");
