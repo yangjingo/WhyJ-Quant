@@ -1,16 +1,16 @@
 import { isDailyDate, validateDateRange } from "../../market/bars.ts";
-import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, normalizeSymbol } from "../../market/symbols.ts";
+import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol, normalizeSymbol } from "../../market/symbols.ts";
 import type { Market } from "../../types/data.ts";
 import type { DatedMoneyFlow } from "../../types/money-flow.ts";
 import { runPython } from "./akshare-python.ts";
 import { fetchFinancialDatasetsSnapshot } from "./financial-datasets.ts";
 import { fetchMainboardUniverse } from "./mainboard-universe.ts";
 import { SourceRequestError } from "./market-data-error.ts";
-import type { MarketDataSource, SourceConnection, SourceRequestOptions } from "./market-data.ts";
+import type { MarketDataSource, SourceConnection, SourceRequestOptions, TradingDateKline } from "./market-data.ts";
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
 import { fetchTickFlowKlines } from "./tickflow.ts";
-import { fetchTickFlowTradingDateRows } from "./trading-date-klines.ts";
+import { fetchTickFlowTradingDateRows, fetchTushareTradingDateRows } from "./trading-date-klines.ts";
 import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareDatedBenchmark, fetchTushareDatedMoneyFlow,
   fetchTushareDatedRiskWarnings,
   fetchTushareFinancialDisclosureDates,
@@ -144,6 +144,19 @@ export interface DatedIndexDailyObservations {
   rows: DatedIndexDailyRow[];
 }
 
+export interface DatedEtfDailyObservations {
+  symbol: string;
+  assetType: "etf";
+  requested: { start: string; end: string };
+  interval: "1d";
+  adjustment: "none";
+  priceUnit: "CNY" | "unknown";
+  volumeUnit: "hand" | "unknown";
+  amountUnit: "CNY-thousand" | "unknown";
+  timeZone: "Asia/Shanghai";
+  rows: TradingDateKline[];
+}
+
 export interface DatedIndexMinuteObservations {
   symbol: string;
   tradeDate: string;
@@ -272,6 +285,8 @@ export interface MarketObservationSource {
     Promise<MarketObservation<DatedBenchmarkObservations>>;
   fetchDatedIndexDailyBars(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<DatedIndexDailyObservations>>;
+  fetchDatedEtfDailyBars(request: { symbol: string; market: Market; start: string; end: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<DatedEtfDailyObservations>>;
   fetchDatedIndexMinutes(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<DatedIndexMinuteObservations>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
@@ -299,6 +314,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchDatedSectorMembers: { tushare: "A" },
   fetchDatedBenchmarkObservations: { tushare: "A", tickflow: "A" },
   fetchDatedIndexDailyBars: { tickflow: "A" },
+  fetchDatedEtfDailyBars: { tickflow: "A", tushare: "A" },
   fetchDatedIndexMinutes: { tickflow: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
@@ -327,6 +343,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchDatedSectorCatalog: status("fetchDatedSectorCatalog"), fetchDatedSectorMembers: status("fetchDatedSectorMembers"),
     fetchDatedBenchmarkObservations: status("fetchDatedBenchmarkObservations"),
     fetchDatedIndexDailyBars: status("fetchDatedIndexDailyBars"),
+    fetchDatedEtfDailyBars: status("fetchDatedEtfDailyBars"),
     fetchDatedIndexMinutes: status("fetchDatedIndexMinutes"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
@@ -605,6 +622,24 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
       }).sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
       return result<DatedBenchmarkObservations>(market, "index_daily", {
         symbol: code, requested: { start, end }, priceUnit: "index-points", returnUnit: "percentage-points", rows,
+      });
+    },
+    async fetchDatedEtfDailyBars({ market, symbol, start, end }, options) {
+      validate("fetchDatedEtfDailyBars", market);
+      if (typeof symbol !== "string" || !isDatedEtfSymbol(symbol)) throw new Error("An exchange-qualified ETF trading code is required");
+      if (typeof start !== "string" || typeof end !== "string") throw new Error("ETF daily dates are required");
+      validateDateRange(start, end);
+      if (start < "0001-01-01" || end >= shanghaiDate.format()) throw new Error("Completed Shanghai trading dates are required");
+      if ((Date.parse(end) - Date.parse(start)) / 86_400_000 >= 366) throw new RangeError("ETF daily window exceeds 366 calendar days");
+      const request = { symbol, startDate: start, endDate: end, adjustment: "none" as const };
+      const tushare = source === "tushare";
+      const rows = await readReference(options, signal => tushare
+        ? fetchTushareTradingDateRows(request, "fund_daily", connection, { signal })
+        : fetchTickFlowTradingDateRows(request, connection, { signal }));
+      return result<DatedEtfDailyObservations>(market, tushare ? "fund_daily" : "/v1/klines", {
+        symbol, assetType: "etf", requested: { start, end }, interval: "1d", adjustment: "none", timeZone: "Asia/Shanghai",
+        priceUnit: tushare ? "CNY" : "unknown", volumeUnit: tushare ? "hand" : "unknown",
+        amountUnit: tushare ? "CNY-thousand" : "unknown", rows,
       });
     },
     async fetchDatedIndexDailyBars({ market, symbol, start, end }, options) {
