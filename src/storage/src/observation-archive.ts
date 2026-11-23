@@ -5,14 +5,14 @@ import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
 import type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../../types/money-flow.ts";
 import type { DatedPopularityList, PopularityArchiveRef } from "../../types/popularity.ts";
-import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedIndexDailyArchiveRef, DatedIndexMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
+import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedEtfDailyArchiveRef, DatedIndexDailyArchiveRef, DatedIndexMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
   HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, MarketRegimeManifestRef, ObservationArchiveRef, QuotePollArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
-  StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDepthSnapshot,
+  StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedEtfDailyBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDepthSnapshot,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
   StoredQuotePollCapture, StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef } from "../../types/observation.ts";
 import { isDailyDate } from "../../market/bars.ts";
-import { isAIndexSymbol, isDatedBenchmarkIndexSymbol } from "../../market/symbols.ts";
+import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from "../../market/symbols.ts";
 import { resolveDataDir } from "./dirs.ts";
 import { atomicWriteTextAsync, withFileLockAsync } from "./atomic-file.ts";
 
@@ -774,6 +774,65 @@ export async function loadDatedIndexDailyArchive(ref: DatedIndexDailyArchiveRef,
   const data = await readFixedArchive(datedIndexDailyPath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== datedIndexDailyKind) throw fail();
   validateDatedIndexDaily(data.batch);
+  return data.batch;
+}
+
+const datedEtfDailyKind = "dated-etf-daily";
+const datedEtfDailyDir = () => join(resolveDataDir(), "dated-etf-daily-archives-v1");
+const datedEtfDailyKeys = ["market", "assetType", "symbol", "source", "endpoint", "requested", "observedAt",
+  "coverage", "interval", "adjustment", "priceUnit", "volumeUnit", "amountUnit", "timeZone", "rows"];
+const datedEtfDailyRowKeys = ["tradeDate", "sourceTimestamp", "open", "high", "low", "close", "volume", "amount"];
+
+function datedEtfDailyPath(ref: DatedEtfDailyArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== datedEtfDailyKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(datedEtfDailyDir(), `${ref.revision}.json`);
+}
+
+function validateDatedEtfDaily(batch: unknown): asserts batch is StoredDatedEtfDailyBatch {
+  if (!object(batch) || !exactKeys(batch, datedEtfDailyKeys) || batch.market !== "A" || batch.assetType !== "etf" ||
+    typeof batch.symbol !== "string" || !isDatedEtfSymbol(batch.symbol) ||
+    typeof batch.observedAt !== "string" || !instant(batch.observedAt) || batch.coverage !== "unknown" ||
+    batch.interval !== "1d" || batch.adjustment !== "none" || batch.timeZone !== "Asia/Shanghai" ||
+    !object(batch.requested) || !exactKeys(batch.requested, ["start", "end"]) || !Array.isArray(batch.rows)) throw fail();
+  const tushare = batch.source === "tushare";
+  if (tushare) {
+    if (batch.endpoint !== "fund_daily" || batch.priceUnit !== "CNY" || batch.volumeUnit !== "hand" ||
+      batch.amountUnit !== "CNY-thousand") throw fail();
+  } else if (batch.source !== "tickflow" || batch.endpoint !== "/v1/klines" || batch.priceUnit !== "unknown" ||
+    batch.volumeUnit !== "unknown" || batch.amountUnit !== "unknown") throw fail();
+
+  const capturedAt = Date.parse(batch.observedAt);
+  const { start, end } = batch.requested;
+  if (!dailyDate(start) || !dailyDate(end) || start < "0001-01-01" || start > end || end >= shanghaiDate(capturedAt)) throw fail();
+  const days = (Date.parse(end) - Date.parse(start)) / 86_400_000 + 1;
+  if (days > 366 || batch.rows.length > days) throw fail();
+
+  let previousDate = "";
+  for (const row of batch.rows) {
+    if (!object(row) || !exactKeys(row, datedEtfDailyRowKeys) || !dailyDate(row.tradeDate) ||
+      row.tradeDate < start || row.tradeDate > end || row.tradeDate <= previousDate) throw fail();
+    const { sourceTimestamp, open, high, low, close, volume, amount } = row;
+    if (tushare ? sourceTimestamp !== null : typeof sourceTimestamp !== "number" || !Number.isSafeInteger(sourceTimestamp) ||
+      sourceTimestamp <= 0 || sourceTimestamp > capturedAt || shanghaiDate(sourceTimestamp) !== row.tradeDate) throw fail();
+    if (!nonnegative(open) || !nonnegative(high) || !nonnegative(low) || !nonnegative(close) || low <= 0 ||
+      high < Math.max(open, close) || low > Math.min(open, close) || !nonnegative(volume) || !nonnegativeOrNull(amount)) throw fail();
+    previousDate = row.tradeDate;
+  }
+}
+
+export async function archiveDatedEtfDailyBars(batch: StoredDatedEtfDailyBatch, signal?: AbortSignal): Promise<DatedEtfDailyArchiveRef> {
+  validateDatedEtfDaily(batch);
+  const content = canonical({ version: 1, kind: datedEtfDailyKind, batch });
+  const ref: DatedEtfDailyArchiveRef = { version: 1, kind: datedEtfDailyKind, revision: digest(content) };
+  await writeFixedArchive(datedEtfDailyDir(), datedEtfDailyPath(ref), content, signal);
+  return ref;
+}
+
+export async function loadDatedEtfDailyArchive(ref: DatedEtfDailyArchiveRef, signal?: AbortSignal): Promise<StoredDatedEtfDailyBatch> {
+  const data = await readFixedArchive(datedEtfDailyPath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== datedEtfDailyKind) throw fail();
+  validateDatedEtfDaily(data.batch);
   return data.batch;
 }
 
