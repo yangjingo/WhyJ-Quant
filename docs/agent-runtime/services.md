@@ -781,6 +781,8 @@ whyj --json observation read-list-quotes --manifest ./list-rows.json
 
 股票项也可附上 `deviation: { stockRevision, benchmarkRevision? }`，清单需同时提供以列表交易日结束的 `deviationCalendar: { revision, sessions }`。两个命令的固定结果都返回该日的窗口偏离、接近度及归档证据。引用格式或日历结构错误返回 `invalid_arguments`，归档不可用或与列表范围不符返回 `observation_archive_unavailable`。
 
+两条列表命令的股票项接受 `intraday`，其中包含 `minuteRevision`、`interpretation` 和可选的 `previousClose`。用 `interpretation.timestampLabel` 指定 `minute-start` 或 `minute-end`，并以 `priceBasis: "caller-confirmed-unadjusted-CNY"` 确认分钟价格口径。可确认的 `volumeUnit` 为 `share` 或 `hand`，`amountUnit` 为 `CNY` 或 `CNY-thousand`。若要计算昨收涨幅，提供 `previousClose: { revision, priceBasis: "caller-confirmed-same-basis" }`。`observations.intraday` 和 `metrics.intraday` 分别返回原始证据和 WhyJ 图表计算。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
