@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveDatedStockMinutes, archiveDailyTradingLimits, archiveMarketCrossSection, loadDatedStockMinuteArchive, saveSettings,
@@ -7,7 +7,7 @@ import { archiveDatedStockMinutes, archiveDailyTradingLimits, archiveMarketCross
 import { DEFAULT_SETTINGS } from "../../types/config.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../data/list-rows.ts";
 import { replayTspIntradayMonitorAlerts, type IntradayMonitorAlertReplayRequest } from "../data/intraday-monitor-alert-replay.ts";
-import { collectDatedTickFlowStockMinutes, replayTspTickFlowStockMinutes,
+import { collectDatedTickFlowStockMinutes, previewCurrentTspListIntraday, replayTspTickFlowStockMinutes,
   type TickFlowStockMinuteInterpretation } from "../data/tickflow-stock-minute-replay.ts";
 
 const symbol = "600001.SH", first = "2024-04-08", second = "2024-04-09", observedAt = "2024-04-10T01:00:00Z";
@@ -36,6 +36,73 @@ afterEach(() => {
   if (prior === undefined) delete process.env.OHQUANT_DIR;
   else process.env.OHQUANT_DIR = prior;
   rmSync(root, { recursive: true, force: true });
+});
+
+test("previews a mixed current stock batch using declared labels and optional prior-close evidence", async () => {
+  const clock = spyOn(Date, "now").mockReturnValue(stamp(first, "10:00:00"));
+  const secondStock = "000001.SZ", missing = "830799.BJ", empty = "000002.SZ", stale = "600010.SH";
+  const symbols = [symbol, secondStock, missing, empty, stale];
+  const raw = batch(first, [["09:30:00", 9], ["09:30:59.123", 10], ["09:31:00", 10], ["09:32:00", 11]]).rows;
+  raw[2]!.volume = 0;
+  raw[2]!.amount = 0;
+  const compact = (rows: StoredDatedStockMinuteBatch["rows"]) => ({
+    timestamp: rows.map(row => row.sourceTimestamp), open: rows.map(row => row.open), high: rows.map(row => row.high),
+    low: rows.map(row => row.low), close: rows.map(row => row.close), volume: rows.map(row => row.volume), amount: rows.map(row => row.amount),
+  });
+  const requests: URL[] = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    if (request.headers.get("x-api-key") !== "current-list-preview-fixture") return new Response(null, { status: 403 });
+    requests.push(new URL(request.url));
+    return Response.json({ data: { [symbol]: compact(raw), [secondStock]: compact(raw.slice(2)), [empty]: compact([]),
+      [stale]: compact(batch("2024-04-03", [["09:31:00", 12]], stale).rows) } });
+  } });
+  try {
+    saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
+      env: { WHYJ_QUANT_TICKFLOW_API_KEY: "current-list-preview-fixture", TICKFLOW_BASE_URL: server.url.origin } });
+    const ref = await archiveDailyTradingLimits({ symbol, market: "A", source: "tushare", endpoint: "stk_limit", observedAt,
+      priceUnit: "CNY", coverage: "unknown", requested: { startDate: first, endDate: first },
+      rows: [{ tradeDate: first, previousClose: 10, limitUp: 11, limitDown: 9 }] });
+    const previousClose = { ref, priceBasis: "caller-confirmed-same-basis" } as const;
+    const stocks = symbols.map((code, index) => ({ symbol: code, ...(index === 0 && { previousClose }) }));
+    const request = { tradeDate: first, stocks, interpretation };
+    await expect(previewCurrentTspListIntraday({ ...request, stocks: [{ symbol: secondStock, previousClose }] }))
+      .rejects.toThrow("does not match the TickFlow stock");
+    await expect(previewCurrentTspListIntraday({ ...request, interpretation: undefined })).rejects.toThrow("interpretation");
+    await expect(previewCurrentTspListIntraday(request, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+    expect(requests).toHaveLength(0);
+
+    const preview = await previewCurrentTspListIntraday(request);
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.pathname).toBe("/v1/klines/intraday/batch");
+    expect(requests[0]!.searchParams.get("symbols")).toBe(symbols.join(","));
+    expect(preview.input.minutes).toMatchObject({ finality: "provisional", tradeDate: first, requestedSymbols: symbols, adjustment: "unknown",
+      frames: [{ symbol, status: "observed", rows: raw }, { symbol: secondStock, status: "observed", rows: raw.slice(2) },
+        { symbol: missing, status: "missing", rows: [] }, { symbol: empty, status: "empty", rows: [] },
+        { symbol: stale, status: "different-session", sourceTradeDate: "2024-04-03", rows: [] }],
+    });
+    expect(preview.rows[0]).toMatchObject({ status: "observed", previousClose: { archiveRef: ref, rows: [{ tradeDate: first, price: 10 }] },
+      metrics: { producer: "whyj", finality: "provisional", plotBaseline: { kind: "previous-close", value: 10 },
+        points: [{ sourceTimestamp: raw[2]!.sourceTimestamp, minute: "09:30", close: 10, averageClose: 10, previousCloseReturnFraction: 0 },
+          { sourceTimestamp: raw[3]!.sourceTimestamp, minute: "09:31", close: 11, averageClose: 10.5 }] },
+      excluded: [{ sourceTimestamp: raw[0]!.sourceTimestamp, reason: "opening-boundary" },
+        { sourceTimestamp: raw[1]!.sourceTimestamp, reason: "unaligned" }],
+    });
+    expect(preview.rows[0]?.metrics?.latestReturnFraction).toBeCloseTo(0.1, 12);
+    expect(preview.rows[1]).toMatchObject({ previousClose: null, metrics: { latestReturnFraction: null,
+      plotBaseline: { kind: "first-observed-open", value: 10 } } });
+    expect(preview.rows.slice(2).map(row => [row.status, row.metrics])).toEqual([
+      ["missing", null], ["empty", null], ["different-session", null],
+    ]);
+
+    const left = await previewCurrentTspListIntraday({ ...request, interpretation: { ...interpretation, timestampLabel: "minute-start" } });
+    expect(left.rows[0]?.metrics?.points.map(point => point.minute)).toEqual(["09:30", "09:31", "09:32"]);
+    const rawOnly = await previewCurrentTspListIntraday({ tradeDate: first, stocks: symbols.map(symbol => ({ symbol })) });
+    expect(rawOnly.input.interpretation).toBeNull();
+    expect(rawOnly.input.minutes.frames[0]?.rows).toEqual(raw);
+    expect(rawOnly.rows.every(row => row.metrics === null)).toBe(true);
+    expect(existsSync(join(root, "data", "dated-stock-minute-archives-v1"))).toBe(false);
+    expect(requests).toHaveLength(3);
+  } finally { await server.stop(true); clock.mockRestore(); }
 });
 
 test("collects native TickFlow minute bars and archives a valid empty response with the same scope", async () => {
