@@ -359,6 +359,10 @@ whyj --json observation replay-intraday --revision SHA256
 
 回放含 11 项指标、4 项穿越信号、原始时间标签和单列开盘边界。已有同一标的的涨跌停价归档时，可同时传入 `--previous-close-revision SHA256 --price-basis caller-confirmed-same-basis`，使用其中同日的昨收证据。只有确认两份归档价格口径相容时才声明该选项。
 
+Runtime 的 `replayTspIntradayMonitorAlerts` 接受固定规则、A 股标的范围、分钟归档引用和按时间排序的 `slots`。每个时段用 `{ tradeDate, minute }` 指定上海交易分钟的起点。例如 `09:30` 使用归档中标记为 `09:31:00` 的完整分钟，评估时点是 09:31。开盘边界只随归档证据计数。缺少相应分钟时返回缺失标的，保留已有指标对跨缺口穿越的处理。
+
+监控条件可计算全部 11 项分时指标、4 个内置分时穿越及分钟 OHLCV 和成交额。分钟成交量使用股数，成交额使用元。需要昨收时，沿用绑定同标的归档和价格口径确认的要求。可在 `customSignals` 中传入显式定义，例如 `id` 为 `cross_ten` 的规则用 `csgi_cross_ten` 作为布尔条件，只在自定义规则的触发分钟为真。输出保留规则、公式、输入归档版本和命中操作数。评估按显式时段记录冷却状态，历史重建结果保留归档采集时间与原始分钟标签。 [盘中告警回放](https://github.com/yangjingo/WhyJ-Quant/issues/675)
+
 用已配置的 Tushare 采集同一交易日的行业或概念目录，再按板块代码采集所需成分。
 
 ```powershell

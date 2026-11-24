@@ -60,7 +60,7 @@ export type { TspDailySignalBar, TspDailySignalId, TspDailySignalRow } from "./t
 export { computeTspLimitStreaks, TSP_LIMIT_STREAK_FORMULA_VERSION } from "./tsp-limit-streaks.ts";
 export { computeTspMarketLadder, TSP_MARKET_LADDER_FORMULA_VERSION } from "./tsp-market-ladder.ts";
 export type { TspLimitLadderObservation } from "./tsp-market-ladder.ts";
-export { computeTspIntraday, TSP_INTRADAY_FORMULA_VERSION } from "./tsp-intraday.ts";
+export { computeTspIntraday, tspMinuteIndex, TSP_INTRADAY_FORMULA_VERSION } from "./tsp-intraday.ts";
 export { computeTspIntradaySignal, parseTspIntradaySignalRule, TSP_INTRADAY_SIGNAL_FORMULA_VERSION } from "./tsp-intraday-signals.ts";
 export type { TspIntradaySignalRule } from "./tsp-intraday-signals.ts";
 export { computeTspWatchlistReturn, TSP_WATCHLIST_RETURN_FORMULA_VERSION } from "./tsp-watchlist-return.ts";

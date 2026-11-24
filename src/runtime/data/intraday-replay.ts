@@ -77,8 +77,7 @@ function rightEdgeToMinuteStart(tradeTime: string): string {
   return `${hour}:${minute}`;
 }
 
-/** Calculate WhyJ metrics from exact local references and retain the provider's raw time labels. */
-export async function deriveTspArchiveIntraday(ref: HistoricalMinuteArchiveRef, options: IntradayReplayOptions = {}) {
+export async function resolveTspArchiveIntraday(ref: HistoricalMinuteArchiveRef, options: IntradayReplayOptions = {}) {
   const archiveRef = { ...ref };
   const { signal } = options;
   const previousClose = options.previousClose && { ...options.previousClose, ref: { ...options.previousClose.ref } };
@@ -117,7 +116,7 @@ export async function deriveTspArchiveIntraday(ref: HistoricalMinuteArchiveRef, 
     amountCny: row.amount,
   }));
   const calculated = computeTspIntraday(completed, closeByDate);
-  return {
+  const preview = {
     archiveRef,
     producer: "whyj" as const,
     formula: { id: "tsp_intraday" as const, version: TSP_INTRADAY_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
@@ -125,4 +124,10 @@ export async function deriveTspArchiveIntraday(ref: HistoricalMinuteArchiveRef, 
     openingBoundaries,
     rows: calculated.map((row, index) => ({ ...row, originalTradeTime: completed[index]!.originalTradeTime })),
   };
+  return { completed, preview };
+}
+
+/** Calculate WhyJ metrics from exact local references and retain the provider's raw time labels. */
+export async function deriveTspArchiveIntraday(ref: HistoricalMinuteArchiveRef, options: IntradayReplayOptions = {}) {
+  return (await resolveTspArchiveIntraday(ref, options)).preview;
 }
