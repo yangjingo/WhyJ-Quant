@@ -221,24 +221,37 @@ function parseScreenerUnionManifest(value: unknown): ScreenerUnionReplayRequest 
 }
 
 function parseListRowsManifest(value: unknown): TspListRowsRequest {
-  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks", "watchlistMembershipRevision"]);
+  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks", "watchlistMembershipRevision", "limitCalendar"]);
   const { watchlistMembershipRevision } = manifest;
   if (watchlistMembershipRevision !== undefined &&
     (typeof watchlistMembershipRevision !== "string" || !revisionPattern.test(watchlistMembershipRevision))) throw invalid();
   if (!Array.isArray(manifest.stocks)) throw invalid();
+  let limitCalendar: TspListRowsRequest["limitCalendar"];
+  if (manifest.limitCalendar !== undefined) {
+    const { revision, sessions } = observationManifestObject(manifest.limitCalendar, ["revision", "sessions"]);
+    if (typeof revision !== "string" || !revision.trim() || revision.length > 256 || !Array.isArray(sessions) || !sessions.length ||
+      sessions.some((date, index) => typeof date !== "string" || date < "0001-01-01" || !isDailyDate(date) ||
+        (index > 0 && date <= sessions[index - 1]))) throw invalid();
+    limitCalendar = { revision, sessions };
+  }
   const stocks = manifest.stocks.map(item => {
-    const { watchlistHistoryRevision, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision"]);
+    const { watchlistHistoryRevision, tradingLimitsRevision, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision"]);
     if (watchlistHistoryRevision !== undefined && (watchlistMembershipRevision === undefined ||
       typeof watchlistHistoryRevision !== "string" || !revisionPattern.test(watchlistHistoryRevision))) throw invalid();
+    if (tradingLimitsRevision !== undefined && (typeof tradingLimitsRevision !== "string" ||
+      !revisionPattern.test(tradingLimitsRevision) || entry.limitsRevision !== undefined)) throw invalid();
+    const limit = typeof tradingLimitsRevision === "string" ? {
+      tradingLimitsRef: { version: 1, kind: "daily-trading-limits", revision: tradingLimitsRevision } as const,
+    } : {};
     const watchlistHistory = watchlistHistoryRevision === undefined ? {} :
       { watchlistHistoryRef: { version: 2, revision: watchlistHistoryRevision } as const };
     if (Object.keys(entry).length === 1 && typeof entry.symbol === "string" && datedStock.test(entry.symbol)) {
-      return { symbol: entry.symbol, ...watchlistHistory };
+      return { symbol: entry.symbol, ...watchlistHistory, ...limit };
     }
     const { symbol, ...history } = parseArchivedStockHistory(entry);
-    return { symbol, history, ...watchlistHistory };
+    return { symbol, history, ...watchlistHistory, ...limit };
   });
-  return { ...parseDatedMarketArchiveScope(manifest), stocks,
+  return { ...parseDatedMarketArchiveScope(manifest), stocks, limitCalendar,
     ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }) };
 }
 
