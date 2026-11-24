@@ -105,6 +105,8 @@ The shared-Host fixtures exercise an isolated synthetic run in Electron and a br
 
 The review Host fixture announces its origin after `host.ready` resolves and the authenticated owner registration exists. The crash-recovery and other consumers can discover the ready owner when they launch after this receipt. The existing Desktop tests still assert startup, reconnection, draft preservation and request counts.
 
+The mixed stock and ETF valuation quote fixture uses the start of the requested Shanghai date as its provider timestamp. The CLI checks that the captured rows stay inside the receipt boundary and that offline replay retains that exact provider timestamp.
+
 ## Main Branch Protection
 
 Workflow files do not configure enforcement. In the matching main protection rule, require PRs and select actual check names: `CI required`, `PR policy`, and `Desktop required`. Choose GitHub Actions as their source where supported. Workflow titles and manual publishing jobs are unsuitable substitutes.
