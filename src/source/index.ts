@@ -54,7 +54,7 @@ export { SourceRequestError } from "./src/market-data-error.ts";
 export type { SourceErrorCode } from "./src/market-data-error.ts";
 export type { DailyMarketBar, DailyMarketBars, DailyMarketBasic, DailyMarketBasics } from "./src/market-observations.ts";
 export type { DatedEtfDailyObservations } from "./src/market-observations.ts";
-export type { DatedStockMinuteObservations } from "./src/market-observations.ts";
+export type { CurrentStockMinuteBatchObservations, CurrentStockMinuteFrame, DatedStockMinuteObservations } from "./src/market-observations.ts";
 export type { CurrentIndexMinuteObservations, DatedBenchmarkObservations, DatedBenchmarkRow, DatedIndexDailyObservations, DatedIndexDailyRow,
   DatedIndexMinuteObservations, DatedIndexMinuteRow } from "./src/market-observations.ts";
 export type { DatedSectorCatalog, DatedSectorMembers } from "./src/market-observations.ts";

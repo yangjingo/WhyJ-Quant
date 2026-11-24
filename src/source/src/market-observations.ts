@@ -9,7 +9,7 @@ import { SourceRequestError } from "./market-data-error.ts";
 import type { MarketDataSource, SourceConnection, SourceRequestOptions, TradingDateKline } from "./market-data.ts";
 import { readReference } from "./market-reference.ts";
 import type { ProviderSource } from "./source-contracts.ts";
-import { fetchTickFlowKlines } from "./tickflow.ts";
+import { fetchTickFlowIntradayBatch, fetchTickFlowKlines, TICKFLOW_SYMBOL_BATCH_SIZE, type TickFlowKline } from "./tickflow.ts";
 import { fetchTickFlowTradingDateRows, fetchTushareTradingDateRows } from "./trading-date-klines.ts";
 import { fetchTushareDailyTradingLimits, fetchTushareDailyValuation, fetchTushareDatedBenchmark, fetchTushareDatedMoneyFlow,
   fetchTushareDatedRiskWarnings,
@@ -191,6 +191,21 @@ export interface DatedStockMinuteObservations {
   rows: { sourceTimestamp: number; open: number; high: number; low: number; close: number; volume: number; amount: number | null }[];
 }
 
+export interface CurrentStockMinuteFrame {
+  symbol: string;
+  status: "observed" | "empty" | "missing" | "different-session" | "future-timestamp";
+  sourceTradeDate: string | null;
+  rows: DatedStockMinuteObservations["rows"];
+}
+
+export interface CurrentStockMinuteBatchObservations extends Omit<DatedStockMinuteObservations, "symbol" | "rows" | "adjustment" | "finality"> {
+  adjustment: "unknown";
+  finality: "provisional";
+  requestedSymbols: string[];
+  rowLimitPerSymbol: number;
+  frames: CurrentStockMinuteFrame[];
+}
+
 export interface DailyMarketBasic {
   symbol: string;
   close: number | null;
@@ -314,6 +329,8 @@ export interface MarketObservationSource {
     Promise<MarketObservation<CurrentIndexMinuteObservations>>;
   fetchDatedStockMinutes(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<DatedStockMinuteObservations>>;
+  fetchCurrentStockMinuteBatch(request: { symbols: readonly string[]; market: Market; tradeDate: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<CurrentStockMinuteBatchObservations>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
   fetchHistoricalStockUniverse(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
@@ -343,6 +360,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchDatedIndexMinutes: { tickflow: "A" },
   fetchCurrentIndexMinutes: { tickflow: "A" },
   fetchDatedStockMinutes: { tickflow: "A" },
+  fetchCurrentStockMinuteBatch: { tickflow: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
@@ -356,6 +374,18 @@ function indexMinuteSymbol(symbol: string): string {
   const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
   if (!isDatedBenchmarkIndexSymbol(code)) throw new Error("An exchange-qualified A-share benchmark index is required");
   return code;
+}
+
+function stockMinuteSymbol(symbol: string): string {
+  const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
+  if (!/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(code) || isAIndexSymbol(code)) {
+    throw new Error("An exchange-qualified A-share stock is required");
+  }
+  return code;
+}
+
+function stockMinuteRows(rows: readonly TickFlowKline[]): DatedStockMinuteObservations["rows"] {
+  return rows.map(({ timestamp: sourceTimestamp, ...row }) => ({ sourceTimestamp, ...row }));
 }
 
 function shanghaiMinuteWindow(tradeDate: string) {
@@ -391,6 +421,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchDatedIndexMinutes: status("fetchDatedIndexMinutes"),
     fetchCurrentIndexMinutes: status("fetchCurrentIndexMinutes"),
     fetchDatedStockMinutes: status("fetchDatedStockMinutes"),
+    fetchCurrentStockMinuteBatch: status("fetchCurrentStockMinuteBatch"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
     fetchDatedRiskWarnings: status("fetchDatedRiskWarnings"),
@@ -742,10 +773,7 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
     },
     async fetchDatedStockMinutes({ symbol, market, tradeDate }, options) {
       validate("fetchDatedStockMinutes", market);
-      const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
-      if (!/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(code) || isAIndexSymbol(code)) {
-        throw new Error("An exchange-qualified A-share stock is required");
-      }
+      const code = stockMinuteSymbol(symbol);
       const window = completedMinuteWindow(tradeDate);
       const { rows } = await readReference(options, signal => fetchTickFlowKlines(code, {
         period: "1m", adjustment: "none", ...window,
@@ -753,8 +781,38 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
       return result<DatedStockMinuteObservations>(market, "/v1/klines", {
         symbol: code, assetType: "stock", tradeDate, interval: "1m", adjustment: "none", timeZone: "Asia/Shanghai",
         priceUnit: "provider-native", volumeUnit: "provider-native", amountUnit: "provider-native", timestampLabel: "provider-native", finality: "unknown",
-        rows: rows.map(({ timestamp, open, high, low, close, volume, amount }) => ({ sourceTimestamp: timestamp, open, high, low, close, volume, amount })),
+        rows: stockMinuteRows(rows),
       });
+    },
+    async fetchCurrentStockMinuteBatch({ symbols, market, tradeDate }, options) {
+      validate("fetchCurrentStockMinuteBatch", market);
+      options?.signal?.throwIfAborted();
+      if (tradeDate !== shanghaiDate.format(Date.now())) throw new Error("The current Shanghai date is required");
+      if (!Array.isArray(symbols) || !symbols.length || symbols.length > TICKFLOW_SYMBOL_BATCH_SIZE) {
+        throw new Error("Current stock minutes require 1 to 100 symbols");
+      }
+      const requestedSymbols = Array.from(symbols, stockMinuteSymbol);
+      if (new Set(requestedSymbols).size !== requestedSymbols.length) throw new Error("Duplicate current stock minute symbol");
+      const { observedTime, rowLimitPerSymbol, frames } = await readReference(options, async signal => {
+        const { rowLimitPerSymbol, rowsBySymbol } = await fetchTickFlowIntradayBatch(requestedSymbols, { apiKey, baseUrl, env, signal });
+        const observedTime = Date.now();
+        const frames = requestedSymbols.map((symbol): CurrentStockMinuteFrame => {
+          const rows = rowsBySymbol.get(symbol);
+          if (!rows?.length) return { symbol, status: rows ? "empty" : "missing", sourceTradeDate: null, rows: [] };
+          const sourceTradeDate = shanghaiDate.format(rows[0]!.timestamp);
+          const lastTimestamp = rows.at(-1)!.timestamp;
+          if (shanghaiDate.format(lastTimestamp) !== sourceTradeDate) throw new Error("Provider returned mixed stock-minute dates");
+          if (lastTimestamp > observedTime) return { symbol, status: "future-timestamp", sourceTradeDate, rows: [] };
+          if (sourceTradeDate !== tradeDate) return { symbol, status: "different-session", sourceTradeDate, rows: [] };
+          return { symbol, status: "observed", sourceTradeDate, rows: stockMinuteRows(rows) };
+        });
+        return { observedTime, rowLimitPerSymbol, frames };
+      });
+      return result<CurrentStockMinuteBatchObservations>(market, "/v1/klines/intraday/batch", {
+        tradeDate, assetType: "stock", interval: "1m", adjustment: "unknown", timeZone: "Asia/Shanghai",
+        priceUnit: "provider-native", volumeUnit: "provider-native", amountUnit: "provider-native",
+        timestampLabel: "provider-native", finality: "provisional", rowLimitPerSymbol, requestedSymbols, frames,
+      }, new Date(observedTime).toISOString());
     },
     async fetchTradingCalendar({ market, start, end }, options) {
       validate("fetchTradingCalendar", market);
