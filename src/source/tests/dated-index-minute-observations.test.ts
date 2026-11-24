@@ -71,6 +71,68 @@ test("separates an empty dated result from permission, identity, malformed and u
     expect(fetcher).toHaveBeenCalledTimes(5);
   } finally { fetcher.mockRestore(); }
 });
+test("reads only the available current index-minute window and labels its raw rows provisional", async () => {
+  const clock = spyOn(Date, "now").mockReturnValue(stamp("10:12:37"));
+  const fetcher = spyOn(globalThis, "fetch");
+  const source = createMarketDataSource({ source: "tickflow", apiKey: "fixture", env: {} });
+  const startTime = stamp("09:25:00");
+  const endTime = stamp("10:12:37");
+  try {
+    expect(getMarketDataCapabilities("tickflow").observations.fetchCurrentIndexMinutes).toEqual({ status: "implemented", markets: ["A"] });
+    expect(getMarketDataCapabilities("tushare").observations.fetchCurrentIndexMinutes).toEqual({ status: "not-implemented" });
+    fetcher.mockResolvedValueOnce(payload([stamp("10:12:00"), stamp("09:31:00")], "000001.SH", [0, 123]));
+    expect(await source.fetchCurrentIndexMinutes(query)).toMatchObject({
+      source: "tickflow", market: "A", endpoint: "/v1/klines", observedAt: expect.any(String), coverage: "unknown",
+      data: {
+        symbol: "000001.SH", tradeDate: query.tradeDate, interval: "1m", priceBasis: "index-level", priceUnit: "index-points",
+        volumeUnit: "provider-native", amountUnit: "provider-native", timestampLabel: "provider-native", finality: "provisional",
+        requestedWindow: { startTime, endTime },
+        rows: [
+          { sourceTimestamp: stamp("09:31:00"), openPoints: 3_002, highPoints: 3_007, lowPoints: 2_999, closePoints: 3_005, volume: 42, amount: 123 },
+          { sourceTimestamp: stamp("10:12:00"), closePoints: 3_005, volume: 42, amount: 0 },
+        ],
+      },
+    });
+    const firstUrl = new URL(String(fetcher.mock.calls[0]![0]));
+    expect(firstUrl.pathname).toBe("/v1/klines");
+    expect(Object.fromEntries(firstUrl.searchParams)).toEqual({
+      symbol: "000001.SH", period: "1m", adjust: "none", count: "10000", start_time: String(startTime), end_time: String(endTime),
+    });
+    clock.mockReturnValue(stamp("20:00:00"));
+    fetcher.mockResolvedValueOnce(payload([]));
+    expect((await source.fetchCurrentIndexMinutes(query)).data).toMatchObject({
+      finality: "provisional", requestedWindow: { startTime, endTime: stamp("15:05:00") }, rows: [],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  } finally { fetcher.mockRestore(); clock.mockRestore(); }
+});
+
+test("rejects out-of-scope current minutes and preserves the before-window, empty and failure states", async () => {
+  const clock = spyOn(Date, "now").mockReturnValue(stamp("08:00:00"));
+  const fetcher = spyOn(globalThis, "fetch");
+  const source = createMarketDataSource({ source: "tickflow", apiKey: "fixture", env: {} });
+  try {
+    expect((await source.fetchCurrentIndexMinutes(query)).data).toMatchObject({ finality: "provisional", requestedWindow: null, rows: [] });
+    await expect(source.fetchCurrentIndexMinutes({ ...query, tradeDate: "2024-04-07" })).rejects.toThrow("current Shanghai");
+    await expect(source.fetchCurrentIndexMinutes({ ...query, tradeDate: "2024-04-09" })).rejects.toThrow("current Shanghai");
+    await expect(source.fetchCurrentIndexMinutes({ ...query, symbol: "000001.SZ" })).rejects.toThrow("exchange-qualified");
+    await expect(source.fetchCurrentIndexMinutes({ ...query, market: "US" })).rejects.toMatchObject({ code: "unsupported" });
+    await expect(createMarketDataSource({ source: "tushare" }).fetchCurrentIndexMinutes(query)).rejects.toMatchObject({ code: "unsupported" });
+    await expect(source.fetchCurrentIndexMinutes(query, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetcher).toHaveBeenCalledTimes(0);
+    clock.mockReturnValue(stamp("10:12:37"));
+    for (const response of [
+      payload([stamp("10:12:38")]), payload([stamp("09:24:59")]),
+      payload([stamp("10:00:00")], "399001.SZ"), payload([stamp("10:00:00"), stamp("10:00:00")]),
+      new Response(null, { status: 403 }),
+    ]) {
+      fetcher.mockResolvedValueOnce(response);
+      await expect(source.fetchCurrentIndexMinutes(query)).rejects.toMatchObject({ code: "provider-failure" });
+    }
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  } finally { fetcher.mockRestore(); clock.mockRestore(); }
+});
+
 test("reads the requested historical index session through a loopback TickFlow endpoint", async () => {
   let requests = 0;
   const server = Bun.serve({
