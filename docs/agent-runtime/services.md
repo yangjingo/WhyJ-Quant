@@ -725,6 +725,8 @@ whyj --json observation replay-screener-score --manifest ./screener-score.json
 
 Runtime 调用方可为每只股票附上 `financialArchives`，用[历史时点解析](#财务数据的历史时点)选择在列表交易日前已经获取、且有实际披露证据的报告。`observations.financial` 保留报告期、披露日、归档版本与获取时间，以及供应商记录的基本 EPS、BPS、ROE、利润率、增长率和资产负债率。旧归档可能缺少 EPS 字段，报告币种和比率单位沿用归档口径。无法匹配符合条件的报告时返回不可用原因。日期估值仍来自同一市场截面的 `daily_basic`。
 
+提供 `history.exchange` 或单独的 `tradingLimitsRef` 后，`observations.tradingLimits` 保留 `stk_limit` 的原始人民币阈值、归档版本及观测时间。同一股票只接受其中一种限价引用。当日归档缺行时 `row` 为 `null`，日期相邻的记录不会代填。提供以列表交易日结束的 `limitCalendar: { revision, sessions }` 时，`metrics.limitStreaks` 从历史限价信号计算连续涨停与跌停次数，保留日历和公式版本。缺少信号、交易日证据或此前未触板的起算点时，相应次数为 `null`。已知未触板将该方向的计数重置为 0。
+
 缺少行情或财务估值观察的标的仍占一行，对应观察为 `null`。日线历史缺少目标交易日时，技术指标和信号为 `null`，已有历史归档的实际结束日期随行返回。调用方可用这份结果展示固定日期，实时行情覆盖需要独立的报价时间和价格口径。
 
 ```sh

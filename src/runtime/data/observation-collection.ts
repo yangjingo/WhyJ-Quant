@@ -106,6 +106,7 @@ async function readExchangeInputs(
     throw new Error("Exchange signals require unadjusted prices and limits for the same symbol");
   }
   return {
+    tradingLimits: { ref: exchange.tradingLimitArchiveRef, ...limits },
     rawByDate: new Map(raw.map(row => [row.tradeDate, row.values])),
     limitByDate: new Map(limits.rows.map(row => [row.tradeDate, row])),
     evidence: {
@@ -115,8 +116,7 @@ async function readExchangeInputs(
   };
 }
 
-/** Calculate a preview over one immutable daily archive, seeded by its earliest bar. */
-export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, signal?: AbortSignal, exchange?: DailySignalExchangeRefs) {
+export async function resolveTspArchiveIndicators(ref: TradingDateArchiveRef, signal?: AbortSignal, exchange?: DailySignalExchangeRefs) {
   const archiveRef = { ...ref };
   const exchangeRefs = exchange && {
     tradingLimitArchiveRef: { ...exchange.tradingLimitArchiveRef },
@@ -138,7 +138,7 @@ export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, sig
   });
   const { indicators: daily, signals } = computeTspDailyIndicatorsAndSignals(bars);
 
-  return {
+  const preview = {
     archiveRef,
     formula: { version: TSP_INDICATOR_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
     input: {
@@ -169,4 +169,10 @@ export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, sig
       ...(inputs && { exchangeInputs: inputs.evidence }),
     },
   };
+  return { records, preview, ...(inputs && { tradingLimits: inputs.tradingLimits }) };
+}
+
+/** Calculate a preview over one immutable daily archive, seeded by its earliest bar. */
+export async function deriveTspArchiveIndicators(ref: TradingDateArchiveRef, signal?: AbortSignal, exchange?: DailySignalExchangeRefs) {
+  return (await resolveTspArchiveIndicators(ref, signal, exchange)).preview;
 }
