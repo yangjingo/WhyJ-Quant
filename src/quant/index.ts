@@ -78,6 +78,8 @@ export type { TspBreadthMemberObservation, TspBreadthUniverse, TspMarketBreadth 
 export { computeTspSectorRanking, TSP_SECTOR_RANKING_FORMULA_VERSION } from "./tsp-sector-ranking.ts";
 export { computeTspSectorMonitor, TSP_SECTOR_MONITOR_FORMULA_VERSION, TSP_SECTOR_MONITOR_WINDOWS } from "./tsp-sector-monitor.ts";
 export type { TspSectorMonitorInput, TspSectorMonitorQuote, TspSectorMonitorRule, TspSectorMonitorTarget } from "./tsp-sector-monitor.ts";
+export { computeTspMonitorAlerts, TSP_MONITOR_ALERT_FORMULA_VERSION } from "./tsp-monitor-alerts.ts";
+export type { TspMonitorAlertCapture, TspMonitorAlertRule, TspMonitorAlertsInput, TspMonitorCondition } from "./tsp-monitor-alerts.ts";
 export type { TspSectorMember, TspSectorMembership, TspSectorRankingInput, TspSectorRank, TspSectorSnapshotGroup } from "./tsp-sector-ranking.ts";
 export { computeTspDragonTiger, TSP_DRAGON_TIGER_FORMULA_VERSION } from "./tsp-dragon-tiger.ts";
 export type { TspDragonTigerInput } from "./tsp-dragon-tiger.ts";
