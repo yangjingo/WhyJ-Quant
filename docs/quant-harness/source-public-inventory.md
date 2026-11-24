@@ -36,6 +36,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDatedIndexDailyBars` | TickFlow historical index-level daily OHLC with native quantity semantics, exact Shanghai range and provider timestamps. |
 | `fetchDatedEtfDailyBars` | Tushare `fund_daily` and TickFlow `/v1/klines` give dated unadjusted A-share ETF daily OHLC and source-specific units. |
 | `fetchDatedIndexMinutes` | TickFlow historical minute K-lines for one dated A-share benchmark index. Keeps native timestamp labels and volume and amount units. Empty dated frames stay empty. |
+| `fetchDatedStockMinutes` | TickFlow unadjusted minute K-lines for one A-share stock on a completed Shanghai date. Uses the exact native timestamps and quantities and retains unknown unit, label and finality semantics. |
 | `fetchDatedAuctionBenchmark` | The explicit Fuyao `/api/a-share/auction/short-term-benchmark` read preserves selected stock identities and order, labels and percentage-point auction returns. The response assembly timestamp is distinct from the exact Shanghai trade date and local capture time. |
 | `fetchDatedDragonTigerBoard` | Read one explicit Fuyao all, institution or hot-money board. Preserve provider counts, CNY amounts, fractional ratios, ordered one- and three-day stock records, and nested seat positions. |
 | `fetchDatedPopularityList` | Read the Fuyao historical top stock list for one Shanghai calendar date. Preserve native ranks and order, Shanghai midnight and capture time. |
@@ -444,6 +445,7 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `DatedBenchmarkObservations` | type | Dated index observation rows, requested window and native units | — |
 | `DatedIndexMinuteRow` | type | Native index minute timestamp, OHLC points and reported quantities | — |
 | `DatedIndexMinuteObservations` | type | Dated TickFlow index minute rows, query scope and quantity semantics | — |
+| `DatedStockMinuteObservations` | type | Dated TickFlow stock minute rows, requested basis and native field semantics | — |
 | `DatedIndexDailyRow` | type | Daily index OHLC points, mapped trade date and provider timestamp | — |
 | `DatedIndexDailyObservations` | type | Dated TickFlow index daily rows, query window and quantity semantics | — |
 | `DatedEtfDailyObservations` | type | Exact dated ETF closes, OHLC observations, range and native provider units | — |
