@@ -6,21 +6,42 @@ import { loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadPanelP
 import { replayFinancialResearchInputs } from "./financial-input-replay.ts";
 import { archivedListLiquidity } from "./list-liquidity.ts";
 import { resolveTspArchiveIndicators, type DailySignalExchangeRefs } from "./observation-collection.ts";
+import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "./price-deviation-replay.ts";
 import { replayTspScreenerUnion, type ScreenerUnionReplayRequest } from "./screener-replay.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
 import { projectTspWatchlistReturn, resolveTspWatchlistMembership } from "./watchlist-return.ts";
+
+type ListCalendar = { revision: string; sessions: readonly string[] };
+type ListDeviationRequest = Pick<PriceDeviationReplayRequest, "stockRef" | "benchmarkRef">;
+
+function validateListCalendar(calendar: ListCalendar, tradeDate: string, kind: "limit" | "deviation") {
+  if (!calendar || typeof calendar.revision !== "string" || !calendar.revision.trim() || calendar.revision.length > 256 ||
+    !Array.isArray(calendar.sessions) || calendar.sessions.at(-1) !== tradeDate ||
+    calendar.sessions.some((date, index, sessions) => typeof date !== "string" || date < "0001-01-01" ||
+      !isDailyDate(date) || (index > 0 && date <= sessions[index - 1]!))) {
+    throw new Error(`List ${kind} calendar must contain ordered sessions ending at the trade date`);
+  }
+}
+
+async function readListDeviation(symbol: string, sessions: readonly string[], request: ListDeviationRequest, signal?: AbortSignal) {
+  const { calendar: _calendar, rows, proximity: { rows: proximityRows, ...proximity }, ...evidence } =
+    await replayTspPriceDeviation({ ...request, symbol, sessions }, signal);
+  return { ...evidence, ...rows.at(-1)!, proximity: { ...proximity, ...proximityRows.at(-1)! } };
+}
 
 export interface TspListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
   screener?: Pick<ScreenerUnionReplayRequest, "histories" | "strategies">;
-  limitCalendar?: { revision: string; sessions: readonly string[] };
+  limitCalendar?: ListCalendar;
+  deviationCalendar?: ListCalendar;
   watchlistMembershipRevision?: string;
   stocks: readonly {
     symbol: string;
     history?: { ref: TradingDateArchiveRef; exchange?: DailySignalExchangeRefs; candleBars?: number };
     watchlistHistoryRef?: TradingDateArchiveRef;
     tradingLimitsRef?: TradingLimitArchiveRef;
+    deviation?: ListDeviationRequest;
     financialArchives?: readonly FinancialObservationArchiveRef[];
   }[];
 }
@@ -28,7 +49,7 @@ export interface TspListRowsRequest {
 /** Join fixed market observations and same-day WHYJ calculations for either stock list. */
 export async function replayTspListRows(request: TspListRowsRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { marketRef, adjustment, stocks, limitCalendar, watchlistMembershipRevision, screener } = structuredClone(request);
+  const { marketRef, adjustment, stocks, limitCalendar, watchlistMembershipRevision, screener, deviationCalendar } = structuredClone(request);
   if (adjustment !== "none" && adjustment !== "forward") throw new Error("Invalid list price basis");
   if (watchlistMembershipRevision === undefined ? stocks.some(stock => stock.watchlistHistoryRef !== undefined) :
     typeof watchlistMembershipRevision !== "string" || !/^[a-f0-9]{64}$/.test(watchlistMembershipRevision)) {
@@ -36,17 +57,13 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   }
   const portfolio = watchlistMembershipRevision === undefined ? undefined : loadPanelPortfolio();
   if (portfolio && portfolio.revision !== watchlistMembershipRevision) throw new Error("Saved watchlist membership revision changed.");
-  const { source, market, tradeDate, universe, bars, basics } = await loadMarketCrossSectionArchive(marketRef, signal);
-  let calendarDates: Set<string> | undefined;
-  if (limitCalendar !== undefined) {
-    if (!limitCalendar || typeof limitCalendar.revision !== "string" || !limitCalendar.revision.trim() ||
-      limitCalendar.revision.length > 256 || !Array.isArray(limitCalendar.sessions) || limitCalendar.sessions.at(-1) !== tradeDate ||
-      limitCalendar.sessions.some((date, index, sessions) => typeof date !== "string" || date < "0001-01-01" ||
-        !isDailyDate(date) || (index > 0 && date <= sessions[index - 1]!))) {
-      throw new Error("List limit calendar must contain ordered sessions ending at the trade date");
-    }
-    calendarDates = new Set(limitCalendar.sessions);
+  if (deviationCalendar === undefined && stocks.some(stock => stock.deviation !== undefined)) {
+    throw new Error("List price deviation requires a deviation calendar");
   }
+  const { source, market, tradeDate, universe, bars, basics } = await loadMarketCrossSectionArchive(marketRef, signal);
+  if (limitCalendar !== undefined) validateListCalendar(limitCalendar, tradeDate, "limit");
+  if (deviationCalendar !== undefined) validateListCalendar(deviationCalendar, tradeDate, "deviation");
+  const calendarDates = limitCalendar && new Set(limitCalendar.sessions);
   const { members, ...rosterObservation } = universe;
   const { rows: barRows, ...dailyObservation } = bars;
   const { rows: basicRows, ...dailyBasicObservation } = basics;
@@ -64,7 +81,7 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   const barsBySymbol = new Map(barRows.map(row => [row.symbol, row]));
   const basicsBySymbol = new Map(basicRows.map(row => [row.symbol, row]));
   const rows = [];
-  for (const { symbol, history, watchlistHistoryRef, financialArchives, tradingLimitsRef } of stocks) {
+  for (const { symbol, history, financialArchives, tradingLimitsRef, watchlistHistoryRef, deviation } of stocks) {
     signal?.throwIfAborted();
     const membership = portfolio && resolveTspWatchlistMembership(portfolio, symbol);
     if (history?.exchange && tradingLimitsRef !== undefined) throw new Error("List stock has competing trading limit references");
@@ -117,6 +134,9 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
       consecutiveLimitUps: latestStreak?.consecutiveLimitUps ?? null,
       consecutiveLimitDowns: latestStreak?.consecutiveLimitDowns ?? null,
     };
+    const deviationResult = deviation !== undefined && deviationCalendar
+      ? await readListDeviation(symbol, deviationCalendar.sessions, deviation, signal)
+      : undefined;
     const match = unionRows.get(symbol);
     rows.push({
       instrument: roster.get(symbol)!,
@@ -134,6 +154,7 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
           exchangeInputs: derived.dailySignals.exchangeInputs ?? null, ...derived.dailySignals.rows.at(-1)!,
         } : null,
         ...(limitStreaks && { limitStreaks }),
+        ...(deviationResult && { deviation: deviationResult }),
         ...(strategyEvaluations && { screener: {
           producer: "whyj" as const,
           position: match?.position ?? null,
@@ -151,6 +172,7 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   return {
     marketRef, source, market, tradeDate, adjustment, rows,
     ...(limitCalendar && { limitCalendar: { ...limitCalendar, zone: "Asia/Shanghai" as const } }),
+    ...(deviationCalendar && { deviationCalendar: { ...deviationCalendar, zone: "Asia/Shanghai" as const } }),
     ...(union && { screener: {
       scoped: union.replays[0]!.coverage.scoped,
       matched: union.rows.length,
