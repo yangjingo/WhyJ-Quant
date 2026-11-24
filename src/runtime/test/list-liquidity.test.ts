@@ -2,10 +2,11 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveMarketCrossSection, archiveTradingDateObservations,
+import { archiveMarketCrossSection, archiveTradingDateObservations, loadPanelPortfolio, savePanelPortfolio,
   type StoredMarketCrossSection, type StoredTradingDateBarObservation } from "../../storage/index.ts";
 import { replayTspListLiquidity } from "../data/list-liquidity.ts";
-import { replayTspListRows } from "../data/list-rows.ts";
+import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../data/list-rows.ts";
+import { replayTspWatchlistReturn } from "../data/watchlist-return.ts";
 
 test("replays one dated stock with distinct Tushare and WhyJ evidence", async () => {
   const root = mkdtempSync(join(tmpdir(), "whyj-list-liquidity-"));
@@ -32,14 +33,14 @@ test("replays one dated stock with distinct Tushare and WhyJ evidence", async ()
       ] },
   };
   const priorDay = "2024-03-01";
-  function history(dates: string[]) {
+  function history(dates: string[], adjustment: "none" | "forward" = "forward") {
     return archiveTradingDateObservations(dates.map((day, index): StoredTradingDateBarObservation => {
       const close = 8 + index;
       return {
         schemaVersion: 2, kind: "trading_date_daily_bar", interval: "1d", symbol, tradeDate: day,
         market: "A", assetType: "stock", calendarTimeZone: "Asia/Shanghai", source: "tickflow", endpoint: "/v1/klines",
         sourceTimestamp: Date.parse(day + "T15:00:00+08:00"), requested: { startDate: dates[0]!, endDate: dates.at(-1)! },
-        observedAt: metadata.observedAt, adjustment: "forward", volumeUnit: "unknown", amountUnit: "unknown", coverage: "unknown",
+        observedAt: metadata.observedAt, adjustment, volumeUnit: "unknown", amountUnit: "unknown", coverage: "unknown",
         values: { open: close, high: close, low: close, close, volume: 100, amount: null },
       };
     }));
@@ -100,6 +101,50 @@ test("replays one dated stock with distinct Tushare and WhyJ evidence", async ()
       }],
     });
     expect(await replayTspListRows(listRequest)).toEqual(result);
+
+    const addedAt = "2024-03-01T17:00:00Z";
+    const portfolio = loadPanelPortfolio();
+    portfolio.symbols = [{ code: "600519", name: "fixture", added: addedAt },
+      { code: "600000.SH", name: "no observations", added: tradeDate }];
+    savePanelPortfolio(portfolio);
+    const membershipRevision = portfolio.revision!;
+    const withWatchlist = { ...listRequest, watchlistMembershipRevision: membershipRevision, stocks: [
+      { ...listRequest.stocks[0]!, watchlistHistoryRef: dailyRef }, listRequest.stocks[1]!,
+    ] };
+    const standalone = await replayTspWatchlistReturn({ ref: dailyRef, asOf: tradeDate, membershipRevision });
+    const watchlist = await replayTspListRows(withWatchlist);
+    expect(watchlist.rows[0]?.membership).toEqual({ producer: "workspace", revision: membershipRevision, code: "600519", addedAt });
+    expect(watchlist.rows[0]?.metrics.watchlistReturn).toEqual({ ...standalone.metrics, history: standalone.input.history });
+    expect(watchlist.rows[0]?.metrics.watchlistReturn).toMatchObject({
+      addedDate: "2024-03-02", pctSinceAdded: 0.125,
+      baseline: { tradeDate: priorDay, close: 8 }, latest: { tradeDate, close: 9 },
+    });
+    expect(watchlist.rows[0]?.observations).toEqual(result.rows[0]?.observations);
+    expect(watchlist.rows[1]?.membership).toMatchObject({ code: "600000.SH", addedAt: tradeDate });
+    expect(watchlist.rows[1]?.metrics.watchlistReturn).toBeNull();
+    expect(await replayTspListRowsWithLiveQuotes(withWatchlist)).toEqual({ fixed: watchlist, quotes: { status: "outside-current-day" } });
+    expect(await replayTspListRows(listRequest)).toEqual(result);
+    const onlyReturn = { ...withWatchlist, adjustment: "none" as const, stocks: [{ symbol, watchlistHistoryRef: dailyRef }] };
+    expect((await replayTspListRows(onlyReturn)).rows[0]?.metrics.watchlistReturn).toEqual(watchlist.rows[0]?.metrics.watchlistReturn);
+    const shortHistory = await history([tradeDate]);
+    const unadjusted = await history([priorDay, tradeDate], "none");
+    const withReturnRef = (watchlistHistoryRef: typeof dailyRef) => ({ ...onlyReturn, stocks: [{ symbol, watchlistHistoryRef }] });
+    expect((await replayTspListRows(withReturnRef(futureRef))).rows[0]?.metrics.watchlistReturn)
+      .toMatchObject({ latest: { tradeDate, close: 9 }, pctSinceAdded: 0.125 });
+    expect((await replayTspListRows(withReturnRef(shortHistory))).rows[0]?.metrics.watchlistReturn)
+      .toMatchObject({ status: "missing-baseline", pctSinceAdded: null });
+    await expect(replayTspListRows(withReturnRef(staleRef))).rejects.toThrow("covering the requested cutoff");
+    await expect(replayTspListRows(withReturnRef(unadjusted))).rejects.toThrow("forward-adjusted");
+    await expect(replayTspListRows({ ...onlyReturn, stocks: [{ symbol: "600000.SH", watchlistHistoryRef: dailyRef }] }))
+      .rejects.toThrow("does not match");
+    await expect(replayTspListRows({ ...onlyReturn, watchlistMembershipRevision: undefined })).rejects.toThrow("membership revision");
+    portfolio.symbols = [{ code: symbol, name: "fixture", added: tradeDate }];
+    savePanelPortfolio(portfolio);
+    await expect(replayTspListRows(onlyReturn)).rejects.toThrow("revision changed");
+    expect((await replayTspListRows({ ...onlyReturn, watchlistMembershipRevision: portfolio.revision })).rows[0]?.metrics.watchlistReturn)
+      .toMatchObject({ status: "available", pctSinceAdded: 0 });
+    await expect(replayTspListRows({ ...withWatchlist, watchlistMembershipRevision: portfolio.revision })).rejects.toThrow("absent");
+
     const stale = await replayTspListRows({ ...listRequest, stocks: [{ symbol, history: { ref: staleRef } }] });
     expect(stale.rows[0]).toMatchObject({ metrics: { daily: null, signals: null, history: { lastTradeDate: priorDay } } });
     await expect(replayTspListRows({ ...listRequest, stocks: [{ symbol }, { symbol }] })).rejects.toThrow("Duplicate");
