@@ -677,6 +677,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 用 `whyj --json observation collect-index-minutes --symbol 000001.SH --date 2024-04-08` 获取指定日期的分钟引用。执行 `whyj --json observation replay-index-minutes --revision MINUTE_SHA256` 离线读回原始证据。若需昨收涨跌，再加 `--daily-revision DAILY_SHA256 --previous-date 2024-04-03 --date 2024-04-08 --calendar-revision CALENDAR_ID`。日线引用可用同一 TickFlow 指数的 `collect-benchmark` 取得。返回的 `input` 记录供应商观察和日期，`metrics` 记录 WhyJ 计算及公式版本。
 
+`previewCurrentIndexMinutes` 明确读取当前上海日期的指数分时，返回供应商原始分钟、请求窗口与采集时间，标记为 `provisional`。`before-window` 表示窗口尚未开始，`empty` 表示供应商返回空帧。可选昨收引用沿用历史回放的日期和来源匹配规则。WHYJ 涨跌幅另列，缺少昨收时为 `null`。临时读数无需写入分钟归档。
+
 ### 指数日线指标回放
 
 `collectDatedIndexDailyBars` 捕获固定上海日期窗口的原始指数日线，空响应也返回归档引用。`replayDatedIndexDailyBars` 根据该引用输出原始数据和 WhyJ 派生的 15 个指标字段，覆盖 MA、MACD、RSI、KDJ 和布林带。可选显示范围必须在归档查询范围内，归档里早于显示起点的观测参与预热，晚于显示终点的观测不进入计算。返回实际计算首末日期和参与条数，短历史按公式返回空值。不会基于查询范围推断交易日数据齐全。 [指标与来源映射](../quant-harness/tsp-panel-coverage.md#index-panel)

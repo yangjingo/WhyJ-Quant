@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveBenchmarkIndexObservations, readSettings, saveSettings, type StoredBenchmarkIndexBatch } from "../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../types/config.ts";
-import { collectDatedIndexMinutes, replayDatedIndexMinutes } from "../data/index-minute-observations.ts";
+import { collectDatedIndexMinutes, previewCurrentIndexMinutes, replayDatedIndexMinutes } from "../data/index-minute-observations.ts";
 
 const date = "2024-02-05";
 const previousDate = "2024-02-02";
@@ -34,6 +34,65 @@ afterEach(() => {
   if (previous === undefined) delete process.env.OHQUANT_DIR;
   else process.env.OHQUANT_DIR = previous;
   rmSync(root, { recursive: true, force: true });
+});
+
+test("previews current provider-native index minutes and fixed previous-close returns without archiving", async () => {
+  const now = Date.parse(date + "T09:32:30+08:00");
+  const clock = spyOn(Date, "now").mockReturnValue(now);
+  const provider = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json({ data: providerData }))
+    .mockResolvedValueOnce(Response.json({ data: providerData }))
+    .mockResolvedValueOnce(Response.json({ data: emptyData }));
+  try {
+    const dailyRef = await archiveBenchmarkIndexObservations(daily());
+    const request = { symbol: " 899050.bj ", tradeDate: date, previousClose: { dailyRef, calendar } };
+    const observed = await previewCurrentIndexMinutes(request);
+    expect(observed).toMatchObject({ status: "observed", input: {
+      minutes: { source: "tickflow", endpoint: "/v1/klines", symbol, tradeDate: date, finality: "provisional",
+        volumeUnit: "provider-native", amountUnit: "provider-native", coverage: "unknown", observedAt: expect.any(String),
+        requestedWindow: { startTime: Date.parse(date + "T09:25:00+08:00"), endTime: now },
+        rows: [{ sourceTimestamp: times[0], closePoints: 800, volume: 0, amount: 0 },
+          { sourceTimestamp: times[1], closePoints: 816, volume: 42, amount: 876 }] },
+      previousClose: { dailyRef, calendar, row: { tradeDate: previousDate, closePoints: 800 } },
+    }, metrics: { producer: "whyj", returnUnit: "fraction", previousClosePoints: 800 } });
+    expect(observed.metrics.points[0]).toEqual({ sourceTimestamp: times[0], returnFraction: 0 });
+    expect(observed.metrics.points[1]?.returnFraction).toBeCloseTo(0.02, 12);
+    const url = new URL(String(provider.mock.calls[0]![0]));
+    expect(url.searchParams.get("symbol")).toBe(symbol);
+    expect(url.searchParams.get("end_time")).toBe(String(now));
+
+    const missing = await archiveBenchmarkIndexObservations({ ...daily(), rows: [] });
+    const noClose = await previewCurrentIndexMinutes({ ...request, previousClose: { dailyRef: missing, calendar } });
+    expect(noClose.input.previousClose?.row).toBeNull();
+    expect(noClose.metrics.points).toEqual(times.map(sourceTimestamp => ({ sourceTimestamp, returnFraction: null })));
+    expect(await previewCurrentIndexMinutes({ symbol, tradeDate: date })).toMatchObject({
+      status: "empty", input: { minutes: { rows: [], requestedWindow: expect.any(Object) }, previousClose: null }, metrics: { points: [] },
+    });
+    clock.mockReturnValue(Date.parse(date + "T08:00:00+08:00"));
+    expect(await previewCurrentIndexMinutes({ symbol, tradeDate: date })).toMatchObject({
+      status: "before-window", input: { minutes: { requestedWindow: null, rows: [] } }, metrics: { points: [] },
+    });
+    expect(provider).toHaveBeenCalledTimes(3);
+    expect(existsSync(join(root, "data", "dated-index-minute-archives-v1"))).toBe(false);
+  } finally { provider.mockRestore(); clock.mockRestore(); }
+});
+
+test("rejects an invalid preview scope or prior close before contacting the current index provider", async () => {
+  const clock = spyOn(Date, "now").mockReturnValue(Date.parse(date + "T09:35:00+08:00"));
+  const provider = spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 403 }));
+  try {
+    const request = { symbol, tradeDate: date };
+    const wrong = await archiveBenchmarkIndexObservations(daily("000001.SH"));
+    await expect(previewCurrentIndexMinutes({ ...request, previousClose: { dailyRef: wrong, calendar } }))
+      .rejects.toThrow("does not match the index");
+    await expect(previewCurrentIndexMinutes({ ...request, previousClose: { dailyRef: wrong, calendar: { ...calendar, tradeDate: previousDate } } }))
+      .rejects.toThrow("calendar");
+    await expect(previewCurrentIndexMinutes({ ...request, tradeDate: previousDate })).rejects.toThrow("current Shanghai");
+    await expect(previewCurrentIndexMinutes(request, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+    expect(provider).toHaveBeenCalledTimes(0);
+    await expect(previewCurrentIndexMinutes(request)).rejects.toMatchObject({ code: "provider-failure" });
+    expect(provider).toHaveBeenCalledTimes(1);
+  } finally { provider.mockRestore(); clock.mockRestore(); }
 });
 
 test("collects exact index series and replays its raw observations and WhyJ metrics offline", async () => {
