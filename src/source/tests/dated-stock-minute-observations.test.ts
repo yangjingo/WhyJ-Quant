@@ -90,6 +90,57 @@ test("validates the current stock scope and rejects malformed or mixed provider 
   } finally { fetcher.mockRestore(); clock.mockRestore(); }
 });
 
+test("reads an ordered current ETF batch with independently validated asset identities", async () => {
+  const clock = spyOn(Date, "now").mockReturnValue(stamp("10:32:30"));
+  const etf = "510300.SH", empty = "159915.SZ", missing = "588000.SH", old = "159919.SZ", future = "512880.SH";
+  const symbols = [etf, empty, missing, old, future];
+  const requests: URL[] = [];
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    const url = new URL(request.url);
+    requests.push(url);
+    if (request.headers.get("x-api-key") !== "etf-minute-fixture") return new Response(null, { status: 403 });
+    return Response.json({ data: {
+      [etf]: compactFrame([stamp("09:31:00")], etf, [12_300]),
+      [empty]: compactFrame([]),
+      [old]: compactFrame([stamp("09:31:00") - 86_400_000]),
+      [future]: compactFrame([stamp("10:33:00")]),
+    } });
+  } });
+  try {
+    const source = createMarketDataSource({ source: "tickflow", apiKey: "etf-minute-fixture", baseUrl: server.url.origin, env: {} });
+    const request = { market: "A", tradeDate, symbols: [" 510300.sh ", ...symbols.slice(1)] } as const;
+    expect(getMarketDataCapabilities("tickflow").observations.fetchCurrentEtfMinuteBatch).toEqual({ status: "implemented", markets: ["A"] });
+    expect(getMarketDataCapabilities("tushare").observations.fetchCurrentEtfMinuteBatch).toEqual({ status: "not-implemented" });
+    await expect(createMarketDataSource({ source: "tushare" }).fetchCurrentEtfMinuteBatch(request)).rejects.toMatchObject({ code: "unsupported" });
+    await expect(source.fetchCurrentEtfMinuteBatch({ ...request, tradeDate: "2024-04-03" })).rejects.toThrow("current Shanghai");
+    await expect(source.fetchCurrentEtfMinuteBatch(request, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+    for (const invalid of [[], [etf, symbol], [etf, " 510300.sh "], ["159900.SZ"], ["000001.SH"], Array(101).fill(etf)]) {
+      await expect(source.fetchCurrentEtfMinuteBatch({ ...request, symbols: invalid })).rejects.toThrow();
+    }
+    await expect(source.fetchCurrentStockMinuteBatch({ ...request, symbols: [symbol, etf] })).rejects.toThrow();
+    expect(requests).toHaveLength(0);
+
+    expect(await source.fetchCurrentEtfMinuteBatch(request)).toMatchObject({
+      source: "tickflow", market: "A", endpoint: "/v1/klines/intraday/batch", coverage: "unknown",
+      data: { assetType: "etf", tradeDate, finality: "provisional", adjustment: "unknown", priceUnit: "provider-native",
+        volumeUnit: "provider-native", amountUnit: "provider-native", requestedSymbols: symbols, rowLimitPerSymbol: 300,
+        frames: [
+          { symbol: etf, status: "observed", sourceTradeDate: tradeDate, rows: [
+            { sourceTimestamp: stamp("09:31:00"), open: 10, high: 11, low: 9, close: 10.5, volume: 42, amount: 12_300 },
+          ] },
+          { symbol: empty, status: "empty", rows: [] },
+          { symbol: missing, status: "missing", rows: [] },
+          { symbol: old, status: "different-session", rows: [] },
+          { symbol: future, status: "future-timestamp", rows: [] },
+        ],
+      },
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]!.pathname).toBe("/v1/klines/intraday/batch");
+    expect(Object.fromEntries(requests[0]!.searchParams)).toEqual({ symbols: symbols.join(","), period: "1m", count: "300" });
+  } finally { await server.stop(true); clock.mockRestore(); }
+});
+
 test("captures one completed stock date from the selected TickFlow source without relabeling or converting", async () => {
   const requests: URL[] = [];
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
