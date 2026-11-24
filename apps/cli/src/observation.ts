@@ -212,16 +212,25 @@ function parseScreenerArchiveManifest(value: unknown): ScreenerReplayRequest {
     histories: parseArchivedStockHistories(manifest.histories), displayLimit };
 }
 
-function parseScreenerUnionManifest(value: unknown): ScreenerUnionReplayRequest {
-  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "histories", "strategies"]);
+function parseScreenerUnionScope(manifest: Record<string, unknown>): NonNullable<TspListRowsRequest["screener"]> {
   if (!Array.isArray(manifest.strategies) || !manifest.strategies.length) throw invalid();
   const strategies = manifest.strategies.map(item => parseScreenerStrategy(observationManifestObject(item, screenerStrategyKeys)));
   if (new Set(strategies.map(item => item.strategy.id)).size !== strategies.length) throw invalid();
-  return { ...parseDatedMarketArchiveScope(manifest), histories: parseArchivedStockHistories(manifest.histories), strategies };
+  return { histories: parseArchivedStockHistories(manifest.histories), strategies };
+}
+
+function parseScreenerUnionManifest(value: unknown): ScreenerUnionReplayRequest {
+  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "histories", "strategies"]);
+  return { ...parseDatedMarketArchiveScope(manifest), ...parseScreenerUnionScope(manifest) };
 }
 
 function parseListRowsManifest(value: unknown): TspListRowsRequest {
-  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks", "watchlistMembershipRevision", "limitCalendar"]);
+  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks", "limitCalendar",
+    "watchlistMembershipRevision", "screener"]);
+  const screener = manifest.screener === undefined
+    ? undefined
+    : parseScreenerUnionScope(observationManifestObject(manifest.screener, ["histories", "strategies"]));
+  if (screener && new Set(screener.histories.map(row => row.symbol)).size !== screener.histories.length) throw invalid();
   const { watchlistMembershipRevision } = manifest;
   if (watchlistMembershipRevision !== undefined &&
     (typeof watchlistMembershipRevision !== "string" || !revisionPattern.test(watchlistMembershipRevision))) throw invalid();
@@ -264,7 +273,8 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
     return { symbol, history: { ...history, ...(candleBars !== undefined && { candleBars }) }, ...watchlistHistory, ...limit, ...finance };
   });
   return { ...parseDatedMarketArchiveScope(manifest), stocks, limitCalendar,
-    ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }) };
+    ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }),
+    ...(screener !== undefined && { screener }) };
 }
 
 function parseRealizedTrades(value: unknown): TspBacktestRobustnessInput["trades"] {

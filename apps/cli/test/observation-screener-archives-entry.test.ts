@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations, loadMarketCrossSectionArchive,
+import { archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations, loadMarketCrossSectionArchive, loadTradingDateArchive,
   type StoredMarketCrossSection, type StoredTradingDateBarObservation } from "../../../src/storage/index.ts";
 
 test("CLI reconstructs scored daily candidates from exact local archive revisions", async () => {
@@ -105,8 +105,40 @@ test("CLI reconstructs scored daily candidates from exact local archive revision
     const { histories, ...listScope } = scope;
     const list = { ...listScope, stocks: [{ symbol: emptySymbol }, ...histories] };
     const listCommand = ["observation", "replay-list-rows", "--manifest", manifest];
+    const otherRef = await archiveTradingDateObservations((await loadTradingDateArchive(dailyRef)).map(row => ({ ...row, symbol: emptySymbol })));
+    const screener = { strategies: union.strategies, histories: [{ symbol: emptySymbol, dailyRevision: otherRef.revision }, ...histories] };
+    writeFileSync(manifest, JSON.stringify({ ...listScope, ...screener }));
+    const fullUnion = await run(...unionCommand);
+    expect(fullUnion).toMatchObject({ code: 0, output: { ok: true } });
+    const unionRows = fullUnion.output.data.rows as { symbol: string; score: number | null }[];
+    expect(unionRows.map(row => row.symbol)).toEqual([emptySymbol, symbol]);
+    const scoredList = { ...list, stocks: [{ symbol }], screener };
+    writeFileSync(manifest, JSON.stringify(scoredList));
+    const scored = await run(...listCommand);
+    expect(scored).toMatchObject({ code: 0, output: { data: {
+      screener: { scoped: 2, matched: 2 },
+      rows: [{ instrument: { symbol }, observations: { bar: { amount: 125 } }, metrics: { history: null, screener: {
+        producer: "whyj", position: 2, score: null, scoreStrategyId: strategy.id,
+        hits: [{ strategyId: strategy.id, score: null }, { strategyId: "liquidity", score: 50 }],
+      } } }],
+    } } });
+    expect(scored.output.data.rows).toHaveLength(1);
+    expect(scored.output.data.screener.strategies.map((entry: { candidateRevision: string }) => entry.candidateRevision))
+      .toEqual(fullUnion.output.data.replays.map((entry: { ranking: { candidateRevision: string } }) => entry.ranking.candidateRevision));
+    expect(await run("observation", "read-list-quotes", "--manifest", manifest)).toMatchObject({ code: 0, output: { data: {
+      fixed: scored.output.data, quotes: { status: "outside-current-day" },
+    } } });
+    for (const invalidScope of [{ ...screener, marketRevision: marketRef.revision }, { ...screener, strategies: [first, first] },
+      { ...screener, histories: [histories[0], histories[0]] }, { ...screener, histories: [{ symbol, dailyRevision: "../private" }] }]) {
+      writeFileSync(manifest, JSON.stringify({ ...scoredList, screener: invalidScope }));
+      expect(await run(...listCommand)).toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
+    }
+    writeFileSync(manifest, JSON.stringify({ ...scoredList, screener: { ...screener, histories: [{ symbol, dailyRevision: "0".repeat(64) }] } }));
+    expect(await run(...listCommand)).toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
+
     writeFileSync(manifest, JSON.stringify(list));
-    expect(await run(...listCommand)).toMatchObject({ code: 0, output: { ok: true, data: {
+    const legacyList = await run(...listCommand);
+    expect(legacyList).toMatchObject({ code: 0, output: { ok: true, data: {
       marketRef, tradeDate, source: "tushare",
       observations: { daily: { volumeUnit: "hand", amountUnit: "CNY-thousand" } },
       rows: [{
@@ -121,6 +153,8 @@ test("CLI reconstructs scored daily candidates from exact local archive revision
           signals: { values: { signal_volume_surge: true } } },
       }],
     } } });
+    expect(legacyList.output.data).not.toHaveProperty("screener");
+    expect(legacyList.output.data.rows[0].metrics).not.toHaveProperty("screener");
 
     const periodEnd = "2023-09-30", actualDisclosureDate = "2023-10-20";
     const provider = { symbol, coverage: "unknown", market: "A", source: "tushare" } as const;
