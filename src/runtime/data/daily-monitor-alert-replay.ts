@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol } from "../../market/symbols.ts";
 import { computeTspMonitorAlerts, TSP_DAILY_SIGNAL_FIELDS, type TspDailyIndicatorRow, type TspDailySignalId,
   type TspMonitorAlertRule } from "../../quant/index.ts";
 import type { StoredTradingDateBarObservation, TradingDateArchiveRef } from "../../storage/index.ts";
+import { digestMonitorEvidence as digest, digestMonitorRule } from "./monitor-alert-identity.ts";
 import { resolveTspArchiveIndicators, type DailySignalExchangeRefs } from "./observation-collection.ts";
 
 type BarValues = StoredTradingDateBarObservation["values"];
@@ -28,10 +28,6 @@ export interface DailyMonitorAlertReplayRequest {
   sessions: readonly { tradeDate: string; evaluatedAt: number }[];
   roster: readonly string[];
   histories: readonly { symbol: string; ref: TradingDateArchiveRef; exchange?: DailySignalExchangeRefs }[];
-}
-
-function digest(value: unknown) {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
 type ResolvedHistory = Awaited<ReturnType<typeof resolveTspArchiveIndicators>>;
@@ -119,10 +115,7 @@ export async function replayTspDailyMonitorAlerts(request: DailyMonitorAlertRepl
     return { revision: digest([adjustment, tradeDate, evaluatedAt, roster, revisionInputs]), evaluatedAt, symbols: roster, columns, units };
   });
   const result = computeTspMonitorAlerts({ rule, captures });
-  const scope = rule.scope.kind === "all" ? ["all"] : [rule.scope.kind, [...rule.scope.symbols].sort(), result.membershipRevision];
-  const ruleDigest = digest([rule.id, rule.revision, rule.type, rule.assetType, rule.logic, rule.cooldownMs, rule.severity,
-    scope, rule.conditions.map(condition => condition.op === "truth" ? [condition.field, condition.op]
-      : [condition.field, condition.op, condition.value, condition.unit])]);
+  const ruleDigest = digestMonitorRule(rule);
   return { ...result, producer: "whyj" as const, basis: "historical-reconstruction" as const,
     adjustment, rule, ruleDigest, roster, units, histories: evidence,
     evaluations: result.evaluations.map((row, index) => {
