@@ -59,6 +59,26 @@ test("actual list CLI returns unmodified trading limits and independent WhyJ str
     expect(await run("read-list-quotes", manifest)).toMatchObject({ code: 0, output: { ok: true, data: {
       fixed: replay.output.data, quotes: { status: "outside-current-day" },
     } } });
+    expect(replay.output.data.rows[0].observations).not.toHaveProperty("dailyCandles");
+    const candleManifest = { ...manifest, stocks: [{ ...history, candleBars: 5 }] };
+    const candles = await run("replay-list-rows", candleManifest);
+    expect(candles).toMatchObject({ code: 0, output: { ok: true, data: {
+      rows: [{ observations: { dailyCandles: { ref: daily, requestedBars: 5, source: "tushare",
+        volumeUnit: "hand", amountUnit: "CNY-thousand", adjustment: "none",
+        rows: sessions.map((date, index) => ({ tradeDate: date, close: 10 + index, volume: 100, amount: null, sourceTimestamp: null })),
+      } } }],
+    } } });
+    expect(await run("read-list-quotes", candleManifest)).toMatchObject({ code: 0, output: { ok: true, data: {
+      fixed: candles.output.data, quotes: { status: "outside-current-day" },
+    } } });
+    for (const stock of [{ symbol, candleBars: 5 }, { ...history, candleBars: 4 }, { ...history, candleBars: "12" }]) {
+      expect(await run("replay-list-rows", { ...manifest, stocks: [stock] })).toMatchObject({
+        code: 1, output: { ok: false, error: { code: "invalid_arguments" } },
+      });
+    }
+    expect(await run("replay-list-rows", { ...candleManifest, stocks: [{ symbol, dailyRevision: "e".repeat(64), candleBars: 5 }] })).toMatchObject({
+      code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } },
+    });
     const sourceOnly = await run("replay-list-rows", { ...manifest, stocks: [{ symbol, tradingLimitsRevision: limits.revision }] });
     expect(sourceOnly.output.data.rows[0].observations.tradingLimits).toEqual(replay.output.data.rows[0].observations.tradingLimits);
     expect(sourceOnly.output.data.rows[0].metrics.limitStreaks).toMatchObject({ consecutiveLimitUps: null, consecutiveLimitDowns: null });
