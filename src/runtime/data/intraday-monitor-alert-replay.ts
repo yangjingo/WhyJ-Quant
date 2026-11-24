@@ -1,11 +1,12 @@
 import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol } from "../../market/symbols.ts";
 import { computeTspIntradaySignal, computeTspMonitorAlerts, parseTspIntradaySignalRule, tspMinuteIndex, TSP_INDICATOR_REVISION,
-  TSP_INTRADAY_SIGNAL_FORMULA_VERSION, type TspIntradaySignalRule, type TspIntradaySignals, type TspIntradayValues,
+  TSP_INTRADAY_SIGNAL_FORMULA_VERSION, type TspCompletedMinuteBar, type TspIntradayRow, type TspIntradaySignalRule, type TspIntradaySignals, type TspIntradayValues,
   type TspMonitorAlertRule } from "../../quant/index.ts";
 import type { HistoricalMinuteArchiveRef } from "../../storage/index.ts";
 import { resolveTspArchiveIntraday, type IntradayReplayOptions } from "./intraday-replay.ts";
 import { digestMonitorEvidence as digest, digestMonitorRule } from "./monitor-alert-identity.ts";
+import { resolveTickFlowStockMinutes, type TickFlowStockMinuteReplayRequest } from "./tickflow-stock-minute-replay.ts";
 
 export const TSP_INTRADAY_MONITOR_UNITS = {
   open: "CNY", high: "CNY", low: "CNY", close: "CNY", volume: "share", amount: "CNY",
@@ -22,14 +23,16 @@ export interface IntradayMonitorAlertReplayRequest {
   rule: TspMonitorAlertRule;
   slots: readonly { tradeDate: string; minute: string }[];
   roster: readonly string[];
-  histories: readonly { symbol: string; ref: HistoricalMinuteArchiveRef; previousClose?: IntradayReplayOptions["previousClose"] }[];
+  histories: readonly IntradayMonitorHistory[];
   customSignals?: readonly TspIntradaySignalRule[];
 }
 
-type ResolvedHistory = Awaited<ReturnType<typeof resolveTspArchiveIntraday>>;
-type MinuteRow = ResolvedHistory["preview"]["rows"][number];
-type SourceBar = ResolvedHistory["completed"][number];
-type MinuteEvidence = { row: MinuteRow; bar: SourceBar; custom: Record<string, boolean> };
+type IntradayMonitorHistory = { symbol: string } & (
+  { ref: HistoricalMinuteArchiveRef; previousClose?: IntradayReplayOptions["previousClose"] } |
+  TickFlowStockMinuteReplayRequest
+);
+type MinuteRow = TspIntradayRow & ({ originalTradeTime: string } | { sourceTimestamp: number });
+type MinuteEvidence = { row: MinuteRow; bar: TspCompletedMinuteBar; custom: Record<string, boolean> };
 type MinuteNumericField = keyof typeof TSP_INTRADAY_MONITOR_UNITS;
 
 function minuteOperand(observation: MinuteEvidence, field: string): number | boolean | null {
@@ -40,6 +43,23 @@ function minuteOperand(observation: MinuteEvidence, field: string): number | boo
   if (field === "volume") return bar.volumeShares;
   if (field === "amount") return bar.amountCny;
   return bar[field as "open" | "high" | "low" | "close"];
+}
+
+async function resolveMonitorHistory(history: IntradayMonitorHistory, signal?: AbortSignal) {
+  if ("refs" in history) {
+    const { completed, preview } = await resolveTickFlowStockMinutes(history, signal);
+    return { completed, rows: preview.rows,
+      evidence: { ...preview.input, featureFormula: preview.formula, excluded: preview.excluded,
+        openingBoundaryCount: preview.excluded.filter(row => row.reason === "opening-boundary").length },
+      revision: [preview.input.symbol, "tickflow", preview.input.archives.map(({ ref }) => ref.revision),
+        preview.input.previousClose?.archiveRef.revision ?? null, preview.formula, preview.input.interpretation],
+    };
+  }
+  const { completed, preview } = await resolveTspArchiveIntraday(history.ref, { signal, previousClose: history.previousClose });
+  return { completed, rows: preview.rows,
+    evidence: { ref: preview.archiveRef, ...preview.input, featureFormula: preview.formula, openingBoundaryCount: preview.openingBoundaries.length },
+    revision: [preview.input.symbol, preview.archiveRef.revision, preview.input.previousClose?.archiveRef.revision ?? null, preview.formula],
+  };
 }
 
 /** Reconstruct monitored decisions at the close of explicitly selected minutes. */
@@ -86,30 +106,29 @@ export async function replayTspIntradayMonitorAlerts(request: IntradayMonitorAle
   const slotKeys = new Set(timeline.map(slot => slot.key));
   const resolved = new Map<string, Map<string, MinuteEvidence>>();
   const archives = [];
+  const revisions = [];
   for (const history of [...histories as IntradayMonitorAlertReplayRequest["histories"]].sort((a, b) =>
     (a?.symbol ?? "").localeCompare(b?.symbol ?? ""))) {
     signal?.throwIfAborted();
     if (!history || !rosterIndex.has(history.symbol) || resolved.has(history.symbol)) throw new Error("Foreign or duplicate intraday monitor history");
-    const { symbol, ref, previousClose } = history;
-    const { completed, preview } = await resolveTspArchiveIntraday(ref, { signal, previousClose });
-    if (preview.input.symbol !== symbol) throw new Error("Intraday monitor archive has a mismatched symbol");
+    const { symbol } = history;
+    const { completed, rows, evidence, revision } = await resolveMonitorHistory(history, signal);
+    if (evidence.symbol !== symbol) throw new Error("Intraday monitor archive has a mismatched symbol");
     const projected = new Map<string, MinuteEvidence>();
-    const calculatedSignals = definitions.map(definition => ({ field: `csgi_${definition.id}`, results: computeTspIntradaySignal(preview.rows, definition) }));
-    for (const [index, row] of preview.rows.entries()) {
+    const calculatedSignals = definitions.map(definition => ({ field: `csgi_${definition.id}`, results: computeTspIntradaySignal(rows, definition) }));
+    for (const [index, row] of rows.entries()) {
       const key = `${row.tradingDate} ${row.minute}`;
       if (!slotKeys.has(key)) continue;
       const custom = Object.fromEntries(calculatedSignals.map(({ field, results }) => [field, results[index]!.triggered]));
       projected.set(key, { row, bar: completed[index]!, custom });
     }
     resolved.set(symbol, projected);
-    archives.push({ ref: preview.archiveRef, ...preview.input, featureFormula: preview.formula,
-      openingBoundaryCount: preview.openingBoundaries.length, selectedMinuteCount: projected.size });
+    archives.push({ ...evidence, selectedMinuteCount: projected.size });
+    revisions.push(revision);
   }
   const customSignalFormula = definitions.length ? {
     id: "tsp_intraday_custom_signal" as const, version: TSP_INTRADAY_SIGNAL_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION,
   } : null;
-  const revisions = archives.map(({ symbol, ref, previousClose, featureFormula }) =>
-    [symbol, ref.revision, previousClose?.archiveRef.revision ?? null, featureFormula]);
   const sourceRevision = digest(["completed-minute", roster, revisions, customSignalFormula, definitions]);
   const captures = timeline.map(({ key, evaluatedAt }) => {
     signal?.throwIfAborted();
@@ -128,8 +147,9 @@ export async function replayTspIntradayMonitorAlerts(request: IntradayMonitorAle
           const { row } = resolved.get(event.symbol)!.get(key)!;
           const position = rosterIndex.get(event.symbol)!;
           const { columns } = captures[index]!;
+          const timeEvidence = "sourceTimestamp" in row ? { sourceTimestamp: row.sourceTimestamp } : { originalTradeTime: row.originalTradeTime };
           return { ...event, eventId: digest([result.referenceRevision, result.formulaVersion, ruleDigest, evaluation.captureRevision, event.symbol]),
-            originalTradeTime: row.originalTradeTime, priceCny: row.values.price, changeFraction: row.values.pct_vs_prev_close,
+            ...timeEvidence, priceCny: row.values.price, changeFraction: row.values.pct_vs_prev_close,
             operands: Object.fromEntries(fields.map(field => [field, columns[field]?.[position] ?? null])) };
         }) };
     }),
