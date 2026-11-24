@@ -723,6 +723,8 @@ whyj --json observation replay-screener-score --manifest ./screener-score.json
 
 提供 `watchlistMembershipRevision` 时，Runtime 读取当前保存的这一版自选清单，每行通过 `membership` 返回原始加入时间、保存代码和工作区修订。每只股票可另附 `watchlistHistoryRef`，以匹配的前复权日线计算截至列表交易日的加入以来收益率。`metrics.watchlistReturn` 保留历史证据、实际起止交易日与收盘价、公式版本和收益率。省略历史引用时该计算结果为 `null`。晚于加入日的首条历史无法提供基准，价格相等则收益率为 0。自选清单修订变更、股票缺席或历史口径不符时，回放返回错误。
 
+Runtime 调用方可为每只股票附上 `financialArchives`，用[历史时点解析](#财务数据的历史时点)选择在列表交易日前已经获取、且有实际披露证据的报告。`observations.financial` 保留报告期、披露日、归档版本与获取时间，以及供应商记录的基本 EPS、BPS、ROE、利润率、增长率和资产负债率。旧归档可能缺少 EPS 字段，报告币种和比率单位沿用归档口径。无法匹配符合条件的报告时返回不可用原因。日期估值仍来自同一市场截面的 `daily_basic`。
+
 缺少行情或财务估值观察的标的仍占一行，对应观察为 `null`。日线历史缺少目标交易日时，技术指标和信号为 `null`，已有历史归档的实际结束日期随行返回。调用方可用这份结果展示固定日期，实时行情覆盖需要独立的报价时间和价格口径。
 
 ```sh

@@ -1,6 +1,7 @@
 import { TICKFLOW_SYMBOL_BATCH_SIZE, type SourceRequestOptions } from "../../source/index.ts";
 import { loadMarketCrossSectionArchive, loadPanelPortfolio, loadTradingDateArchive,
-  type MarketCrossSectionArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
+  type FinancialObservationArchiveRef, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
+import { replayFinancialResearchInputs } from "./financial-input-replay.ts";
 import { archivedListLiquidity } from "./list-liquidity.ts";
 import { deriveTspArchiveIndicators, type DailySignalExchangeRefs } from "./observation-collection.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
@@ -14,6 +15,7 @@ export interface TspListRowsRequest {
     symbol: string;
     history?: { ref: TradingDateArchiveRef; exchange?: DailySignalExchangeRefs };
     watchlistHistoryRef?: TradingDateArchiveRef;
+    financialArchives?: readonly FinancialObservationArchiveRef[];
   }[];
 }
 
@@ -40,7 +42,7 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   const barsBySymbol = new Map(barRows.map(row => [row.symbol, row]));
   const basicsBySymbol = new Map(basicRows.map(row => [row.symbol, row]));
   const rows = [];
-  for (const { symbol, history, watchlistHistoryRef } of stocks) {
+  for (const { symbol, history, watchlistHistoryRef, financialArchives } of stocks) {
     signal?.throwIfAborted();
     const membership = portfolio && resolveTspWatchlistMembership(portfolio, symbol);
     const bar = barsBySymbol.get(symbol) ?? null;
@@ -59,10 +61,13 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
       const result = projectTspWatchlistReturn(watchlistHistoryRef, tradeDate, records, membership);
       watchlistReturn = { ...result.metrics, history: result.input.history };
     }
+    const financial = financialArchives === undefined ? undefined : (await replayFinancialResearchInputs({
+      symbol, tradingDates: [tradeDate], references: financialArchives,
+    }, signal))[0]!;
     rows.push({
       instrument: roster.get(symbol)!,
       ...(membership && { membership }),
-      observations: { bar, basic, quantities: { volumeShares, amountCny } },
+      observations: { bar, basic, quantities: { volumeShares, amountCny }, ...(financial === undefined ? {} : { financial }) },
       metrics: {
         liquidity,
         ...(membership && { watchlistReturn }),
