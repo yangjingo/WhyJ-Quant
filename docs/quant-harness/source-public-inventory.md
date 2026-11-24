@@ -31,6 +31,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchFinancialDisclosureDates` | Tushare `disclosure_date` supplies plan and actual disclosure dates and correction text for one A-share stock and one report period. These dates do not identify the release of a given ratio revision. |
 | `fetchCurrentIndexMinutes` | TickFlow reads one index on the current Shanghai date with bounded timestamps and provisional native rows. The pre-window state sends no request. |
 | `fetchCurrentStockMinuteBatch` | TickFlow reads a bounded batch of A-share stocks on the current Shanghai date. Keeps per-symbol observed, empty and missing states with native quantities. |
+| `fetchCurrentEtfMinuteBatch` | TickFlow reads a bounded batch of A-share ETFs on the current Shanghai date. Keeps ETF identity, provisional rows and native quantities. |
 | `fetchDailyMarketBars` | Tushare `daily` reads one raw A-share date cross-section with ex-rights previous close and native volume and amount units. |
 | `fetchDailyMarketBasics` | Tushare `daily_basic` reads one cross-section of turnover, valuation and capital fields. Retains provider volume ratio, endpoint provenance and unknown coverage. |
 | `fetchDatedBenchmarkObservations` | Tushare `index_daily` retains close, prior close, point change and percentage return. TickFlow `/v1/klines` supplies dated unadjusted index closes and the provider timestamp, including the BSE 50. Missing return operands remain unavailable. Both preserve unknown coverage. |
@@ -439,6 +440,7 @@ The factory adds `fetchDailyBars` for existing daily adapters. The [provider gui
 | `CurrentIndexMinuteObservations` | type | Provisional native index rows, current request window and source units | — |
 | `CurrentStockMinuteBatchObservations` | type | Provisional stock minute batch identity, requested symbols, native units and frames | — |
 | `CurrentStockMinuteFrame` | type | Per-symbol native stock minute rows and frame status | — |
+| `CurrentEtfMinuteBatchObservations` | type | Provisional ETF minute batch identity, requested symbols, native units and frames | — |
 | `PriceSnapshot` | type | Last price and day change | — |
 | `TradingCalendar` | type | Calendar dates and time zone | — |
 | `InstrumentUniverse` | type | Roster with per-exchange provenance | — |
