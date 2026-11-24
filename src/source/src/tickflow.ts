@@ -103,15 +103,18 @@ export async function fetchTickFlowKlines(input: string, query: TickFlowKlineReq
     || !Number.isSafeInteger(count) || count < 1 || count > MAX_ROWS) throw new Error("Invalid TickFlow kline request");
   const payload = await request("/v1/klines", { symbol, period, adjust: adjustment, count: String(count), ...timeQuery(query) }, options);
   identity(payload, symbol);
-  const data = payload.data;
+  return { symbol, period, adjustment, rows: compactKlines(payload.data, symbol, count, query) };
+}
+
+function compactKlines(data: unknown, symbol: string, count: number, window: TickFlowWindow = {}): TickFlowKline[] {
   if (!record(data) || !Array.isArray(data.timestamp) || data.timestamp.length > count) throw invalid();
   identity(data, symbol);
   const times = data.timestamp;
-  if ((query.startTime !== undefined || query.endTime !== undefined) && times.length === count) throw new Error("Provider response truncated");
+  if ((window.startTime !== undefined || window.endTime !== undefined) && times.length === count) throw new Error("Provider response truncated");
   for (const field of ["open", "high", "low", "close", "volume", ...(data.amount === undefined ? [] : ["amount"])])
     if (!Array.isArray(data[field]) || data[field].length !== times.length) throw invalid();
   const rows = times.map((time, index) => {
-    if (!timestamp(time) || !inWindow(time, query)) throw invalid();
+    if (!timestamp(time) || !inWindow(time, window)) throw invalid();
     const values = ["open", "high", "low", "close", "volume"].map(field => (data[field] as unknown[])[index]);
     if (!values.every(number)) throw invalid();
     const [open, high, low, close, volume] = values as number[];
@@ -121,7 +124,20 @@ export async function fetchTickFlowKlines(input: string, query: TickFlowKlineReq
     return { timestamp: time, open: open!, high: high!, low: low!, close: close!, volume: volume!, amount } as TickFlowKline;
   }).sort((a, b) => a.timestamp - b.timestamp);
   if (new Set(times).size !== times.length) throw invalid();
-  return { symbol, period, adjustment, rows };
+  return rows;
+}
+
+/** Latest-session compact frames use their enclosing symbol key. */
+export async function fetchTickFlowIntradayBatch(inputs: readonly string[], options: TickFlowOptions = {}) {
+  const symbols = symbolsFor(inputs);
+  const rowLimitPerSymbol = 300;
+  const payload = await request("/v1/klines/intraday/batch", { symbols: symbols.join(","), period: "1m", count: String(rowLimitPerSymbol) }, options);
+  const data = payload.data;
+  if (!record(data) || Object.keys(data).some(symbol => !symbols.includes(symbol))) throw invalid();
+  return {
+    rowLimitPerSymbol,
+    rowsBySymbol: new Map(Object.entries(data).map(([symbol, frame]) => [symbol, compactKlines(frame, symbol, rowLimitPerSymbol)])),
+  };
 }
 
 /** Daily facade for the shared provider/cache pipeline. Minute rows never enter a daily cache. */

@@ -174,6 +174,8 @@ Source 可将选定供应商的交易日日线转换为版本 2 记录。Tushare
 
 `fetchDatedStockMinutes` 读取指定 A 股代码在一个已结束上海日期的未复权分钟记录，窗口为 09:25 至 15:05。响应保留排序后的原始毫秒时间戳、OHLC 和量额。缺失成交额为空，报告的零成交额仍为零。价格单位、量额单位和分钟标签沿用 `provider-native`，覆盖和最终状态保持 `unknown`。空结果保留所请求的标的与日期。鉴权失败、身份不匹配、重复或范围外行以及取消均向调用方报告。[TickFlow OpenAPI](https://api.tickflow.org/openapi.json) · [#682](https://github.com/yangjingo/WhyJ-Quant/issues/682)
 
+`fetchCurrentStockMinuteBatch` 使用 TickFlow 的 `GET /v1/klines/intraday/batch` 一次读取最多 100 个 A 股标的，每标的请求至多 300 根分钟记录。返回帧按请求顺序排列，区分当日数据、空帧、缺标的、其他交易日期和时间戳晚于取得时刻。复权、分钟标签、量额单位和完整性保持供应商原始口径或未知，采集结果标记为 `provisional`。单个标的混入多个日期、格式错误或供应商返回外部标的会使整次读取失败。[TickFlow OpenAPI](https://docs.tickflow.org/zh-Hans/api-reference/openapi.json)
+
 ### TickFlow 指数历史日线
 
 `fetchDatedIndexDailyBars` 读取一个交易所限定的 A 股基准指数和已结束的上海日期区间，最多 366 个日历日。它复用 `/v1/klines` 日线日期校验，以 `adjust=none` 保留指数点位 OHLC、原始毫秒时间戳、成交量、可空成交额及本地观测时间。量额与时间标签保留 `provider-native`。同一日期的重复 bar、区间外行和身份错配报错，空行保留查询区间。覆盖仍为 `unknown`。日线归档与图表指标消费通过独立接口衔接。 [TSP 指数日线](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/indices.py#L41)
