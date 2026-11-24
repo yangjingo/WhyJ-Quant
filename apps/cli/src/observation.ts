@@ -5,13 +5,13 @@ import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from ".
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
-  parseTspIntradaySignalRule, planTspStrategyGuardianCheck,
+  parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianPlanInput, type TspStrategyGuardianThresholds,
-  type TspPaperStatisticsInput,
+  type TspPaperLedgerEntry, type TspPaperLedgerInput, type TspPaperStatisticsInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { replayTspAbnormalSnapshot, type AbnormalSnapshotReplayRequest } from "../../../src/runtime/data/abnormal-snapshot-replay.ts";
@@ -273,6 +273,27 @@ function parsePaperNavRows(value: unknown): TspPaperStatisticsInput["finalizedNa
     if (typeof tradeDate !== "string" || typeof nav !== "number" || typeof currency !== "string") throw invalid();
     return { tradeDate, nav, currency };
   });
+}
+
+function parsePaperLedgerManifest(value: unknown): TspPaperLedgerInput {
+  const { schemaVersion, accountId, currency, initialCash, asOf, entries } =
+    observationManifestObject(value, ["schemaVersion", "accountId", "currency", "initialCash", "asOf", "entries"]);
+  if (schemaVersion !== 1 || typeof accountId !== "string" || typeof currency !== "string" ||
+    typeof initialCash !== "number" || typeof asOf !== "string" || !Array.isArray(entries)) throw invalid();
+  const fillKeys = ["currency", "assetType", "side", "quantity", "price", "fee"] as const;
+  return { accountId, currency, initialCash, asOf, entries: entries.map((value: unknown): TspPaperLedgerEntry => {
+    const row = observationManifestObject(value, ["kind", "entryId", "tradeDate", "symbol", "factor", ...fillKeys]);
+    const { kind, entryId, tradeDate, symbol, factor, currency: unit, assetType, side, quantity, price, fee } = row;
+    if (typeof entryId !== "string" || typeof tradeDate !== "string" || typeof symbol !== "string") throw invalid();
+    if (kind === "corp_action") {
+      if (typeof factor !== "number" || fillKeys.some(key => Object.hasOwn(row, key))) throw invalid();
+      return { kind, entryId, tradeDate, symbol, factor };
+    }
+    if (kind !== "fill" || Object.hasOwn(row, "factor") || unit !== currency ||
+      (assetType !== "stock" && assetType !== "etf") || (side !== "buy" && side !== "sell") ||
+      typeof quantity !== "number" || typeof price !== "number" || typeof fee !== "number") throw invalid();
+    return { kind, entryId, tradeDate, symbol, currency: unit, assetType, side, quantity, price, fee };
+  }) };
 }
 
 function parsePaperStatisticsManifest(value: unknown): TspPaperStatisticsInput {
@@ -1247,6 +1268,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const input = parseBacktestPortfolioManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspBacktestPortfolio(input); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-paper-ledger") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parsePaperLedgerManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return replayTspPaperLedger(input); }
     catch { throw invalid(); }
   }
   if (action === "replay-paper-statistics") {

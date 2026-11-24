@@ -69,6 +69,56 @@ test("actual CLI replays a versioned portfolio and keeps bad evidence distinct",
   }
 }, 120_000);
 
+test("actual CLI rebuilds paper ledger holdings and passes them unchanged into valuation", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-paper-ledger-cli-"));
+  const path = join(root, "manifest.json");
+  const tradeDate = "2026-01-06", stock = "600001.SH", etf = "510300.SH";
+  const buy = { kind: "fill", entryId: "a", tradeDate: "2026-01-05", symbol: stock, assetType: "stock", currency: "CNY",
+    side: "buy", quantity: 10, price: 10, fee: 0.5 };
+  const manifest = { schemaVersion: 1, accountId: "paper", currency: "CNY", initialCash: 500, asOf: tradeDate, entries: [
+    buy, { ...buy, entryId: "b", tradeDate, quantity: 5, price: 12 },
+    { kind: "corp_action", entryId: "split", tradeDate, symbol: stock, factor: 1.25 },
+    { ...buy, entryId: "sell", tradeDate, side: "sell", quantity: 7, price: 9, fee: 0.25 },
+    { ...buy, entryId: "etf", symbol: etf, tradeDate, assetType: "etf", quantity: 2, price: 5, fee: 0 },
+  ] };
+  function replay(action: string, value: unknown) {
+    writeFileSync(path, JSON.stringify(value));
+    return runCli(root, "observation", action, "--manifest", path);
+  }
+  try {
+    const help = (await runCli(root, "--help")).output.data.commands;
+    expect(help).toContainEqual({
+      command: "whyj --json observation replay-paper-ledger",
+      description: "Rebuild simulated cash, holdings, and sellable shares from a fixed ledger",
+    });
+    const result = await replay("replay-paper-ledger", manifest);
+    expect(result).toMatchObject({ code: 0, output: { ok: true, data: {
+      producer: "whyj", formulaVersion: "tsp-paper-ledger-v1", cash: 391.75, entryCount: 5,
+      positions: [
+        { symbol: etf, quantity: 2, availableQuantity: 0 },
+        { symbol: stock, quantity: 11.75, averageCost: 8.586666, availableQuantity: 5 },
+      ],
+      lots: [{ symbol: etf, entries: [{ tradeDate, quantity: 2 }] }, { symbol: stock, entries: [
+        { tradeDate: "2026-01-05", quantity: 5.5 }, { tradeDate, quantity: 6.25 },
+      ] }],
+    } } });
+    const { accountId, currency, cash, initialCash, positions } = result.output.data;
+    expect(await replay("replay-paper-valuation", { schemaVersion: 1, accountId, currency, cash, initialCash, positions,
+      tradeDate, basis: "finalized", priceBasisConfirmation: "caller-confirmed-unadjusted-CNY", dailyRevisions: [] }))
+      .toMatchObject({ code: 0, output: { ok: true, data: { cash: 391.75, equity: 502.64, coverage: {
+        holdings: 2, marketMarks: 0, costFallbackSymbols: [etf, stock],
+      } } } });
+    const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
+    for (const change of [
+      { schemaVersion: 2 }, { entries: [buy, buy] }, { entries: [{ ...buy, side: "sell" }] },
+      { entries: [{ ...buy, currency: "USD" }] }, { entries: [{ ...buy, factor: 1.25 }] },
+      { entries: [{ ...manifest.entries[2], price: 10 }] },
+    ]) expect(await replay("replay-paper-ledger", { ...manifest, ...change })).toMatchObject(invalid);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
 test("actual CLI replays completed paper fills and finalized NAV", async () => {
   const root = mkdtempSync(join(tmpdir(), "whyj-paper-statistics-cli-"));
   const path = join(root, "account.json");
