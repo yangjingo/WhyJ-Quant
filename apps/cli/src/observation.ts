@@ -224,9 +224,17 @@ function parseScreenerUnionManifest(value: unknown): ScreenerUnionReplayRequest 
   return { ...parseDatedMarketArchiveScope(manifest), ...parseScreenerUnionScope(manifest) };
 }
 
+function parseListCalendar(value: unknown): NonNullable<TspListRowsRequest["limitCalendar"]> {
+  const { revision, sessions } = observationManifestObject(value, ["revision", "sessions"]);
+  if (typeof revision !== "string" || !revision.trim() || revision.length > 256 || !Array.isArray(sessions) || !sessions.length ||
+    sessions.some((date, index) => typeof date !== "string" || date < "0001-01-01" || !isDailyDate(date) ||
+      (index > 0 && date <= sessions[index - 1]))) throw invalid();
+  return { revision, sessions };
+}
+
 function parseListRowsManifest(value: unknown): TspListRowsRequest {
   const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks", "limitCalendar",
-    "watchlistMembershipRevision", "screener"]);
+    "watchlistMembershipRevision", "screener", "deviationCalendar"]);
   const screener = manifest.screener === undefined
     ? undefined
     : parseScreenerUnionScope(observationManifestObject(manifest.screener, ["histories", "strategies"]));
@@ -235,17 +243,15 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
   if (watchlistMembershipRevision !== undefined &&
     (typeof watchlistMembershipRevision !== "string" || !revisionPattern.test(watchlistMembershipRevision))) throw invalid();
   if (!Array.isArray(manifest.stocks)) throw invalid();
-  let limitCalendar: TspListRowsRequest["limitCalendar"];
-  if (manifest.limitCalendar !== undefined) {
-    const { revision, sessions } = observationManifestObject(manifest.limitCalendar, ["revision", "sessions"]);
-    if (typeof revision !== "string" || !revision.trim() || revision.length > 256 || !Array.isArray(sessions) || !sessions.length ||
-      sessions.some((date, index) => typeof date !== "string" || date < "0001-01-01" || !isDailyDate(date) ||
-        (index > 0 && date <= sessions[index - 1]))) throw invalid();
-    limitCalendar = { revision, sessions };
-  }
+  const limitCalendar = manifest.limitCalendar === undefined ? undefined : parseListCalendar(manifest.limitCalendar);
+  const deviationCalendar = manifest.deviationCalendar === undefined ? undefined : parseListCalendar(manifest.deviationCalendar);
   const stocks = manifest.stocks.map(item => {
-    const { watchlistHistoryRevision, tradingLimitsRevision, candleBars, financialReportRevisions, financialDisclosureRevisions, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision", "candleBars",
-      "financialReportRevisions", "financialDisclosureRevisions"]);
+    const { watchlistHistoryRevision, tradingLimitsRevision, candleBars, financialReportRevisions, financialDisclosureRevisions, deviation, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision", "candleBars",
+      "financialReportRevisions", "financialDisclosureRevisions", "deviation"]);
+    if (deviation !== undefined && deviationCalendar === undefined) throw invalid();
+    const deviationRefs = deviation === undefined
+      ? undefined
+      : parsePriceDeviationRefs(observationManifestObject(deviation, ["stockRevision", "benchmarkRevision"]));
     if (watchlistHistoryRevision !== undefined && (watchlistMembershipRevision === undefined ||
       typeof watchlistHistoryRevision !== "string" || !revisionPattern.test(watchlistHistoryRevision))) throw invalid();
     if (candleBars !== undefined && (typeof candleBars !== "number" || !Number.isInteger(candleBars) ||
@@ -267,13 +273,14 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
     const watchlistHistory = watchlistHistoryRevision === undefined ? {} :
       { watchlistHistoryRef: { version: 2, revision: watchlistHistoryRevision } as const };
     if (Object.keys(entry).length === 1 && typeof entry.symbol === "string" && datedStock.test(entry.symbol)) {
-      return { symbol: entry.symbol, ...watchlistHistory, ...limit, ...finance };
+      return { symbol: entry.symbol, ...watchlistHistory, ...limit, ...finance, ...(deviationRefs && { deviation: deviationRefs }) };
     }
     const { symbol, ...history } = parseArchivedStockHistory(entry);
-    return { symbol, history: { ...history, ...(candleBars !== undefined && { candleBars }) }, ...watchlistHistory, ...limit, ...finance };
+    return { symbol, history: { ...history, ...(candleBars !== undefined && { candleBars }) }, ...watchlistHistory, ...limit, ...finance, ...(deviationRefs && { deviation: deviationRefs }) };
   });
   return { ...parseDatedMarketArchiveScope(manifest), stocks, limitCalendar,
     ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }),
+    ...(deviationCalendar !== undefined && { deviationCalendar }),
     ...(screener !== undefined && { screener }) };
 }
 
@@ -722,19 +729,22 @@ function parseEmotionManifest(value: unknown): MarketEmotionReplayRequest {
     indexRefs: validateRevisions(manifest.indexRevisions).map(revision => ({ version: 1, kind: "benchmark-index", revision })) };
 }
 
-function parsePriceDeviationManifest(value: unknown): PriceDeviationReplayRequest {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw invalid();
-  const manifest = value as Record<string, unknown>;
-  const { symbol, stockRevision, benchmarkRevision } = manifest;
-  if (Object.keys(manifest).some(key => !["symbol", "sessions", "stockRevision", "benchmarkRevision"].includes(key)) ||
-    typeof symbol !== "string" || !datedStock.test(symbol) ||
-    typeof stockRevision !== "string" || !revisionPattern.test(stockRevision) ||
+function parsePriceDeviationRefs(manifest: Record<string, unknown>): Pick<PriceDeviationReplayRequest, "stockRef" | "benchmarkRef"> {
+  const { stockRevision, benchmarkRevision } = manifest;
+  if (typeof stockRevision !== "string" || !revisionPattern.test(stockRevision) ||
     (Object.hasOwn(manifest, "benchmarkRevision") &&
       (typeof benchmarkRevision !== "string" || !revisionPattern.test(benchmarkRevision)))) throw invalid();
-  return { symbol, sessions: parseExchangeSessions(manifest.sessions), stockRef: { version: 2, revision: stockRevision },
+  return { stockRef: { version: 2, revision: stockRevision },
     ...(typeof benchmarkRevision === "string" ? {
       benchmarkRef: { version: 1, kind: "benchmark-index", revision: benchmarkRevision },
     } : {}) };
+}
+
+function parsePriceDeviationManifest(value: unknown): PriceDeviationReplayRequest {
+  const manifest = observationManifestObject(value, ["symbol", "sessions", "stockRevision", "benchmarkRevision"]);
+  const { symbol } = manifest;
+  if (typeof symbol !== "string" || !datedStock.test(symbol)) throw invalid();
+  return { symbol, sessions: parseExchangeSessions(manifest.sessions), ...parsePriceDeviationRefs(manifest) };
 }
 
 function parseQuotePollManifest(value: unknown): QuotePollReplayRequest {
