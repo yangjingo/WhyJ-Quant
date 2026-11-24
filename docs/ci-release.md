@@ -210,6 +210,20 @@ The last three commands can fail when the package or command is missing. `Get-Co
 
 On Windows with npm 11.13.0, a controlled interruption during one package-replacement stage left the command unavailable; reinstalling the same local candidate restored it and retained synthetic settings. This is one observed recovery path, not a guarantee of automatic rollback or of every interruption point. Installed Desktop and clean-target upgrade acceptance remain tracked separately in #56 and #182.
 
+### Verify Windows CLI upgrades alongside Desktop
+
+The Windows Desktop workflow packs the CLI from the same candidate after installing Desktop on a disposable Windows runner. The npm upgrade probe verifies the published 1.2.0 tarball against its pinned npm integrity, installs both packages into a temporary global prefix and runs their actual terminals through ConPTY. The probe gives the terminals and Desktop isolated synthetic data and a PATH limited to Windows, the test prefix and a copy of Node. The installed Desktop attaches to the controlled Host while npm rejects a corrupt tarball and then installs the candidate. The probe checks that rejection preserves the prior installation, confirms the upgraded terminal sees the same running research, and verifies that an incompatible Host protocol leaves the existing owner intact.
+
+Run the CLI portion on Windows after building and packing the candidate and installing the locked Desktop test dependencies.
+
+~~~powershell
+bun run build
+npm pack --ignore-scripts
+node apps/cli/dev/windows-npm-upgrade.mjs .\whyj-quant-1.4.0.tgz
+~~~
+
+The local invocation records the installed Desktop check as unrun. Find hosted receipts, source and package identities, terminal transcripts and before/after Desktop captures under desktop-evidence/windows-npm-upgrade. The corrupt-tarball case exercises rejection before replacement. Manual installer interaction, native tray input and interruptions after replacement starts require separate evidence.
+
 ## Optional Live Provider Evaluation
 
 The separate [manual workflow](../.github/workflows/live-provider-evaluation.yml) is disabled by default and never runs on PRs or a schedule. An authorized maintainer may configure repository variables `WHYJ_LIVE_PROVIDER`, `WHYJ_LIVE_MODEL` and `WHYJ_LIVE_BASE_URL`, and a dedicated restricted secret `WHYJ_LIVE_API_KEY`, then dispatch it on `main` with `run_live=true`. The base URL must be a trusted HTTPS OpenAI-compatible endpoint without credentials, query or fragment. Do not configure or trigger a paid provider without explicit authorization.
