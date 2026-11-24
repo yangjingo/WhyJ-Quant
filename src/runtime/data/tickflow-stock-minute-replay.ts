@@ -1,5 +1,5 @@
-import { computeTspIntraday, tspMinuteIndex, TSP_INDICATOR_REVISION, TSP_INTRADAY_FORMULA_VERSION, type TspCompletedMinuteBar } from "../../quant/index.ts";
-import type { SourceRequestOptions } from "../../source/index.ts";
+import { computeTspIntraday, computeTspListIntraday, tspMinuteIndex, TSP_INDICATOR_REVISION, TSP_INTRADAY_FORMULA_VERSION, type TspCompletedMinuteBar } from "../../quant/index.ts";
+import { TICKFLOW_SYMBOL_BATCH_SIZE, type SourceRequestOptions } from "../../source/index.ts";
 import { archiveDatedStockMinutes, loadDatedStockMinuteArchive, loadDailyTradingLimitArchive,
   type DatedStockMinuteArchiveRef, type StoredDatedStockMinuteBatch } from "../../storage/index.ts";
 import type { IntradayReplayOptions } from "./intraday-replay.ts";
@@ -16,6 +16,12 @@ export interface TickFlowStockMinuteReplayRequest {
   refs: readonly DatedStockMinuteArchiveRef[];
   interpretation: TickFlowStockMinuteInterpretation;
   previousClose?: IntradayReplayOptions["previousClose"];
+}
+
+export interface CurrentTspListIntradayRequest {
+  tradeDate: string;
+  stocks: readonly { symbol: string; previousClose?: IntradayReplayOptions["previousClose"] }[];
+  interpretation?: Pick<TickFlowStockMinuteInterpretation, "timestampLabel" | "priceBasis">;
 }
 
 export async function collectDatedTickFlowStockMinutes(
@@ -45,6 +51,86 @@ function normalizeQuantity(value: number | null, factor: number | null): number 
 
 const shanghaiTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
+type StockMinuteExclusion = { tradeDate: string; sourceTimestamp: number; reason: "opening-boundary" | "outside-session" | "unaligned" };
+
+function stockMinuteLabel(sourceTimestamp: number, shift: number): { minute: string } | { reason: StockMinuteExclusion["reason"] } {
+  if (sourceTimestamp % 60_000 !== 0) return { reason: "unaligned" };
+  const minute = shanghaiTime.format(sourceTimestamp - shift);
+  if (tspMinuteIndex(minute) >= 0) return { minute };
+  return { reason: shift && shanghaiTime.format(sourceTimestamp) === "09:30" ? "opening-boundary" : "outside-session" };
+}
+
+async function readStockMinutePreviousClose(
+  symbol: string, dates: readonly string[], input: NonNullable<IntradayReplayOptions["previousClose"]>, signal?: AbortSignal,
+) {
+  const { ref, priceBasis } = input;
+  const limits = await loadDailyTradingLimitArchive(ref, signal);
+  if (limits.symbol !== symbol || limits.market !== "A") throw new Error("Previous close archive does not match the TickFlow stock");
+  const byDate = new Map(limits.rows.map(row => [row.tradeDate, row.previousClose]));
+  return { archiveRef: ref, priceBasis, source: limits.source, endpoint: limits.endpoint, observedAt: limits.observedAt,
+    priceUnit: limits.priceUnit, requested: limits.requested, rows: dates.map(tradeDate => ({ tradeDate, price: byDate.get(tradeDate) ?? null })) };
+}
+
+const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** The caller selects a display interpretation for still-provisional chart points. */
+export async function previewCurrentTspListIntraday(request: CurrentTspListIntradayRequest, options: SourceRequestOptions = {}) {
+  const control = { ...options };
+  const { signal } = control;
+  signal?.throwIfAborted();
+  const { tradeDate, stocks, interpretation } = structuredClone(request);
+  if (tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(stocks) || !stocks.length || stocks.length > TICKFLOW_SYMBOL_BATCH_SIZE) {
+    throw new Error("Invalid current stock-minute preview scope");
+  }
+  if (interpretation !== undefined && (!interpretation ||
+    (interpretation.timestampLabel !== "minute-start" && interpretation.timestampLabel !== "minute-end") ||
+    interpretation.priceBasis !== "caller-confirmed-unadjusted-CNY")) throw new Error("Invalid current stock-minute interpretation");
+  const choice = interpretation && { timestampLabel: interpretation.timestampLabel, priceBasis: interpretation.priceBasis };
+  const targets = Array.from(stocks, stock => ({ ...stock, symbol: stock.symbol.trim().toUpperCase() }));
+  const symbols = targets.map(stock => stock.symbol);
+  if (new Set(symbols).size !== symbols.length) throw new Error("Duplicate current stock minute symbol");
+
+  const closes = new Map<string, Awaited<ReturnType<typeof readStockMinutePreviousClose>>>();
+  for (const { symbol, previousClose } of targets) {
+    if (previousClose === undefined) continue;
+    if (!choice || previousClose?.priceBasis !== "caller-confirmed-same-basis") {
+      throw new Error("Current stock previous close requires a confirmed interpretation and price basis");
+    }
+    const close = await readStockMinutePreviousClose(symbol, [tradeDate], previousClose, signal);
+    if (tradeDate < close.requested.startDate || tradeDate > close.requested.endDate) {
+      throw new Error("Previous close archive does not cover the current stock date");
+    }
+    closes.set(symbol, close);
+  }
+
+  const selected = await createConfiguredMarketDataSource(signal);
+  const { data, source, endpoint, market, observedAt, coverage } = await selected.fetchCurrentStockMinuteBatch({ symbols, tradeDate, market: "A" }, control);
+  if (source !== "tickflow" || endpoint !== "/v1/klines/intraday/batch" || market !== "A" ||
+    data.tradeDate !== tradeDate || data.finality !== "provisional" || data.frames.length !== symbols.length ||
+    data.frames.some(({ symbol }, index) => symbol !== symbols[index])) throw new Error("Current stock-minute response does not match its scope");
+  signal?.throwIfAborted();
+  const shift = choice?.timestampLabel === "minute-end" ? 60_000 : 0;
+  const rows = data.frames.map(({ symbol, status, rows }) => {
+    const previousClose = closes.get(symbol) ?? null;
+    const excluded: StockMinuteExclusion[] = [];
+    if (!choice || status !== "observed") return { symbol, status, previousClose, metrics: null, excluded };
+    const bars: (Pick<TspCompletedMinuteBar, "tradingDate" | "minute" | "open" | "close"> & { sourceTimestamp: number })[] = [];
+    for (const { sourceTimestamp, open, close } of rows) {
+      const label = stockMinuteLabel(sourceTimestamp, shift);
+      if ("reason" in label) {
+        excluded.push({ tradeDate, sourceTimestamp, reason: label.reason });
+        continue;
+      }
+      bars.push({ tradingDate: tradeDate, minute: label.minute, sourceTimestamp, open, close });
+    }
+    const chart = computeTspListIntraday({ tradeDate, bars, previousClose: previousClose?.rows[0]?.price ?? null });
+    const metrics = { ...chart, finality: "provisional" as const,
+      points: chart.points.map((point, index) => ({ ...point, sourceTimestamp: bars[index]!.sourceTimestamp })) };
+    return { symbol, status, previousClose, metrics, excluded };
+  });
+  return { input: { minutes: { ...data, source, endpoint, market, observedAt, coverage }, interpretation: choice ?? null }, rows };
+}
+
 export async function resolveTickFlowStockMinutes(request: TickFlowStockMinuteReplayRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
   const { refs, interpretation, previousClose } = structuredClone(request);
@@ -69,18 +155,10 @@ export async function resolveTickFlowStockMinutes(request: TickFlowStockMinuteRe
   }
   const symbol = batches[0]!.archive.symbol;
   const closeByDate: Record<string, number> = {};
-  let closeEvidence = null;
-  if (previousClose) {
-    const { ref, priceBasis } = previousClose;
-    const limits = await loadDailyTradingLimitArchive(ref, signal);
-    if (limits.symbol !== symbol || limits.market !== "A") throw new Error("Previous close archive does not match the TickFlow stock");
-    const byDate = new Map(limits.rows.map(row => [row.tradeDate, row.previousClose]));
-    const selected = batches.map(({ archive: { tradeDate } }) => ({ tradeDate, price: byDate.get(tradeDate) ?? null }));
-    for (const { tradeDate, price } of selected) if (price !== null) closeByDate[tradeDate] = price;
-    closeEvidence = { archiveRef: ref, priceBasis, source: limits.source, endpoint: limits.endpoint, observedAt: limits.observedAt,
-      priceUnit: limits.priceUnit, requested: limits.requested, rows: selected };
-  }
-  const excluded: { tradeDate: string; sourceTimestamp: number; reason: "opening-boundary" | "outside-session" | "unaligned" }[] = [];
+  const closeEvidence = previousClose
+    ? await readStockMinutePreviousClose(symbol, batches.map(({ archive: { tradeDate } }) => tradeDate), previousClose, signal) : null;
+  for (const { tradeDate, price } of closeEvidence?.rows ?? []) if (price !== null) closeByDate[tradeDate] = price;
+  const excluded: StockMinuteExclusion[] = [];
   const completed: (TspCompletedMinuteBar & { sourceTimestamp: number })[] = [];
   const shift = choice.timestampLabel === "minute-end" ? 60_000 : 0;
   const volumeFactor = choice.volumeUnit === "unknown" ? null : choice.volumeUnit === "hand" ? 100 : 1;
@@ -89,17 +167,12 @@ export async function resolveTickFlowStockMinutes(request: TickFlowStockMinuteRe
     signal?.throwIfAborted();
     for (const row of rows) {
       const { sourceTimestamp, open, high, low, close, volume, amount } = row;
-      if (sourceTimestamp % 60_000 !== 0) {
-        excluded.push({ tradeDate, sourceTimestamp, reason: "unaligned" });
+      const label = stockMinuteLabel(sourceTimestamp, shift);
+      if ("reason" in label) {
+        excluded.push({ tradeDate, sourceTimestamp, reason: label.reason });
         continue;
       }
-      const minute = shanghaiTime.format(sourceTimestamp - shift);
-      if (tspMinuteIndex(minute) < 0) {
-        const reason = shift && shanghaiTime.format(sourceTimestamp) === "09:30" ? "opening-boundary" : "outside-session";
-        excluded.push({ tradeDate, sourceTimestamp, reason });
-        continue;
-      }
-      completed.push({ tradingDate: tradeDate, minute, sourceTimestamp, open, high, low, close,
+      completed.push({ tradingDate: tradeDate, minute: label.minute, sourceTimestamp, open, high, low, close,
         volumeShares: normalizeQuantity(volume, volumeFactor), amountCny: normalizeQuantity(amount, amountFactor) });
     }
   }
