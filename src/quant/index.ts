@@ -43,6 +43,8 @@ export type { TspMiningCandidateReportInput, TspMiningCandidateFoldEvidence, Tsp
 export { evaluateTspStrategyGuardian, planTspStrategyGuardianCheck, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION } from "./tsp-strategy-guardian.ts";
 export type { TspStrategyGuardianCheckInput, TspStrategyGuardianPlanInput, TspStrategyGuardianReason, TspStrategyGuardianThresholds } from "./tsp-strategy-guardian.ts";
 export { computeTspPaperStatistics, TSP_PAPER_STATISTICS_FORMULA_VERSION } from "./tsp-paper-statistics.ts";
+export { replayTspPaperLedger, TSP_PAPER_LEDGER_FORMULA_VERSION } from "./tsp-paper-ledger.ts";
+export type { TspPaperLedgerEntry, TspPaperLedgerInput } from "./tsp-paper-ledger.ts";
 export type { TspPaperFill, TspPaperNavRow, TspPaperStatisticsInput } from "./tsp-paper-statistics.ts";
 export { computeTspPaperValuation, TSP_PAPER_VALUATION_FORMULA_VERSION } from "./tsp-paper-valuation.ts";
 export type { TspPaperValuationInput, TspPaperPositionObservation, TspPaperPriceMark } from "./tsp-paper-valuation.ts";
