@@ -1,20 +1,33 @@
 import { TICKFLOW_SYMBOL_BATCH_SIZE, type SourceRequestOptions } from "../../source/index.ts";
-import { loadMarketCrossSectionArchive, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
+import { loadMarketCrossSectionArchive, loadPanelPortfolio, loadTradingDateArchive,
+  type MarketCrossSectionArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
 import { archivedListLiquidity } from "./list-liquidity.ts";
 import { deriveTspArchiveIndicators, type DailySignalExchangeRefs } from "./observation-collection.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
+import { projectTspWatchlistReturn, resolveTspWatchlistMembership } from "./watchlist-return.ts";
 
 export interface TspListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
-  stocks: readonly { symbol: string; history?: { ref: TradingDateArchiveRef; exchange?: DailySignalExchangeRefs } }[];
+  watchlistMembershipRevision?: string;
+  stocks: readonly {
+    symbol: string;
+    history?: { ref: TradingDateArchiveRef; exchange?: DailySignalExchangeRefs };
+    watchlistHistoryRef?: TradingDateArchiveRef;
+  }[];
 }
 
 /** Join fixed market observations and same-day WHYJ calculations for either stock list. */
 export async function replayTspListRows(request: TspListRowsRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { marketRef, adjustment, stocks } = structuredClone(request);
+  const { marketRef, adjustment, stocks, watchlistMembershipRevision } = structuredClone(request);
   if (adjustment !== "none" && adjustment !== "forward") throw new Error("Invalid list price basis");
+  if (watchlistMembershipRevision === undefined ? stocks.some(stock => stock.watchlistHistoryRef !== undefined) :
+    typeof watchlistMembershipRevision !== "string" || !/^[a-f0-9]{64}$/.test(watchlistMembershipRevision)) {
+    throw new Error("List watchlist history requires a valid membership revision");
+  }
+  const portfolio = watchlistMembershipRevision === undefined ? undefined : loadPanelPortfolio();
+  if (portfolio && portfolio.revision !== watchlistMembershipRevision) throw new Error("Saved watchlist membership revision changed.");
   const { source, market, tradeDate, universe, bars, basics } = await loadMarketCrossSectionArchive(marketRef, signal);
   const { members, ...rosterObservation } = universe;
   const { rows: barRows, ...dailyObservation } = bars;
@@ -27,8 +40,9 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   const barsBySymbol = new Map(barRows.map(row => [row.symbol, row]));
   const basicsBySymbol = new Map(basicRows.map(row => [row.symbol, row]));
   const rows = [];
-  for (const { symbol, history } of stocks) {
+  for (const { symbol, history, watchlistHistoryRef } of stocks) {
     signal?.throwIfAborted();
+    const membership = portfolio && resolveTspWatchlistMembership(portfolio, symbol);
     const bar = barsBySymbol.get(symbol) ?? null;
     const basic = basicsBySymbol.get(symbol) ?? null;
     const { volumeShares, metrics: liquidity } = archivedListLiquidity(bar, basic);
@@ -38,11 +52,20 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
     if (derived && (derived.input.symbol !== symbol || derived.input.adjustment !== adjustment ||
       derived.input.lastTradeDate > tradeDate)) throw new Error("List history has a mismatched symbol, price basis or future trade date");
     const sameDay = derived?.input.lastTradeDate === tradeDate;
+    let watchlistReturn = null;
+    if (membership && watchlistHistoryRef !== undefined) {
+      const records = await loadTradingDateArchive(watchlistHistoryRef, signal);
+      if (records[0]!.symbol !== symbol) throw new Error("Watchlist return archive does not match the list stock");
+      const result = projectTspWatchlistReturn(watchlistHistoryRef, tradeDate, records, membership);
+      watchlistReturn = { ...result.metrics, history: result.input.history };
+    }
     rows.push({
       instrument: roster.get(symbol)!,
+      ...(membership && { membership }),
       observations: { bar, basic, quantities: { volumeShares, amountCny } },
       metrics: {
         liquidity,
+        ...(membership && { watchlistReturn }),
         history: derived && { ref: derived.archiveRef, ...derived.input },
         daily: sameDay ? { producer: derived.daily.producer, formula: derived.daily.formula, ...derived.daily.rows.at(-1)! } : null,
         signals: sameDay ? {
