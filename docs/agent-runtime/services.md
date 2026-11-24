@@ -568,6 +568,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 使用 `whyj --json observation replay-backtest-portfolio --manifest portfolio.json` 从固定组合证据重放 [TSP 组合绩效](../quant-harness/alpha-backtest.md#固定证据的-tsp-组合绩效)。清单的 `schemaVersion` 为 `1`，包括 `initialCapital`、按日期递增的 `equityCurve` 和 `trades`。净值行包含 `date`、`equity` 和小数比例 `exposureFraction`。交易行包含 `pnlFraction` 和 `holdingDays`。将 `includeMonteCarlo` 设为 `false` 可跳过重抽样。JSON 中的 `portfolio` 和 `realizedTrades` 分别报告组合净值与已实现交易的统计。空净值曲线返回 `status: "unavailable"`，无效清单返回 `invalid_arguments`。命令只读取本地清单。
 
+`whyj --json observation replay-paper-ledger --manifest ledger.json` 从固定成交台账还原模拟账户的现金与持仓。清单包含 `schemaVersion: 1`、`accountId`、`currency`、`initialCash`、`asOf` 和按日期、台账顺序排列的 `entries`。成交项提供 `kind: "fill"`、`entryId`、`tradeDate`、`symbol`、`assetType`（`stock` 或 `etf`）、`currency`、`side`、`quantity`、`price`、`fee`。公司行动项提供 `kind: "corp_action"`、`entryId`、`tradeDate`、`symbol`、`factor`。将输出的 `cash`、`initialCash`、`positions` 原样用于同日的 `replay-paper-valuation`。`lots` 保留各批持仓的取得日期，`availableQuantity` 为较早批次的可卖整股数。
+
 使用 `whyj --json observation replay-paper-statistics --manifest account.json` 复算模拟账户统计。清单包含 `schemaVersion: 1`、`accountId`、三字母大写 `currency`、按台账顺序排列的 `fills` 和按日期递增的 `finalizedNav`。成交行包含 `fillId`、`tradeDate`、`symbol`、`side`（`buy` 或 `sell`）、整数股数 `quantity`、成交单价 `price`、手续费 `fee` 和 `currency`。净值行包含 `tradeDate`、`nav` 和同一 `currency`。
 
 输出的 `roundTrips` 保留买卖成交 ID 和每次配对股数，`summary` 提供已实现盈亏、胜率、盈亏比、持有天数、定版净值回撤和覆盖计数。无有效正净值时回撤为空。缺少可匹配的买入成交、币种不一致或顺序无效时返回 `invalid_arguments`。该命令以本地清单为输入。 [模拟账户指标定义](../quant-harness/tsp-panel-coverage.md#simulated-account-round-trip-and-nav-statistics)
