@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveMarketCrossSection, archiveTradingDateObservations, loadPanelPortfolio, savePanelPortfolio,
+import { archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations, loadPanelPortfolio, savePanelPortfolio,
   type StoredMarketCrossSection, type StoredTradingDateBarObservation } from "../../storage/index.ts";
 import { replayTspListLiquidity } from "../data/list-liquidity.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../data/list-rows.ts";
@@ -144,6 +144,63 @@ test("replays one dated stock with distinct Tushare and WhyJ evidence", async ()
     expect((await replayTspListRows({ ...onlyReturn, watchlistMembershipRevision: portfolio.revision })).rows[0]?.metrics.watchlistReturn)
       .toMatchObject({ status: "available", pctSinceAdded: 0 });
     await expect(replayTspListRows({ ...withWatchlist, watchlistMembershipRevision: portfolio.revision })).rejects.toThrow("absent");
+
+    expect(result.rows.every(row => !Object.hasOwn(row.observations, "financial"))).toBe(true);
+
+    const periodEnd = "2023-12-31";
+    const actualDisclosureDate = "2024-02-26";
+    const reportObservedAt = "2024-03-01T02:00:00Z";
+    const reportRow = {
+      periodEnd, announcementDate: actualDisclosureDate, updateFlag: null,
+      bookValuePerShare: 8, bookValueCurrency: "unknown", roe: 0, grossProfitMargin: 44,
+      netProfitMargin: null, operatingRevenueYoyPct: 2, totalOperatingRevenueYoyPct: 3, parentNetProfitYoyPct: -4,
+      debtToAssets: 32, ratioUnit: "provider-native",
+    } as const;
+    const reportBatch = {
+      market: "A", source: "tushare", symbol, coverage: "unknown", endpoint: "fina_indicator",
+      observedAt: reportObservedAt, requested: { startPeriod: periodEnd, endPeriod: periodEnd },
+      rows: [{ ...reportRow, basicEarningsPerShare: -0.5, earningsPerShareCurrency: "unknown" }],
+    } as const;
+    const reportRef = await archiveFinancialObservations({ ...reportBatch, rows: [...reportBatch.rows] });
+    const legacyReportRef = await archiveFinancialObservations({ ...reportBatch, rows: [reportRow] });
+    const sameDayReportRef = await archiveFinancialObservations({
+      ...reportBatch, observedAt: "2024-03-03T17:00:00Z", rows: [{ ...reportBatch.rows[0], basicEarningsPerShare: 7 }],
+    });
+    const otherReportRef = await archiveFinancialObservations({
+      ...reportBatch, symbol: "600000.SH", rows: [...reportBatch.rows],
+    });
+    const disclosureObservedAt = "2024-03-01T02:30:00Z";
+    const disclosureRef = await archiveFinancialObservations({
+      market: "A", source: "tushare", symbol, coverage: "unknown", endpoint: "disclosure_date",
+      observedAt: disclosureObservedAt, requested: { periodEnd }, rows: [{
+        periodEnd, actualDisclosureDate, planAnnouncementDate: null, plannedDisclosureDate: null, modificationRecord: null,
+      }],
+    });
+    const financialArchives = [sameDayReportRef, disclosureRef, reportRef];
+    const financialRequest = { ...listRequest, stocks: [{ ...listRequest.stocks[0]!, financialArchives }, listRequest.stocks[1]!] };
+    const withFinance = await replayTspListRows(financialRequest);
+    expect(withFinance.rows[0]!.observations.financial).toEqual({
+      status: "available", tradingDate: tradeDate, periodEnd, actualDisclosureDate, report: reportBatch.rows[0],
+      reportEvidence: [{ ref: reportRef, observedAt: reportObservedAt }],
+      disclosureEvidence: [{ ref: disclosureRef, observedAt: disclosureObservedAt }],
+    });
+    expect(withFinance.rows[0]!.observations.basic).toEqual(result.rows[0]!.observations.basic);
+    expect(withFinance.rows[0]!.metrics).toEqual(result.rows[0]!.metrics);
+    expect(withFinance.rows[1]).toEqual(result.rows[1]);
+    expect(await replayTspListRows(financialRequest)).toEqual(withFinance);
+    const oneStock = (...references: typeof financialArchives) => replayTspListRows({
+      ...listRequest, stocks: [{ symbol, financialArchives: references }],
+    });
+    expect((await oneStock(legacyReportRef, disclosureRef)).rows[0]!.observations.financial)
+      .toMatchObject({ status: "available", report: reportRow });
+    expect((await oneStock(reportRef)).rows[0]!.observations.financial).toEqual({
+      tradingDate: tradeDate, status: "unavailable", reason: "missing-disclosure",
+    });
+    expect((await oneStock(sameDayReportRef, disclosureRef)).rows[0]!.observations.financial).toEqual({
+      tradingDate: tradeDate, status: "unavailable", reason: "missing-report",
+    });
+    await expect(oneStock(otherReportRef)).rejects.toThrow("archive symbol does not match");
+    await expect(oneStock(reportRef, reportRef)).rejects.toThrow("Duplicate financial research archive revision");
 
     const stale = await replayTspListRows({ ...listRequest, stocks: [{ symbol, history: { ref: staleRef } }] });
     expect(stale.rows[0]).toMatchObject({ metrics: { daily: null, signals: null, history: { lastTradeDate: priorDay } } });
