@@ -124,6 +124,8 @@ export { archiveMarketRegimeManifest, loadMarketRegimeManifest, MARKET_REGIME_MA
 export type { MarketRegimeManifestRef } from "../types/observation.ts";
 export { archiveBenchmarkIndexObservations, loadBenchmarkIndexArchive } from "./src/observation-archive.ts";
 export { archiveDatedIndexMinutes, loadDatedIndexMinuteArchive } from "./src/observation-archive.ts";
+export { archiveDatedStockMinutes, loadDatedStockMinuteArchive } from "./src/observation-archive.ts";
+export type { DatedStockMinuteArchiveRef, StoredDatedStockMinuteBatch } from "../types/observation.ts";
 export { archiveDatedIndexDailyBars, loadDatedIndexDailyArchive } from "./src/observation-archive.ts";
 export type { DatedIndexDailyArchiveRef, StoredDatedIndexDailyBatch, StoredDatedIndexDailyBar } from "../types/observation.ts";
 export { archiveDatedEtfDailyBars, loadDatedEtfDailyArchive } from "./src/observation-archive.ts";
