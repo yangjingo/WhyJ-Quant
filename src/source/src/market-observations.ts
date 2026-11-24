@@ -176,6 +176,21 @@ export interface CurrentIndexMinuteObservations extends DatedIndexMinuteObservat
   requestedWindow: { startTime: number; endTime: number } | null;
 }
 
+export interface DatedStockMinuteObservations {
+  symbol: string;
+  assetType: "stock";
+  tradeDate: string;
+  interval: "1m";
+  adjustment: "none";
+  priceUnit: "provider-native";
+  volumeUnit: "provider-native";
+  amountUnit: "provider-native";
+  timeZone: "Asia/Shanghai";
+  timestampLabel: "provider-native";
+  finality: "unknown";
+  rows: { sourceTimestamp: number; open: number; high: number; low: number; close: number; volume: number; amount: number | null }[];
+}
+
 export interface DailyMarketBasic {
   symbol: string;
   close: number | null;
@@ -297,6 +312,8 @@ export interface MarketObservationSource {
     Promise<MarketObservation<DatedIndexMinuteObservations>>;
   fetchCurrentIndexMinutes(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<CurrentIndexMinuteObservations>>;
+  fetchDatedStockMinutes(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<DatedStockMinuteObservations>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
   fetchHistoricalStockUniverse(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
@@ -325,6 +342,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchDatedEtfDailyBars: { tickflow: "A", tushare: "A" },
   fetchDatedIndexMinutes: { tickflow: "A" },
   fetchCurrentIndexMinutes: { tickflow: "A" },
+  fetchDatedStockMinutes: { tickflow: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
@@ -372,6 +390,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchDatedEtfDailyBars: status("fetchDatedEtfDailyBars"),
     fetchDatedIndexMinutes: status("fetchDatedIndexMinutes"),
     fetchCurrentIndexMinutes: status("fetchCurrentIndexMinutes"),
+    fetchDatedStockMinutes: status("fetchDatedStockMinutes"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
     fetchDatedRiskWarnings: status("fetchDatedRiskWarnings"),
@@ -720,6 +739,22 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
       const requestedWindow = now < startTime ? null : { startTime, endTime: Math.min(now, endTime) };
       const minutes = await indexMinutes(code, tradeDate, requestedWindow, options);
       return result<CurrentIndexMinuteObservations>(market, "/v1/klines", { ...minutes, requestedWindow, finality: "provisional" });
+    },
+    async fetchDatedStockMinutes({ symbol, market, tradeDate }, options) {
+      validate("fetchDatedStockMinutes", market);
+      const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
+      if (!/^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/.test(code) || isAIndexSymbol(code)) {
+        throw new Error("An exchange-qualified A-share stock is required");
+      }
+      const window = completedMinuteWindow(tradeDate);
+      const { rows } = await readReference(options, signal => fetchTickFlowKlines(code, {
+        period: "1m", adjustment: "none", ...window,
+      }, { apiKey, baseUrl, env, signal }));
+      return result<DatedStockMinuteObservations>(market, "/v1/klines", {
+        symbol: code, assetType: "stock", tradeDate, interval: "1m", adjustment: "none", timeZone: "Asia/Shanghai",
+        priceUnit: "provider-native", volumeUnit: "provider-native", amountUnit: "provider-native", timestampLabel: "provider-native", finality: "unknown",
+        rows: rows.map(({ timestamp, open, high, low, close, volume, amount }) => ({ sourceTimestamp: timestamp, open, high, low, close, volume, amount })),
+      });
     },
     async fetchTradingCalendar({ market, start, end }, options) {
       validate("fetchTradingCalendar", market);
