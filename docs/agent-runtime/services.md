@@ -727,6 +727,8 @@ Runtime 调用方可为每只股票附上 `financialArchives`，用[历史时点
 
 提供 `history.exchange` 或单独的 `tradingLimitsRef` 后，`observations.tradingLimits` 保留 `stk_limit` 的原始人民币阈值、归档版本及观测时间。同一股票只接受其中一种限价引用。当日归档缺行时 `row` 为 `null`，日期相邻的记录不会代填。提供以列表交易日结束的 `limitCalendar: { revision, sessions }` 时，`metrics.limitStreaks` 从历史限价信号计算连续涨停与跌停次数，保留日历和公式版本。缺少信号、交易日证据或此前未触板的起算点时，相应次数为 `null`。已知未触板将该方向的计数重置为 0。
 
+Runtime 调用方可通过 `history.candleBars` 请求 5 至 60 根日 K。`observations.dailyCandles` 从同一份 `history.ref` 中返回最后若干条已观察行情，保留日期、源时间戳、原始 OHLC、量额、单位、复权口径和归档信息。历史记录不足时返回已有行，实际结束日期和缺口随原始日期保留。日 K 切片与当日报价分别保留各自的来源。省略参数时沿用现有响应结构。
+
 缺少行情或财务估值观察的标的仍占一行，对应观察为 `null`。日线历史缺少目标交易日时，技术指标和信号为 `null`，已有历史归档的实际结束日期随行返回。调用方可用这份结果展示固定日期，实时行情覆盖需要独立的报价时间和价格口径。
 
 ```sh

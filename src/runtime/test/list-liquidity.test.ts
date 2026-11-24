@@ -33,7 +33,7 @@ test("replays one dated stock with distinct Tushare and WhyJ evidence", async ()
       ] },
   };
   const priorDay = "2024-03-01";
-  function history(dates: string[], adjustment: "none" | "forward" = "forward") {
+  function history(dates: string[], adjustment: "none" | "forward" = "forward", volume = 100) {
     return archiveTradingDateObservations(dates.map((day, index): StoredTradingDateBarObservation => {
       const close = 8 + index;
       return {
@@ -41,7 +41,7 @@ test("replays one dated stock with distinct Tushare and WhyJ evidence", async ()
         market: "A", assetType: "stock", calendarTimeZone: "Asia/Shanghai", source: "tickflow", endpoint: "/v1/klines",
         sourceTimestamp: Date.parse(day + "T15:00:00+08:00"), requested: { startDate: dates[0]!, endDate: dates.at(-1)! },
         observedAt: metadata.observedAt, adjustment, volumeUnit: "unknown", amountUnit: "unknown", coverage: "unknown",
-        values: { open: close, high: close, low: close, close, volume: 100, amount: null },
+        values: { open: close, high: close, low: close, close, volume, amount: null },
       };
     }));
   }
@@ -146,6 +146,31 @@ test("replays one dated stock with distinct Tushare and WhyJ evidence", async ()
     await expect(replayTspListRows({ ...withWatchlist, watchlistMembershipRevision: portfolio.revision })).rejects.toThrow("absent");
 
     expect(result.rows.every(row => !Object.hasOwn(row.observations, "financial"))).toBe(true);
+
+    const candleDates = ["2024-02-23", "2024-02-26", "2024-02-27", "2024-02-28", priorDay, tradeDate];
+    const candleRef = await history(candleDates, "forward", 0);
+    const shortRef = await history(["2024-02-28", priorDay], "forward", 0);
+    const candles = (ref: typeof dailyRef, candleBars: number) => replayTspListRows({
+      ...listRequest, stocks: [{ symbol, history: { ref, candleBars } }],
+    });
+    const withCandles = await candles(candleRef, 5);
+    expect(withCandles.rows[0]?.observations.dailyCandles).toMatchObject({
+      ref: candleRef, source: "tickflow", endpoint: "/v1/klines", observedAt: metadata.observedAt,
+      volumeUnit: "unknown", amountUnit: "unknown", adjustment: "forward",
+      requestedBars: 5, requested: { startDate: candleDates[0], endDate: tradeDate },
+    });
+    expect(withCandles.rows[0]?.observations.dailyCandles?.rows.map(row => row.tradeDate)).toEqual(candleDates.slice(-5));
+    expect(withCandles.rows[0]?.observations.dailyCandles?.rows.at(-1)).toEqual({
+      tradeDate, sourceTimestamp: Date.parse(tradeDate + "T15:00:00+08:00"),
+      open: 13, high: 13, low: 13, close: 13, volume: 0, amount: null,
+    });
+    const short = await candles(shortRef, 60);
+    expect(short.rows[0]?.observations.dailyCandles?.rows.map(row => row.tradeDate)).toEqual(["2024-02-28", priorDay]);
+    expect(short.rows[0]?.metrics.daily).toBeNull();
+    expect(result.rows.every(row => !Object.hasOwn(row.observations, "dailyCandles"))).toBe(true);
+    for (const invalid of [4, 60.5, 61, NaN]) {
+      await expect(candles(dailyRef, invalid)).rejects.toThrow("5 to 60");
+    }
 
     const periodEnd = "2023-12-31";
     const actualDisclosureDate = "2024-02-26";
