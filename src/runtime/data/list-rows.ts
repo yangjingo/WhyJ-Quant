@@ -1,14 +1,15 @@
 import { isDailyDate } from "../../market/bars.ts";
-import { computeTspLimitStreaks, TSP_INDICATOR_REVISION, TSP_LIMIT_STREAK_FORMULA_VERSION } from "../../quant/index.ts";
+import { computeTspLimitStreaks, computeTspListIntraday, TSP_INDICATOR_REVISION, TSP_LIMIT_STREAK_FORMULA_VERSION } from "../../quant/index.ts";
 import { TICKFLOW_SYMBOL_BATCH_SIZE, type SourceRequestOptions } from "../../source/index.ts";
 import { loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadPanelPortfolio, loadTradingDateArchive,
-  type FinancialObservationArchiveRef, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef, type TradingLimitArchiveRef } from "../../storage/index.ts";
+  type DatedStockMinuteArchiveRef, type FinancialObservationArchiveRef, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef, type TradingLimitArchiveRef } from "../../storage/index.ts";
 import { replayFinancialResearchInputs } from "./financial-input-replay.ts";
 import { archivedListLiquidity } from "./list-liquidity.ts";
 import { resolveTspArchiveIndicators, type DailySignalExchangeRefs } from "./observation-collection.ts";
 import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "./price-deviation-replay.ts";
 import { replayTspScreenerUnion, type ScreenerUnionReplayRequest } from "./screener-replay.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
+import { resolveTickFlowStockMinutes, type TickFlowStockMinuteReplayRequest } from "./tickflow-stock-minute-replay.ts";
 import { projectTspWatchlistReturn, resolveTspWatchlistMembership } from "./watchlist-return.ts";
 
 type ListCalendar = { revision: string; sessions: readonly string[] };
@@ -29,6 +30,24 @@ async function readListDeviation(symbol: string, sessions: readonly string[], re
   return { ...evidence, ...rows.at(-1)!, proximity: { ...proximity, ...proximityRows.at(-1)! } };
 }
 
+export type TspListIntradayRequest = Omit<TickFlowStockMinuteReplayRequest, "refs"> & { ref: DatedStockMinuteArchiveRef };
+
+async function readListIntraday(symbol: string, tradeDate: string, request: TspListIntradayRequest, signal?: AbortSignal) {
+  const { ref, interpretation, previousClose } = request;
+  const { completed, preview, archives } = await resolveTickFlowStockMinutes({ refs: [ref], interpretation, previousClose }, signal);
+  const receipt = preview.input.archives[0]!;
+  if (receipt.symbol !== symbol || receipt.tradeDate !== tradeDate) {
+    throw new Error("Intraday archive does not match the list symbol or trading date");
+  }
+  const prior = preview.input.previousClose?.rows[0]?.price ?? null;
+  const report = computeTspListIntraday({ tradeDate, bars: completed, previousClose: prior !== null && prior > 0 ? prior : null });
+  return {
+    observation: { ...receipt, rows: archives[0]!.archive.rows, interpretation: preview.input.interpretation,
+      previousClose: preview.input.previousClose, excluded: preview.excluded },
+    metrics: { ...report, points: report.points.map((point, index) => ({ ...point, sourceTimestamp: completed[index]!.sourceTimestamp })) },
+  };
+}
+
 export interface TspListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
@@ -42,6 +61,7 @@ export interface TspListRowsRequest {
     watchlistHistoryRef?: TradingDateArchiveRef;
     tradingLimitsRef?: TradingLimitArchiveRef;
     deviation?: ListDeviationRequest;
+    intraday?: TspListIntradayRequest;
     financialArchives?: readonly FinancialObservationArchiveRef[];
   }[];
 }
@@ -81,7 +101,7 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   const barsBySymbol = new Map(barRows.map(row => [row.symbol, row]));
   const basicsBySymbol = new Map(basicRows.map(row => [row.symbol, row]));
   const rows = [];
-  for (const { symbol, history, financialArchives, tradingLimitsRef, watchlistHistoryRef, deviation } of stocks) {
+  for (const { symbol, history, financialArchives, tradingLimitsRef, watchlistHistoryRef, deviation, intraday } of stocks) {
     signal?.throwIfAborted();
     const membership = portfolio && resolveTspWatchlistMembership(portfolio, symbol);
     if (history?.exchange && tradingLimitsRef !== undefined) throw new Error("List stock has competing trading limit references");
@@ -138,12 +158,13 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
       ? await readListDeviation(symbol, deviationCalendar.sessions, deviation, signal)
       : undefined;
     const match = unionRows.get(symbol);
+    const minuteEvidence = intraday === undefined ? undefined : await readListIntraday(symbol, tradeDate, intraday, signal);
     rows.push({
       instrument: roster.get(symbol)!,
       ...(membership && { membership }),
       observations: { bar, basic, quantities: { volumeShares, amountCny },
         ...(financial === undefined ? {} : { financial }), ...(tradingLimits && { tradingLimits }),
-        ...(dailyCandles && { dailyCandles }) },
+        ...(dailyCandles && { dailyCandles }), ...(minuteEvidence && { intraday: minuteEvidence.observation }) },
       metrics: {
         liquidity,
         ...(membership && { watchlistReturn }),
@@ -165,6 +186,7 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
             strategyId, status: statuses.get(symbol) ?? "outside-scope" as const,
           })),
         } }),
+        ...(minuteEvidence && { intraday: minuteEvidence.metrics }),
       },
     });
   }
