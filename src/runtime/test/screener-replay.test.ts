@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { archiveDailyTradingLimits, archiveMarketCrossSection, archiveTradingDateObservations,
   type StoredMarketCrossSection, type StoredTradingDateBarObservation } from "../../storage/index.ts";
 import { replayTspScreener, replayTspScreenerUnion, type ScreenerReplayRequest } from "../data/screener-replay.ts";
+import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../data/list-rows.ts";
 
 const tradeDate = "2024-01-15";
 const sessions = ["2024-01-08", "2024-01-09", "2024-01-10", "2024-01-11", "2024-01-12", tradeDate];
@@ -97,6 +98,42 @@ test("scores only matched dated stocks and preserves raw-provider and missing ev
         hits: [{ strategyId: "daily-volume", score: null }, { strategyId: "value", score: 50 }] },
     ]);
     expect(await replayTspScreenerUnion(unionRequest)).toEqual(union);
+    const listStocks = [symbols[0]!, symbols[3]!, symbols[4]!].map(symbol => ({ symbol }));
+    const listRequest = { marketRef, adjustment: request.adjustment, stocks: listStocks, screener: {
+      histories: unionRequest.histories, strategies: unionRequest.strategies,
+    } };
+    const fixed = await replayTspListRows(listRequest);
+    expect(fixed.rows.map(row => row.instrument.symbol)).toEqual(listStocks.map(row => row.symbol));
+    expect(fixed.screener).toMatchObject({
+      scoped: 5, matched: 4,
+      strategies: union.replays.map(({ ranking, coverage, fieldSources }) => ({
+        strategy: ranking.strategy, formula: ranking.formula, candidateRevision: ranking.candidateRevision, coverage, fieldSources,
+      })),
+    });
+    expect(fixed.rows.map(row => row.metrics.screener)).toEqual(listStocks.map(({ symbol }) => {
+      const index = union.rows.findIndex(row => row.symbol === symbol);
+      const match = union.rows[index];
+      return { producer: "whyj", position: match ? index + 1 : null, score: match?.score ?? null, scoreStrategyId: match?.scoreStrategyId ?? null,
+        hits: match?.hits ?? [], evaluations: union.replays.map(({ ranking, evaluated }) => ({
+          strategyId: ranking.strategy.id, status: evaluated.find(row => row.symbol === symbol)!.status,
+        })) };
+    }));
+    expect(fixed.rows[0]?.observations.bar?.close).toBe(12);
+    expect(fixed.rows[0]?.metrics.screener).toMatchObject({ position: 4, score: null, hits: [{ strategyId: "daily-volume", score: null },
+      { strategyId: "value", score: 50 }] });
+    expect(await replayTspListRowsWithLiveQuotes(listRequest)).toEqual({ fixed, quotes: { status: "outside-current-day" } });
+    const weighted = { ...volume, weights: request.weights, orderBy: "score" };
+    const narrowed = await replayTspListRows({ ...listRequest, screener: {
+      histories: [request.histories[0]!, request.histories[1]!, request.histories[2]!, request.histories[4]!], strategies: [weighted],
+    }, stocks: [listStocks[0]!, listStocks[1]!, { symbol: symbols[2]! }, listStocks[2]!] });
+    expect(narrowed.rows.map(row => [row.metrics.screener?.score, row.metrics.screener?.position, row.metrics.screener?.evaluations[0]?.status]))
+      .toEqual([[0, 2, "matched"], [null, null, "outside-scope"], [null, null, "not-matched"], [null, null, "unavailable"]]);
+    const unscored = await replayTspListRows({ ...listRequest, screener: undefined });
+    expect(unscored).not.toHaveProperty("screener");
+    expect(unscored.rows.every(row => !Object.hasOwn(row.metrics, "screener"))).toBe(true);
+    await expect(replayTspListRows({ ...listRequest, screener: { ...listRequest.screener, strategies: [volume, volume] } }))
+      .rejects.toThrow("unique");
+    await expect(replayTspListRows({ ...listRequest, adjustment: "none" })).rejects.toThrow("price basis");
     const reversed = await replayTspScreenerUnion({ ...unionRequest, strategies: [value, volume] });
     expect(reversed.rows.map(row => [row.symbol, row.score, row.scoreStrategyId]))
       .toEqual(symbols.slice(0, 4).map(symbol => [symbol, 50, "value"]));

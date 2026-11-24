@@ -6,12 +6,14 @@ import { loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadPanelP
 import { replayFinancialResearchInputs } from "./financial-input-replay.ts";
 import { archivedListLiquidity } from "./list-liquidity.ts";
 import { resolveTspArchiveIndicators, type DailySignalExchangeRefs } from "./observation-collection.ts";
+import { replayTspScreenerUnion, type ScreenerUnionReplayRequest } from "./screener-replay.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
 import { projectTspWatchlistReturn, resolveTspWatchlistMembership } from "./watchlist-return.ts";
 
 export interface TspListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
+  screener?: Pick<ScreenerUnionReplayRequest, "histories" | "strategies">;
   limitCalendar?: { revision: string; sessions: readonly string[] };
   watchlistMembershipRevision?: string;
   stocks: readonly {
@@ -26,7 +28,7 @@ export interface TspListRowsRequest {
 /** Join fixed market observations and same-day WHYJ calculations for either stock list. */
 export async function replayTspListRows(request: TspListRowsRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { marketRef, adjustment, stocks, watchlistMembershipRevision, limitCalendar } = structuredClone(request);
+  const { marketRef, adjustment, stocks, limitCalendar, watchlistMembershipRevision, screener } = structuredClone(request);
   if (adjustment !== "none" && adjustment !== "forward") throw new Error("Invalid list price basis");
   if (watchlistMembershipRevision === undefined ? stocks.some(stock => stock.watchlistHistoryRef !== undefined) :
     typeof watchlistMembershipRevision !== "string" || !/^[a-f0-9]{64}$/.test(watchlistMembershipRevision)) {
@@ -53,6 +55,12 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   if (new Set(symbols).size !== symbols.length || symbols.some(symbol => !roster.has(symbol))) {
     throw new Error("Duplicate list symbol or symbol absent from the archived roster");
   }
+  const union = screener === undefined ? undefined : await replayTspScreenerUnion({ ...screener, marketRef, adjustment }, signal);
+  const unionRows = new Map(union?.rows.map(({ symbol, ...match }, index) => [symbol, { ...match, position: index + 1 }]));
+  const strategyEvaluations = union?.replays.map(({ ranking, evaluated }) => ({
+    strategyId: ranking.strategy.id,
+    statuses: new Map(evaluated.map(({ symbol, status }) => [symbol, status])),
+  }));
   const barsBySymbol = new Map(barRows.map(row => [row.symbol, row]));
   const basicsBySymbol = new Map(basicRows.map(row => [row.symbol, row]));
   const rows = [];
@@ -109,6 +117,7 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
       consecutiveLimitUps: latestStreak?.consecutiveLimitUps ?? null,
       consecutiveLimitDowns: latestStreak?.consecutiveLimitDowns ?? null,
     };
+    const match = unionRows.get(symbol);
     rows.push({
       instrument: roster.get(symbol)!,
       ...(membership && { membership }),
@@ -125,6 +134,16 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
           exchangeInputs: derived.dailySignals.exchangeInputs ?? null, ...derived.dailySignals.rows.at(-1)!,
         } : null,
         ...(limitStreaks && { limitStreaks }),
+        ...(strategyEvaluations && { screener: {
+          producer: "whyj" as const,
+          position: match?.position ?? null,
+          score: match?.score ?? null,
+          scoreStrategyId: match?.scoreStrategyId ?? null,
+          hits: match?.hits ?? [],
+          evaluations: strategyEvaluations.map(({ strategyId, statuses }) => ({
+            strategyId, status: statuses.get(symbol) ?? "outside-scope" as const,
+          })),
+        } }),
       },
     });
   }
@@ -132,6 +151,13 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   return {
     marketRef, source, market, tradeDate, adjustment, rows,
     ...(limitCalendar && { limitCalendar: { ...limitCalendar, zone: "Asia/Shanghai" as const } }),
+    ...(union && { screener: {
+      scoped: union.replays[0]!.coverage.scoped,
+      matched: union.rows.length,
+      strategies: union.replays.map(({ ranking: { strategy, formula, candidateRevision }, coverage, fieldSources }) => ({
+        strategy, formula, candidateRevision, coverage, fieldSources,
+      })),
+    } }),
     observations: { roster: rosterObservation, daily: dailyObservation, dailyBasic: dailyBasicObservation },
   };
 }
