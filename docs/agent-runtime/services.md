@@ -741,6 +741,8 @@ whyj --json observation read-list-quotes --manifest ./list-rows.json
 
 `read-list-quotes` 复用同一份清单，且仅在市场截面对应当前上海日期时请求已配置的 TickFlow。固定归档回放继续使用离线的 `replay-list-rows`。
 
+两条列表命令的清单也可填写 `watchlistMembershipRevision`，可从 `replay-watchlist-return` 的 `input.membership.revision` 取得当前修订。每只股票的 `watchlistHistoryRevision` 指向前复权日线。带历史修订但未填写清单修订时返回 `invalid_arguments`，清单已变更或归档无法回放时返回 `observation_archive_unavailable`。查看 `membership.addedAt` 和 `metrics.watchlistReturn` 获取原始加入时间和收益率证据。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
