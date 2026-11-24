@@ -749,6 +749,8 @@ Runtime 调用方可为每只股票附上 `financialArchives`，用[历史时点
 
 Runtime 调用方可通过 `history.candleBars` 请求 5 至 60 根日 K。`observations.dailyCandles` 从同一份 `history.ref` 中返回最后若干条已观察行情，保留日期、源时间戳、原始 OHLC、量额、单位、复权口径和归档信息。历史记录不足时返回已有行，实际结束日期和缺口随原始日期保留。日 K 切片与当日报价分别保留各自的来源。省略参数时沿用现有响应结构。
 
+Runtime 股票项可提供 `intraday: { ref, interpretation, previousClose? }` 回放与列表股票和交易日相同的一份 TickFlow 分钟归档。`observations.intraday` 保留源纪元时间、量额、原始单位、分钟标签解释和被排除的记录。`metrics.intraday` 保留 WHYJ 计算的逐点收盘均线、以实际昨收计算的涨跌幅，以及图表基准。`previousClose` 使用同价格口径的确认证据。缺少昨收或当天归档为空时，对应涨跌幅保留为空，图表仍可根据已有点显示。
+
 缺少行情或财务估值观察的标的仍占一行，对应观察为 `null`。日线历史缺少目标交易日时，技术指标和信号为 `null`，已有历史归档的实际结束日期随行返回。调用方可用这份结果展示固定日期，实时行情覆盖需要独立的报价时间和价格口径。
 
 ```sh

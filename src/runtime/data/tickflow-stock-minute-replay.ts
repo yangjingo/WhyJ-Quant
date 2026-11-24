@@ -112,7 +112,7 @@ export async function resolveTickFlowStockMinutes(request: TickFlowStockMinuteRe
     excluded,
     rows: calculated.map((row, index) => ({ ...row, sourceTimestamp: completed[index]!.sourceTimestamp })),
   };
-  return { completed, preview };
+  return { completed, preview, archives: batches };
 }
 
 export async function replayTspTickFlowStockMinutes(request: TickFlowStockMinuteReplayRequest, signal?: AbortSignal) {

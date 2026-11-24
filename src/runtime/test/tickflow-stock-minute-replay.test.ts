@@ -2,9 +2,10 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveDatedStockMinutes, archiveDailyTradingLimits, loadDatedStockMinuteArchive, saveSettings,
+import { archiveDatedStockMinutes, archiveDailyTradingLimits, archiveMarketCrossSection, loadDatedStockMinuteArchive, saveSettings,
   type StoredDatedStockMinuteBatch } from "../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../types/config.ts";
+import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../data/list-rows.ts";
 import { replayTspIntradayMonitorAlerts, type IntradayMonitorAlertReplayRequest } from "../data/intraday-monitor-alert-replay.ts";
 import { collectDatedTickFlowStockMinutes, replayTspTickFlowStockMinutes,
   type TickFlowStockMinuteInterpretation } from "../data/tickflow-stock-minute-replay.ts";
@@ -124,4 +125,66 @@ test("reconstructs aligned TickFlow features and alerts with their native epochs
   await expect(replayTspTickFlowStockMinutes({ ...history, refs: [ref, foreign] })).rejects.toThrow("one stock");
   await expect(replayTspTickFlowStockMinutes({ ...history, refs: [ref, ref] })).rejects.toThrow("references or interpretation");
   await expect(replayTspTickFlowStockMinutes(history, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+});
+
+test("binds stock-list intraday charts to the exact minute and previous-close archives", async () => {
+  const meta = { tradeDate: first, observedAt, coverage: "unknown" } as const;
+  const marketRef = await archiveMarketCrossSection({
+    market: "A", source: "tushare", tradeDate: first,
+    universe: { ...meta, endpoint: "bak_basic", universe: "provider-dated-stocks",
+      members: [{ symbol, name: "Fixture", listedOn: null, industry: null }] },
+    bars: { ...meta, endpoint: "daily", adjustment: "none", priceUnit: "CNY", volumeUnit: "hand",
+      amountUnit: "CNY-thousand", rows: [] },
+    basics: { ...meta, endpoint: "daily_basic", priceUnit: "CNY", shareUnit: "ten-thousand-shares",
+      marketValueUnit: "CNY-ten-thousand", rows: [] },
+  });
+  const raw = batch(first, [["09:30:00", 99], ["09:30:59.123", 88], ["09:31:00", 9], ["09:33:00", 10]]);
+  raw.rows[2]!.volume = 0;
+  raw.rows[2]!.amount = null;
+  const ref = await archiveDatedStockMinutes(raw);
+  const priorRef = await archiveDailyTradingLimits({
+    symbol, market: "A", source: "tushare", endpoint: "stk_limit", observedAt,
+    coverage: "unknown", priceUnit: "CNY", requested: { startDate: first, endDate: first },
+    rows: [{ tradeDate: first, previousClose: 10, limitUp: 11, limitDown: 9 }],
+  });
+  const withoutUnits = { timestampLabel: "minute-end", priceBasis: interpretation.priceBasis } as const;
+  const request = {
+    marketRef, adjustment: "forward" as const, stocks: [{ symbol, intraday: { ref, interpretation: withoutUnits,
+      previousClose: { ref: priorRef, priceBasis: "caller-confirmed-same-basis" as const } } }],
+  };
+  const chart = await replayTspListRows(request);
+  expect(chart.rows[0]?.observations.intraday).toMatchObject({
+    ...raw, ref, interpretation: { ...withoutUnits, volumeUnit: "unknown", amountUnit: "unknown" },
+    previousClose: { archiveRef: priorRef, rows: [{ tradeDate: first, price: 10 }] },
+    excluded: [
+      { tradeDate: first, sourceTimestamp: stamp(first, "09:30:00"), reason: "opening-boundary" },
+      { tradeDate: first, sourceTimestamp: stamp(first, "09:30:59.123"), reason: "unaligned" },
+    ],
+  });
+  expect(chart.rows[0]?.metrics.intraday).toMatchObject({
+    producer: "whyj", formula: { id: "tsp_list_intraday", version: 1 }, plotBaseline: { kind: "previous-close", value: 10 },
+    latestReturnFraction: 0, points: [
+      { minute: "09:30", sourceTimestamp: stamp(first, "09:31:00"), close: 9, averageClose: 9, previousCloseReturnFraction: 9 / 10 - 1 },
+      { minute: "09:32", sourceTimestamp: stamp(first, "09:33:00"), close: 10, averageClose: 9.5, previousCloseReturnFraction: 0 },
+    ],
+  });
+  expect(await replayTspListRowsWithLiveQuotes(request)).toEqual({ fixed: chart, quotes: { status: "outside-current-day" } });
+
+  const read = (revision: typeof ref) => replayTspListRows({ ...request, stocks: [{
+    symbol, intraday: { ref: revision, interpretation: withoutUnits },
+  }] });
+  const missingPrior = await read(ref);
+  expect(missingPrior.rows[0]?.metrics.intraday).toMatchObject({
+    plotBaseline: { kind: "first-observed-open", value: 9 }, latestReturnFraction: null,
+  });
+  const empty = await read(await archiveDatedStockMinutes(batch(first, [])));
+  expect(empty.rows[0]?.observations.intraday).toMatchObject({ rows: [], rowCount: 0 });
+  expect(empty.rows[0]?.metrics.intraday).toMatchObject({ plotBaseline: null, points: [] });
+
+  const legacy = await replayTspListRows({ ...request, stocks: [{ symbol }] });
+  expect(legacy.rows[0]?.observations).not.toHaveProperty("intraday");
+  expect(legacy.rows[0]?.metrics).not.toHaveProperty("intraday");
+  await expect(read(await archiveDatedStockMinutes(batch(second, [])))).rejects.toThrow("symbol or trading date");
+  await expect(read(await archiveDatedStockMinutes(batch(first, [], "600002.SH")))).rejects.toThrow("symbol or trading date");
+  await expect(replayTspListRows(request, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
 });
