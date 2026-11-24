@@ -2,8 +2,10 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveBenchmarkIndexObservations, archiveTradingDateObservations, type StoredTradingDateBarObservation } from "../../storage/index.ts";
+import { archiveBenchmarkIndexObservations, archiveMarketCrossSection, archiveTradingDateObservations,
+  type StoredTradingDateBarObservation } from "../../storage/index.ts";
 import { replayTspPriceDeviation } from "../data/price-deviation-replay.ts";
+import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../data/list-rows.ts";
 
 const sessions = Array.from({ length: 52 }, (_, offset) => new Date(Date.UTC(2025, 2, 3 + offset)))
   .filter(date => date.getUTCDay() !== 0 && date.getUTCDay() !== 6)
@@ -25,11 +27,11 @@ function stock(symbol = mainBoard, omit?: string, adjustment: "forward" | "none"
   return archiveTradingDateObservations(rows.filter(row => row.tradeDate !== omit).reverse());
 }
 
-function benchmark(symbol: string, omit?: string) {
+function benchmark(symbol: string, omit?: string, closeAt = (index: number) => 1000 * 1.01 ** index) {
   return archiveBenchmarkIndexObservations({ symbol, source: "tushare", market: "A", endpoint: "index_daily",
     coverage: "unknown", priceUnit: "index-points", returnUnit: "percentage-points", requested: { start, end }, observedAt,
     rows: sessions.map((tradeDate, index) => ({
-      tradeDate, closePoints: 1000 * 1.01 ** index, previousClosePoints: null, changePoints: null, returnPct: null,
+      tradeDate, closePoints: closeAt(index), previousClosePoints: null, changePoints: null, returnPct: null,
     })).filter(row => row.tradeDate !== omit),
   });
 }
@@ -115,4 +117,51 @@ test("rejects wrong archive identity, price basis and calendar while preserving 
   await expect(replayTspPriceDeviation({ ...request, sessions: [start, end] }))
     .rejects.toThrow("off-calendar observation");
   await expect(replayTspPriceDeviation(request, AbortSignal.abort())).rejects.toMatchObject({ name: "AbortError" });
+});
+
+test("projects the exact dated deviation and proximity onto list rows without replacing provider fields", async () => {
+  const other = "600002.SH";
+  const meta = { tradeDate: end, observedAt, coverage: "unknown" } as const;
+  const marketRef = await archiveMarketCrossSection({
+    source: "tushare", market: "A", tradeDate: end,
+    universe: { ...meta, endpoint: "bak_basic", universe: "provider-dated-stocks",
+      members: [mainBoard, other].map(symbol => ({ symbol, name: symbol, listedOn: null, industry: null })) },
+    bars: { ...meta, endpoint: "daily", adjustment: "none", priceUnit: "CNY", volumeUnit: "hand", amountUnit: "CNY-thousand",
+      rows: [{ symbol: mainBoard, open: 12, high: 12, low: 12, close: 12, exRightsPreviousClose: null, returnPct: null,
+        changeCny: null, volume: 100, amount: null }] },
+    basics: { ...meta, endpoint: "daily_basic", priceUnit: "CNY", shareUnit: "ten-thousand-shares",
+      marketValueUnit: "CNY-ten-thousand", rows: [] },
+  });
+  const [stockRef, benchmarkRef, zeroBenchmark, wrongBenchmark] = await Promise.all([
+    stock(), benchmark("000002.SH"), benchmark("000002.SH", undefined, index => 10 * 1.02 ** index), benchmark("399001.SZ"),
+  ]);
+  const deviationCalendar = { revision: "fixture-exchange-calendar", sessions };
+  const list = { marketRef, adjustment: "none" as const, deviationCalendar,
+    stocks: [{ symbol: mainBoard, deviation: { stockRef, benchmarkRef } }, { symbol: other }] };
+  const { rows, proximity: { rows: proximityRows, ...proximity }, calendar, ...report } =
+    await replayTspPriceDeviation({ symbol: mainBoard, sessions, stockRef, benchmarkRef });
+  const fixed = await replayTspListRows(list);
+  expect(fixed.deviationCalendar).toEqual({ ...deviationCalendar, ...calendar });
+  expect(fixed.rows[0]?.metrics.deviation).toEqual({ ...report, ...rows.at(-1)!, proximity: { ...proximity, ...proximityRows.at(-1)! } });
+  expect(fixed.rows[0]?.observations.bar?.close).toBe(12);
+  expect(fixed.rows[1]?.metrics).not.toHaveProperty("deviation");
+  expect(await replayTspListRowsWithLiveQuotes(list)).toEqual({ fixed, quotes: { status: "outside-current-day" } });
+  const withBenchmark = (benchmarkRef?: typeof zeroBenchmark) => replayTspListRows({ ...list,
+    stocks: [{ symbol: mainBoard, deviation: { stockRef, benchmarkRef } }],
+  });
+  expect((await withBenchmark(zeroBenchmark)).rows[0]?.metrics.deviation?.values)
+    .toEqual({ deviate_3d: 0, deviate_10d: 0, deviate_30d: 0 });
+  expect((await withBenchmark(undefined)).rows[0]?.metrics.deviation).toMatchObject({
+    input: { benchmark: null }, values: { deviate_3d: null, deviate_10d: null, deviate_30d: null },
+    proximity: { tier: "unavailable" },
+  });
+  await expect(withBenchmark(wrongBenchmark)).rejects.toThrow("Incompatible price deviation benchmark");
+  await expect(replayTspListRows({ ...list, stocks: [{ symbol: other, deviation: { stockRef, benchmarkRef } }] }))
+    .rejects.toThrow("Incompatible price deviation stock");
+  await expect(replayTspListRows({ ...list, deviationCalendar: undefined })).rejects.toThrow("calendar");
+  await expect(replayTspListRows({ ...list, deviationCalendar: { ...deviationCalendar, sessions: sessions.slice(0, -1) } }))
+    .rejects.toThrow("ending at the trade date");
+  const legacy = await replayTspListRows({ marketRef, adjustment: "none", stocks: [{ symbol: mainBoard }] });
+  expect(legacy).not.toHaveProperty("deviationCalendar");
+  expect(legacy.rows[0]?.metrics).not.toHaveProperty("deviation");
 });

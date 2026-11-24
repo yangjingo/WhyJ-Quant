@@ -721,6 +721,8 @@ whyj --json observation replay-screener-score --manifest ./screener-score.json
 
 选股列表可附上 `screener: { histories, strategies }`，沿用[多策略回放](#从归档重建日线选股候选)的历史范围和策略顺序。评分以 `histories` 中的候选为准，与 `stocks` 的展示顺序和数量无关。`metrics.screener` 返回完整汇总中的排名、首个命中策略提供的分数和全部命中策略。每项评估区分命中、明确未命中、证据不足或不在评估范围。列表级 `screener` 附带策略、候选和公式修订以及评分字段的来源。行情观察和报价保留各自的数据口径。
 
+列表也可提供以该交易日结束的 `deviationCalendar: { revision, sessions }`，再给有需要的股票项附上 `deviation: { stockRef, benchmarkRef? }`。偏离计算使用该股票的前复权历史和对应板块的指数点位。行内 `metrics.deviation` 保留 3、10、30 个交易日偏离值、对应起算日和独立版本的阈值接近度，以及股票与指数归档凭据。缺少指数或对应日行情时，相关窗口保留为空，实际零偏离保留为 0。
+
 供应商观察保留未复权 OHLC、除权参考昨收、涨跌额、涨跌百分比、成交量和成交额，以及 `daily_basic` 的换手率和 PE/PB 等。接口同时提供换算为股的成交量和换算为元的成交额，原始数值和单位仍随响应返回。WHYJ 流通市值、换手率、日线技术指标及信号各自保留公式版本。WHYJ 日线指标中的昨收与涨幅来自同复权序列，涨幅为小数比例。
 
 提供 `watchlistMembershipRevision` 时，Runtime 读取当前保存的这一版自选清单，每行通过 `membership` 返回原始加入时间、保存代码和工作区修订。每只股票可另附 `watchlistHistoryRef`，以匹配的前复权日线计算截至列表交易日的加入以来收益率。`metrics.watchlistReturn` 保留历史证据、实际起止交易日与收盘价、公式版本和收益率。省略历史引用时该计算结果为 `null`。晚于加入日的首条历史无法提供基准，价格相等则收益率为 0。自选清单修订变更、股票缺席或历史口径不符时，回放返回错误。
