@@ -363,6 +363,10 @@ Runtime 的 `replayTspIntradayMonitorAlerts` 接受固定规则、A 股标的范
 
 监控条件可计算全部 11 项分时指标、4 个内置分时穿越及分钟 OHLCV 和成交额。分钟成交量使用股数，成交额使用元。需要昨收时，沿用绑定同标的归档和价格口径确认的要求。可在 `customSignals` 中传入显式定义，例如 `id` 为 `cross_ten` 的规则用 `csgi_cross_ten` 作为布尔条件，只在自定义规则的触发分钟为真。输出保留规则、公式、输入归档版本和命中操作数。评估按显式时段记录冷却状态，历史重建结果保留归档采集时间与原始分钟标签。 [盘中告警回放](https://github.com/yangjingo/WhyJ-Quant/issues/675)
 
+`collectDatedTickFlowStockMinutes` 按指定个股和上海日期采集并保存 TickFlow 原始分钟记录，空结果也有归档引用。`replayTspTickFlowStockMinutes` 接受同一标的按交易日升序排列的 `refs`。调用方须在 `interpretation` 明确 `timestampLabel`（`minute-start` 或 `minute-end`）和 `priceBasis: "caller-confirmed-unadjusted-CNY"`。经确认的 `volumeUnit` 可填 `share` 或 `hand`，`amountUnit` 可填 `CNY` 或 `CNY-thousand`。未确认的量额保持为空。输出保留原始毫秒时间戳，并列出开盘边界、非整分钟和交易时段外的未参与行。
+
+`replayTspIntradayMonitorAlerts` 的 TickFlow 历史输入使用同一份 `refs` 与 `interpretation`。可提供 `previousClose`，绑定同标的交易所昨收归档及 `caller-confirmed-same-basis`，逐日取精确日期的昨收。缺少该日期的证据时，相应比例和穿越保持为空。分钟指标和告警由 WhyJ 计算，来源与口径随结果返回。[TickFlow 分时接入](https://github.com/yangjingo/WhyJ-Quant/issues/685)
+
 用已配置的 Tushare 采集同一交易日的行业或概念目录，再按板块代码采集所需成分。
 
 ```powershell
