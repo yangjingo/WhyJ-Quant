@@ -54,10 +54,12 @@ const npmEnv = {
   ...env, HTTP_PROXY: '', HTTPS_PROXY: '', NODE_USE_ENV_PROXY: '0',
   npm_config_cache: join(home, 'npm-cache'), npm_config_registry: 'https://registry.npmjs.org',
 };
+const npmCommandTimeoutMs = 120_000;
+const npmInstallTimeoutMs = 240_000;
 const shell = (command, timeout = 30_000) => spawnSync(cmd, ['/d', '/c', command], {
   env, cwd: home, timeout, encoding: 'utf8', windowsHide: true,
 });
-const npmRun = (args, timeout = 120_000) => spawnSync(process.execPath, [npm, ...args], {
+const npmRun = (args, timeout = npmCommandTimeoutMs) => spawnSync(process.execPath, [npm, ...args], {
   env: npmEnv, cwd: home, timeout, encoding: 'utf8', windowsHide: true,
 });
 function ok(child, label) {
@@ -73,8 +75,8 @@ async function waitFor(read, matches, label) {
   } while (Date.now() < deadline);
   throw new Error('Timed out waiting for ' + label);
 }
-function install(tarball) {
-  return npmRun(['install', '--global', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', tarball]);
+function install(tarball, timeout = npmInstallTimeoutMs) {
+  return npmRun(['install', '--global', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', tarball], timeout);
 }
 async function assertInstalled(expected) {
   const found = ok(shell('where.exe whyj'), 'CLI PATH discovery').split(/\r?\n/).map(path => path.trim()).filter(Boolean);
@@ -195,7 +197,7 @@ try {
 
   const invalid = join(home, 'invalid.tgz');
   await writeFile(invalid, 'not an npm archive');
-  const rejected = install(invalid);
+  const rejected = install(invalid, npmCommandTimeoutMs);
   assert(!rejected.error && rejected.status > 0, 'npm did not reject the corrupt upgrade input');
   await assertInstalled(baseline);
   assert((await readFile(settingsPath)).equals(settings), 'Rejected upgrade changed settings');

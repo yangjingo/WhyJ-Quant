@@ -216,6 +216,8 @@ On Windows with npm 11.13.0, a controlled interruption during one package-replac
 
 The Windows Desktop workflow packs the CLI from the same candidate after installing Desktop on a disposable Windows runner. The npm upgrade probe verifies the published 1.2.0 tarball against its pinned npm integrity, installs both packages into a temporary global prefix and runs their actual terminals through ConPTY. The probe gives the terminals and Desktop isolated synthetic data and a PATH limited to Windows, the test prefix and a copy of Node. The installed Desktop attaches to the controlled Host while npm rejects a corrupt tarball and then installs the candidate. The probe checks that rejection preserves the prior installation, confirms the upgraded terminal sees the same running research, and verifies that an incompatible Host protocol leaves the existing owner intact.
 
+The baseline and candidate installs each have four minutes for npm dependency resolution and extraction. The other npm invocations, including corrupt-tarball rejection, each have two minutes. The workflow gives the whole probe step twenty minutes to cover those commands, the build, and the interaction checks. An npm timeout fails the check.
+
 Run the CLI portion on Windows after building and packing the candidate and installing the locked Desktop test dependencies.
 
 ~~~powershell

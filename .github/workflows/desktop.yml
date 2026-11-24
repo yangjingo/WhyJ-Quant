@@ -96,7 +96,7 @@ jobs:
           })
           $signatures | ConvertTo-Json | Set-Content output/desktop-size/signatures.json -Encoding utf8
       - name: Check Windows npm upgrade alongside the installed Desktop
-        timeout-minutes: 8
+        timeout-minutes: 20
         run: |
           bun run build
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
