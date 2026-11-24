@@ -103,6 +103,8 @@ The Windows TUI recovery evidence driver waits for the previous dialog to disapp
 
 The shared-Host fixtures exercise an isolated synthetic run in Electron and a browser, version/port conflict, restart recovery, and Desktop quit. The tray fixture invokes Electron's tray event and menu callbacks in a test process, checking both cancellation and confirmation of backend stop. It does not establish that the operating-system tray can be clicked or replace installed-package acceptance on the target machine.
 
+The review Host fixture announces its origin after `host.ready` resolves and the authenticated owner registration exists. The crash-recovery and other consumers can discover the ready owner when they launch after this receipt. The existing Desktop tests still assert startup, reconnection, draft preservation and request counts.
+
 ## Main Branch Protection
 
 Workflow files do not configure enforcement. In the matching main protection rule, require PRs and select actual check names: `CI required`, `PR policy`, and `Desktop required`. Choose GitHub Actions as their source where supported. Workflow titles and manual publishing jobs are unsuitable substitutes.
@@ -207,6 +209,20 @@ where.exe whyj
 The last three commands can fail when the package or command is missing. `Get-Command` shows PowerShell's resolution, including scripts or aliases; `where.exe` lists matching executable paths. If more than one `whyj` appears, check which path your shell runs and whether it belongs to the intended prefix. After confirming the prefix, rerun the intended installation command, including its pinned version or local package path when applicable. `npm install --global whyj-quant` selects the latest published version; it does not select an unpublished candidate. Repeat the checks above after installation. Do not delete the existing workspace, settings or research history to repair the CLI package.
 
 On Windows with npm 11.13.0, a controlled interruption during one package-replacement stage left the command unavailable; reinstalling the same local candidate restored it and retained synthetic settings. This is one observed recovery path, not a guarantee of automatic rollback or of every interruption point. Installed Desktop and clean-target upgrade acceptance remain tracked separately in #56 and #182.
+
+### Verify Windows CLI upgrades alongside Desktop
+
+The Windows Desktop workflow packs the CLI from the same candidate after installing Desktop on a disposable Windows runner. The npm upgrade probe verifies the published 1.2.0 tarball against its pinned npm integrity, installs both packages into a temporary global prefix and runs their actual terminals through ConPTY. The probe gives the terminals and Desktop isolated synthetic data and a PATH limited to Windows, the test prefix and a copy of Node. The installed Desktop attaches to the controlled Host while npm rejects a corrupt tarball and then installs the candidate. The probe checks that rejection preserves the prior installation, confirms the upgraded terminal sees the same running research, and verifies that an incompatible Host protocol leaves the existing owner intact.
+
+Run the CLI portion on Windows after building and packing the candidate and installing the locked Desktop test dependencies.
+
+~~~powershell
+bun run build
+npm pack --ignore-scripts
+node apps/cli/dev/windows-npm-upgrade.mjs .\whyj-quant-1.4.0.tgz
+~~~
+
+The local invocation records the installed Desktop check as unrun. Find hosted receipts, source and package identities, terminal transcripts and before/after Desktop captures under desktop-evidence/windows-npm-upgrade. The corrupt-tarball case exercises rejection before replacement. Manual installer interaction, native tray input and interruptions after replacement starts require separate evidence.
 
 ## Optional Live Provider Evaluation
 

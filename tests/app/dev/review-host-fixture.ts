@@ -89,6 +89,7 @@ const service = createWorkbenchService({ cwd: root, overview: {
   } }) };
 } });
 const host = startWorkbenchServer({ port: 0, service, ...(process.env.WHYJ_REVIEW_WEB_ROOT ? { assetsRoot: resolve(process.env.WHYJ_REVIEW_WEB_ROOT) } : {}) });
+await host.ready;
 console.log(JSON.stringify({ origin: host.server.url.origin, control: provider.url.origin, fixture: "isolated controlled provider, not live model acceptance" }));
 const stop = () => { void host.close().finally(() => {
   provider.stop(true);
