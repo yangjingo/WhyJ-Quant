@@ -67,6 +67,8 @@ export { computeTspWatchlistReturn, TSP_WATCHLIST_RETURN_FORMULA_VERSION } from 
 export type { TspWatchlistClose, TspWatchlistReturnInput } from "./tsp-watchlist-return.ts";
 export { computeTspListLiquidity, TSP_LIST_LIQUIDITY_FORMULA_VERSION } from "./tsp-list-liquidity.ts";
 export type { TspListLiquidityInput } from "./tsp-list-liquidity.ts";
+export { computeTspListIntraday, TSP_LIST_INTRADAY_FORMULA_VERSION } from "./tsp-list-intraday.ts";
+export type { TspListIntradayInput } from "./tsp-list-intraday.ts";
 export { computeTspScreenerScores, TSP_SCREENER_SCORE_FORMULA_VERSION } from "./tsp-screener-score.ts";
 export type { TspScreenerScoreInput } from "./tsp-screener-score.ts";
 export { computeTspIndexMinuteReturns, TSP_INDEX_MINUTE_RETURN_FORMULA_VERSION } from "./tsp-index-minute-returns.ts";
