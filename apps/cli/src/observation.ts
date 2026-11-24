@@ -24,7 +24,8 @@ import { replayTspFactorEvaluation, replayTspFactorMiningScreen, replayTspFactor
   type FactorSignificanceReplayRequest } from "../../../src/runtime/data/factor-evaluation-replay.ts";
 import { collectFinancialObservations, type FinancialCollectionRequest } from "../../../src/runtime/data/financial-collection.ts";
 import { collectDatedEtfDailyBars } from "../../../src/runtime/data/etf-daily-observations.ts";
-import { replayTspPaperValuation, type PaperValuationReplayRequest } from "../../../src/runtime/data/paper-valuation-replay.ts";
+import { replayTspPaperComparison, replayTspPaperValuation, type PaperComparisonReplayRequest,
+  type PaperValuationReplayRequest } from "../../../src/runtime/data/paper-valuation-replay.ts";
 import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
@@ -277,9 +278,13 @@ function parsePaperNavRows(value: unknown): TspPaperStatisticsInput["finalizedNa
 function parsePaperStatisticsManifest(value: unknown): TspPaperStatisticsInput {
   const { schemaVersion, accountId, currency, fills: rawFills, finalizedNav: rawNav } =
     observationManifestObject(value, ["schemaVersion", "accountId", "currency", "fills", "finalizedNav"]);
-  if (schemaVersion !== 1 || typeof accountId !== "string" || typeof currency !== "string" ||
-    !Array.isArray(rawFills)) throw invalid();
-  const fills = rawFills.map((entry: unknown): TspPaperStatisticsInput["fills"][number] => {
+  if (schemaVersion !== 1 || typeof accountId !== "string" || typeof currency !== "string") throw invalid();
+  return { accountId, currency, fills: parsePaperFills(rawFills), finalizedNav: parsePaperNavRows(rawNav) };
+}
+
+function parsePaperFills(value: unknown): TspPaperStatisticsInput["fills"] {
+  if (!Array.isArray(value)) throw invalid();
+  return value.map((entry: unknown): TspPaperStatisticsInput["fills"][number] => {
     const { fillId, tradeDate, symbol, side, quantity, price, fee, currency } =
       observationManifestObject(entry, ["fillId", "tradeDate", "symbol", "side", "quantity", "price", "fee", "currency"]);
     if (typeof fillId !== "string" || typeof tradeDate !== "string" || typeof symbol !== "string" ||
@@ -287,7 +292,17 @@ function parsePaperStatisticsManifest(value: unknown): TspPaperStatisticsInput {
       typeof fee !== "number" || typeof currency !== "string") throw invalid();
     return { fillId, tradeDate, symbol, side, quantity, price, fee, currency };
   });
-  return { accountId, currency, fills, finalizedNav: parsePaperNavRows(rawNav) };
+}
+
+function parsePaperSnapshotRef(quoteRevision: unknown, valuationQuoteRevision: unknown) {
+  if (quoteRevision === undefined && valuationQuoteRevision === undefined) return undefined;
+  if (valuationQuoteRevision === undefined && typeof quoteRevision === "string" && revisionPattern.test(quoteRevision)) {
+    return { version: 1, kind: "quote-poll", revision: quoteRevision } as const;
+  }
+  if (quoteRevision === undefined && typeof valuationQuoteRevision === "string" && revisionPattern.test(valuationQuoteRevision)) {
+    return { version: 1, kind: "valuation-quote-poll", revision: valuationQuoteRevision } as const;
+  }
+  throw invalid();
 }
 
 function parsePaperValuationManifest(value: unknown): PaperValuationReplayRequest {
@@ -316,14 +331,33 @@ function parsePaperValuationManifest(value: unknown): PaperValuationReplayReques
     };
   }
   if (basis === "snapshot" && dailyRevisions === undefined && etfDailyRevisions === undefined) {
-    if (valuationQuoteRevision === undefined && typeof quoteRevision === "string" && revisionPattern.test(quoteRevision)) {
-      return { ...scope, basis, quoteRef: { version: 1, kind: "quote-poll", revision: quoteRevision } };
-    }
-    if (quoteRevision === undefined && typeof valuationQuoteRevision === "string" && revisionPattern.test(valuationQuoteRevision)) {
-      return { ...scope, basis, valuationQuoteRef: { version: 1, kind: "valuation-quote-poll", revision: valuationQuoteRevision } };
-    }
+    const ref = parsePaperSnapshotRef(quoteRevision, valuationQuoteRevision);
+    if (ref) return ref.kind === "quote-poll" ? { ...scope, basis, quoteRef: ref } : { ...scope, basis, valuationQuoteRef: ref };
   }
   throw invalid();
+}
+
+function parsePaperComparisonManifest(value: unknown): PaperComparisonReplayRequest {
+  const { schemaVersion, tradeDate, currency, priceBasisConfirmation, accounts } =
+    observationManifestObject(value, ["schemaVersion", "tradeDate", "currency", "priceBasisConfirmation", "accounts"]);
+  if (schemaVersion !== 1 || typeof tradeDate !== "string" || !isDailyDate(tradeDate) || currency !== "CNY" ||
+    priceBasisConfirmation !== "caller-confirmed-unadjusted-CNY" || !Array.isArray(accounts)) throw invalid();
+  const seen = new Set<string>();
+  const scope = { schemaVersion, tradeDate, currency, priceBasisConfirmation };
+  return { tradeDate, currency, priceBasisConfirmation, accounts: accounts.map((entry: unknown) => {
+    const { name, status, fills, quoteRevision, valuationQuoteRevision, ...valuation } = observationManifestObject(entry,
+      ["accountId", "name", "status", "cash", "initialCash", "positions", "fills", "finalizedNav",
+        "dailyRevisions", "etfDailyRevisions", "quoteRevision", "valuationQuoteRevision"]);
+    const finalized = parsePaperValuationManifest({ ...valuation, ...scope, basis: "finalized" });
+    if (finalized.basis !== "finalized" || !finalized.finalizedNav || seen.has(finalized.accountId) ||
+      (name !== undefined && (typeof name !== "string" || !name.trim())) || (status !== "active" && status !== "frozen")) throw invalid();
+    const snapshotRef = parsePaperSnapshotRef(quoteRevision, valuationQuoteRevision);
+    if (snapshotRef && status !== "active") throw invalid();
+    const { accountId, positions, cash, initialCash, finalizedNav, dailyRefs, etfDailyRefs } = finalized;
+    seen.add(accountId);
+    return { accountId, name, status, positions, cash, initialCash, fills: parsePaperFills(fills), finalizedNav,
+      dailyRefs, etfDailyRefs, snapshotRef };
+  }) };
 }
 
 function parseParameterSegment(value: unknown): TspParameterSegmentEvidence {
@@ -1230,6 +1264,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       signal?.throwIfAborted();
       throw Object.assign(new Error("Could not replay paper valuation. Verify holdings and fixed market archive revisions."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-paper-comparison") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parsePaperComparisonManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspPaperComparison(request, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay paper comparison. Verify accounts and fixed market archive revisions."),
         { code: "observation_archive_unavailable" });
     }
   }
