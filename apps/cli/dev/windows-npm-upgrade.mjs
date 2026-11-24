@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { release, tmpdir } from 'node:os';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -21,7 +21,8 @@ if (desktopExe) {
 const root = fileURLToPath(new URL('../../../', import.meta.url));
 const requireDesktop = createRequire(join(root, 'apps/desktop/package.json'));
 const pty = requireDesktop('node-pty');
-const home = await mkdtemp(join(tmpdir(), 'whyj-npm-upgrade-'));
+const temp = await realpath(tmpdir());
+const home = await mkdtemp(join(temp, 'whyj-npm-upgrade-'));
 const output = join(root, 'output/playwright/windows-npm-upgrade');
 const workspace = join(home, 'state');
 const prefix = join(home, 'prefix');
@@ -76,9 +77,12 @@ function install(tarball) {
   return npmRun(['install', '--global', '--prefix', prefix, '--ignore-scripts', '--no-audit', '--no-fund', tarball]);
 }
 async function assertInstalled(expected) {
-  const shims = ok(shell('where.exe whyj'), 'CLI PATH discovery').trim().split(/\r?\n/);
-  assert(shims.some(path => path.toLowerCase() === join(prefix, 'whyj.cmd').toLowerCase()));
-  assert(shims.every(path => path.toLowerCase().startsWith(prefix.toLowerCase() + sep)));
+  const found = ok(shell('where.exe whyj'), 'CLI PATH discovery').split(/\r?\n/).map(path => path.trim()).filter(Boolean);
+  const shims = await Promise.all(found.map(path => realpath(path)));
+  const shim = await realpath(join(prefix, 'whyj.cmd'));
+  assert(shims.some(path => path.toLowerCase() === shim.toLowerCase()), 'PATH did not resolve the isolated npm cmd shim');
+  const prefixPath = (await realpath(prefix)).toLowerCase() + sep;
+  assert(shims.every(path => path.toLowerCase().startsWith(prefixPath)), 'A whyj shim outside the isolated npm prefix is visible on PATH');
   const installed = JSON.parse(await readFile(join(prefix, 'node_modules/whyj-quant/package.json'), 'utf8'));
   assert.equal(installed.version, expected);
 }
@@ -261,7 +265,7 @@ try {
       await waitFor(() => fixture.exitCode !== null || fixture.signalCode !== null, Boolean, 'fixture shutdown');
     }
     if (result.result === 'passed') {
-      assert(resolve(home).startsWith(resolve(tmpdir()) + sep), 'Unexpected fixture root');
+      assert(resolve(home).startsWith(temp + sep), 'Unexpected fixture root');
       await rm(home, { recursive: true, force: true });
     }
   } catch (error) {
