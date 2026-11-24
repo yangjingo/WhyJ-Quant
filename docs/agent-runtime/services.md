@@ -785,6 +785,8 @@ whyj --json observation read-list-quotes --manifest ./list-rows.json
 
 `previewCurrentTspListIntraday` 为指定股票批量读取上海当天的 TickFlow 临时分钟帧。原始结果保留在 `input.minutes`。明确提供分钟标签和确认的未复权价格口径时，逐股返回 WHYJ 价格线、累计均价和昨收收益。没有解释时返回原始行情，`metrics` 为空。可用的昨收引用必须与股票和交易日相符，缺少昨收仍可绘制价格线。被排除的时间标签及原因单独记录。临时预览不写入完成归档。
 
+CLI 使用 `whyj --json observation read-current-stock-minutes --manifest PATH` 读取这一预览。JSON 清单须提供 `version: 1`、上海当天的 `tradeDate` 和 1 至 100 只互异的沪深京股票 `stocks: [{ "symbol": "600001.SH" }]`。只需要原始行情时可省略 `interpretation`。要计算 WHYJ 图表指标，须提供 `interpretation: { timestampLabel, priceBasis: "caller-confirmed-unadjusted-CNY" }`，其中 `timestampLabel` 取 `minute-start` 或 `minute-end`。计算昨收收益时，在对应股票下附上 `previousClose: { revision, priceBasis: "caller-confirmed-same-basis" }`，引用当天的涨跌停归档。输出保留 `input.minutes`、逐股状态和可用的 `rows[].metrics`。供应商请求失败返回 `observation_collection_failed`。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
