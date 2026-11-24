@@ -749,6 +749,8 @@ whyj --json observation read-list-quotes --manifest ./list-rows.json
 
 两条列表命令的清单也可填写 `watchlistMembershipRevision`，可从 `replay-watchlist-return` 的 `input.membership.revision` 取得当前修订。每只股票的 `watchlistHistoryRevision` 指向前复权日线。带历史修订但未填写清单修订时返回 `invalid_arguments`，清单已变更或归档无法回放时返回 `observation_archive_unavailable`。查看 `membership.addedAt` 和 `metrics.watchlistReturn` 获取原始加入时间和收益率证据。
 
+两条列表命令均接受 `limitCalendar: { revision, sessions }`。按交易日升序列出计算区间，最后一天须等于列表交易日。仅需供应商涨跌停价时，在股票项填入 `tradingLimitsRevision`，可省略日线。需要连板计数时使用带 `limitsRevision` 的日线信号历史。同一项只接受一种限价修订字段。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
