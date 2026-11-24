@@ -27,7 +27,7 @@ import { collectDatedEtfDailyBars } from "../../../src/runtime/data/etf-daily-ob
 import { replayTspPaperComparison, replayTspPaperValuation, type PaperComparisonReplayRequest,
   type PaperValuationReplayRequest } from "../../../src/runtime/data/paper-valuation-replay.ts";
 import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
-import { collectDatedIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
+import { collectDatedIndexMinutes, previewCurrentIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { replayTspIntradaySignal } from "../../../src/runtime/data/intraday-signal-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
@@ -1002,6 +1002,20 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the dated index minutes. Check the configured Source and provider access."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "read-current-index-minutes") {
+    const fields = parseOptions(options, ["--symbol", "--date", "--daily-revision", "--previous-date", "--calendar-revision"]);
+    const symbol = fields.get("--symbol")?.trim().toUpperCase(), tradeDate = fields.get("--date");
+    if (!symbol || !isDatedBenchmarkIndexSymbol(symbol) || tradeDate !== shanghaiDate.format(Date.now())) throw invalid();
+    const previousClose = fields.size > 2 ? parseIndexPreviousClose(fields.get("--daily-revision"), {
+      revision: fields.get("--calendar-revision"), previousTradeDate: fields.get("--previous-date"), tradeDate,
+    }) : undefined;
+    try {
+      return await previewCurrentIndexMinutes({ symbol, tradeDate, previousClose }, { signal, timeoutMs: 10_000 });
+    } catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not read current index minutes with the requested evidence."), { code: "observation_collection_failed" });
     }
   }
   if (action === "replay-index-minutes") {
