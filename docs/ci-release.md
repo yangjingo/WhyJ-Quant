@@ -103,6 +103,8 @@ The Windows TUI recovery evidence driver waits for the previous dialog to disapp
 
 The shared-Host fixtures exercise an isolated synthetic run in Electron and a browser, version/port conflict, restart recovery, and Desktop quit. The tray fixture invokes Electron's tray event and menu callbacks in a test process, checking both cancellation and confirmation of backend stop. It does not establish that the operating-system tray can be clicked or replace installed-package acceptance on the target machine.
 
+The review Host fixture announces its origin after `host.ready` resolves and the authenticated owner registration exists. The crash-recovery and other consumers can discover the ready owner when they launch after this receipt. The existing Desktop tests still assert startup, reconnection, draft preservation and request counts.
+
 ## Main Branch Protection
 
 Workflow files do not configure enforcement. In the matching main protection rule, require PRs and select actual check names: `CI required`, `PR policy`, and `Desktop required`. Choose GitHub Actions as their source where supported. Workflow titles and manual publishing jobs are unsuitable substitutes.
