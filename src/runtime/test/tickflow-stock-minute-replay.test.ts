@@ -2,12 +2,12 @@ import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveDatedStockMinutes, archiveDailyTradingLimits, archiveMarketCrossSection, loadDatedStockMinuteArchive, saveSettings,
-  type StoredDatedStockMinuteBatch } from "../../storage/index.ts";
+import { archiveDatedEtfDailyBars, archiveDatedStockMinutes, archiveDailyTradingLimits, archiveMarketCrossSection, loadDatedStockMinuteArchive, saveSettings,
+  type StoredDatedEtfDailyBatch, type StoredDatedStockMinuteBatch } from "../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../types/config.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../data/list-rows.ts";
 import { replayTspIntradayMonitorAlerts, type IntradayMonitorAlertReplayRequest } from "../data/intraday-monitor-alert-replay.ts";
-import { collectDatedTickFlowStockMinutes, previewCurrentTspListIntraday, replayTspTickFlowStockMinutes,
+import { collectDatedTickFlowStockMinutes, previewCurrentTspEtfIntraday, previewCurrentTspListIntraday, replayTspTickFlowStockMinutes,
   type TickFlowStockMinuteInterpretation } from "../data/tickflow-stock-minute-replay.ts";
 
 const symbol = "600001.SH", first = "2024-04-08", second = "2024-04-09", observedAt = "2024-04-10T01:00:00Z";
@@ -103,6 +103,68 @@ test("previews a mixed current stock batch using declared labels and optional pr
     expect(existsSync(join(root, "data", "dated-stock-minute-archives-v1"))).toBe(false);
     expect(requests).toHaveLength(3);
   } finally { await server.stop(true); clock.mockRestore(); }
+});
+
+test("binds current ETF charts to same-provider daily close evidence for the declared previous session", async () => {
+  const clock = spyOn(Date, "now").mockReturnValue(stamp(first, "10:00:00"));
+  const etf = "510300.SH", noClose = "159915.SZ", missing = "588000.SH", oldDay = "2024-04-03";
+  const symbols = [etf, noClose, missing];
+  const requests: URL[] = [];
+  const pack = (close: number[]) => ({
+    timestamp: close.map((_, index) => stamp(first, "09:3" + (index + 1) + ":00")),
+    open: close, high: close, low: close, close, volume: close.map(() => 0), amount: close.map(() => 0),
+  });
+  const provider = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
+    if (request.headers.get("x-api-key") !== "etf-current-preview-fixture") return new Response(null, { status: 403 });
+    requests.push(new URL(request.url));
+    return Response.json({ data: { [etf]: pack([10, 11]), [noClose]: pack([8]) } });
+  } });
+  try {
+    saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
+      env: { WHYJ_QUANT_TICKFLOW_API_KEY: "etf-current-preview-fixture", TICKFLOW_BASE_URL: provider.url.origin } });
+    const row = { tradeDate: oldDay, sourceTimestamp: stamp(oldDay, "15:00:00"), open: 10, high: 10, low: 10, close: 10, volume: 1, amount: null };
+    const daily: StoredDatedEtfDailyBatch = { symbol: etf, market: "A", assetType: "etf", source: "tickflow", endpoint: "/v1/klines",
+      requested: { start: oldDay, end: oldDay }, observedAt: "2024-04-08T01:00:00Z", coverage: "unknown", interval: "1d",
+      adjustment: "none", priceUnit: "unknown", volumeUnit: "unknown", amountUnit: "unknown", timeZone: "Asia/Shanghai", rows: [row] };
+    const dailyRef = await archiveDatedEtfDailyBars(daily);
+    const noCloseRef = await archiveDatedEtfDailyBars({ ...daily, symbol: noClose, rows: [] });
+    const incompatible = await archiveDatedEtfDailyBars({ ...daily, source: "tushare", endpoint: "fund_daily",
+      priceUnit: "CNY", volumeUnit: "hand", amountUnit: "CNY-thousand", rows: [{ ...row, sourceTimestamp: null }] });
+    const previousClose = { dailyRef, priceBasis: "caller-confirmed-same-basis",
+      calendar: { revision: "fixture-shanghai-session", previousTradeDate: oldDay, tradeDate: first } } as const;
+    const etfs = [{ symbol: " 510300.sh ", previousClose }, { symbol: noClose, previousClose: { ...previousClose, dailyRef: noCloseRef } },
+      { symbol: missing }];
+    const choice = { timestampLabel: "minute-end", priceBasis: "caller-confirmed-unadjusted-CNY" } as const;
+    const request = { tradeDate: first, etfs, interpretation: choice };
+    await expect(previewCurrentTspEtfIntraday({ ...request, etfs: [{ symbol }] })).rejects.toThrow("symbols");
+    await expect(previewCurrentTspEtfIntraday({ ...request, interpretation: undefined })).rejects.toThrow("interpretation");
+    for (const prior of [dailyRef, incompatible]) {
+      await expect(previewCurrentTspEtfIntraday({ ...request, etfs: [{ symbol: prior === dailyRef ? noClose : etf,
+        previousClose: { ...previousClose, dailyRef: prior } }] })).rejects.toThrow("archive");
+    }
+    for (const previousTradeDate of [first, "2024-04-02"]) {
+      await expect(previewCurrentTspEtfIntraday({ ...request, etfs: [{ symbol: etf,
+        previousClose: { ...previousClose, calendar: { ...previousClose.calendar, previousTradeDate } } }] })).rejects.toThrow();
+    }
+    expect(requests).toHaveLength(0);
+    const preview = await previewCurrentTspEtfIntraday(request);
+    expect(preview.input.minutes).toMatchObject({ assetType: "etf", source: "tickflow", finality: "provisional", adjustment: "unknown",
+      requestedSymbols: symbols, frames: [{ symbol: etf, status: "observed" }, { symbol: noClose, status: "observed" },
+        { symbol: missing, status: "missing", rows: [] }] });
+    expect(preview.rows[0]).toMatchObject({ previousClose: { dailyRef, row, priceUnit: "unknown" },
+      metrics: { producer: "whyj", finality: "provisional", latestReturnFraction: 11 / 10 - 1, points: [
+        { minute: "09:30", averageClose: 10, previousCloseReturnFraction: 0 },
+        { minute: "09:31", averageClose: 10.5, previousCloseReturnFraction: 11 / 10 - 1 },
+      ] } });
+    expect(preview.rows[1]).toMatchObject({ previousClose: { row: null }, metrics: { latestReturnFraction: null } });
+    expect(preview.rows[2]).toMatchObject({ status: "missing", metrics: null });
+    const raw = await previewCurrentTspEtfIntraday({ tradeDate: first, etfs: symbols.map(symbol => ({ symbol })) });
+    expect(raw.input.interpretation).toBeNull();
+    expect(raw.rows.every(row => row.metrics === null)).toBe(true);
+    expect(requests.map(url => [url.pathname, url.searchParams.get("symbols")])).toEqual([
+      ["/v1/klines/intraday/batch", symbols.join(",")], ["/v1/klines/intraday/batch", symbols.join(",")],
+    ]);
+  } finally { await provider.stop(true); clock.mockRestore(); }
 });
 
 test("collects native TickFlow minute bars and archives a valid empty response with the same scope", async () => {
