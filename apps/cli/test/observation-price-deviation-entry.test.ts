@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { archiveTradingDateObservations, saveSettings, type StoredTradingDateBarObservation } from "../../../src/storage/index.ts";
+import { archiveMarketCrossSection, archiveTradingDateObservations, saveSettings, type StoredTradingDateBarObservation } from "../../../src/storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../../src/types/config.ts";
 
 const sessions = Array.from({ length: 52 }, (_, day) => new Date(Date.UTC(2025, 1, 10 + day)))
@@ -35,9 +35,9 @@ test("CLI collects the selected BSE 50 benchmark and replays all three archived 
     expect(stderr).toBe("");
     return { code, output: JSON.parse(stdout) };
   };
-  const replay = (input: unknown) => {
+  const replay = (input: unknown, action = "replay-price-deviation") => {
     writeFileSync(path, JSON.stringify(input));
-    return run("observation", "replay-price-deviation", "--manifest", path);
+    return run("observation", action, "--manifest", path);
   };
   process.env.OHQUANT_DIR = root;
   try {
@@ -82,6 +82,44 @@ test("CLI collects the selected BSE 50 benchmark and replays all three archived 
       expect(proximity.windows.find((entry: { window: number }) => entry.window === window).threshold)
         .toBe({ 3: 0.4, 10: 1, 30: 2 }[window]);
     }
+    const meta = { tradeDate: end, observedAt, coverage: "unknown" } as const;
+    const marketRef = await archiveMarketCrossSection({
+      source: "tushare", market: "A", tradeDate: end,
+      universe: { ...meta, endpoint: "bak_basic", universe: "provider-dated-stocks",
+        members: [{ symbol, name: "fixture", listedOn: null, industry: null }] },
+      bars: { ...meta, endpoint: "daily", adjustment: "none", priceUnit: "CNY", volumeUnit: "hand", amountUnit: "CNY-thousand", rows: [] },
+      basics: { ...meta, endpoint: "daily_basic", priceUnit: "CNY", shareUnit: "ten-thousand-shares",
+        marketValueUnit: "CNY-ten-thousand", rows: [] },
+    });
+    const deviationCalendar = { revision: "cli-fixture-calendar", sessions };
+    const deviation = { stockRevision: manifest.stockRevision, benchmarkRevision: manifest.benchmarkRevision };
+    const list = { version: 1, marketRevision: marketRef.revision, adjustment: "none", deviationCalendar, stocks: [{ symbol, deviation }] };
+    const fixed = await replay(list, "replay-list-rows");
+    const { rows: _rows, calendar, proximity: { rows: _pointRows, ...proximityEvidence }, ...deviationEvidence } = result.output.data;
+    expect(fixed).toMatchObject({ code: 0, output: { ok: true, data: {
+      deviationCalendar: { ...deviationCalendar, ...calendar },
+      rows: [{ instrument: { symbol }, observations: { bar: null }, metrics: {
+        deviation: { ...deviationEvidence, ...day, proximity: { ...proximityEvidence, ...proximity } },
+      } }],
+    } } });
+    expect(await replay(list, "read-list-quotes")).toMatchObject({ code: 0, output: { ok: true, data: {
+      fixed: fixed.output.data, quotes: { status: "outside-current-day" },
+    } } });
+    const missingIndex = await replay({ ...list, stocks: [{ symbol, deviation: { stockRevision: manifest.stockRevision } }] }, "replay-list-rows");
+    expect(missingIndex).toMatchObject({ code: 0, output: { data: { rows: [{ metrics: { deviation: {
+      input: { benchmark: null }, values: { deviate_3d: null, deviate_10d: null, deviate_30d: null }, proximity: { tier: "unavailable" },
+    } } }] } } });
+    const legacy = await replay({ ...list, deviationCalendar: undefined, stocks: [{ symbol }] }, "replay-list-rows");
+    expect(legacy).toMatchObject({ code: 0, output: { ok: true } });
+    expect(legacy.output.data).not.toHaveProperty("deviationCalendar");
+    expect(legacy.output.data.rows[0].metrics).not.toHaveProperty("deviation");
+    for (const malformed of [{ ...list, deviationCalendar: undefined },
+      { ...list, deviationCalendar: { ...deviationCalendar, sessions: [start, start] } },
+      { ...list, stocks: [{ symbol, deviation: { ...deviation, stockRevision: "../private" } }] }]) {
+      expect(await replay(malformed, "replay-list-rows")).toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
+    }
+    expect(await replay({ ...list, stocks: [{ symbol, deviation: { ...deviation, benchmarkRevision: "f".repeat(64) } }] }, "replay-list-rows"))
+      .toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
     const { benchmarkRevision: _reference, ...noBenchmark } = manifest;
     const missing = await replay(noBenchmark);
     expect(missing.output.data.rows.at(-1)?.values).toEqual({ deviate_3d: null, deviate_10d: null, deviate_30d: null });
