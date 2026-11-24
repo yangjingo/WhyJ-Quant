@@ -737,6 +737,8 @@ whyj --json observation replay-list-rows --manifest ./list-rows.json
 
 清单包含 `version: 1`、`marketRevision`、`adjustment` 和 `stocks`。每项至少提供 `symbol`，附上 `dailyRevision` 可回放技术指标与信号。如需交易所限价信号，可同时提供 `limitsRevision` 及必要的 `rawRevision`。
 
+每项也可以提供 `financialReportRevisions` 与 `financialDisclosureRevisions` 两组归档版本。报告回放以市场截面的交易日为准，支持单独请求财务证据。历史列表与当日报价命令读取相同的清单字段。
+
 `replayTspListRowsWithLiveQuotes` 可为同一列表读一批最多 100 只股票的当日报价。市场截面必须对应当前上海日期，报价时间和获取时间也要属于该日。历史列表与空列表不发起报价请求。批次获取失败仍返回固定列表，缺报价、日期不匹配、时间晚于获取时间与缺有效价格分别标记。
 
 结果的 `fixed` 保留原始历史列表，`quotes` 单独记录 TickFlow 的端点、获取时间、原始数量和行情时间。供应商数量单位仍为未知。WHYJ 以该报价自己的昨收计算涨跌额与小数涨幅，应用可按时间戳展示同日快照。报价请求成功无法证实实时权限或延迟。

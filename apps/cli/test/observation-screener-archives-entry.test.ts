@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { archiveMarketCrossSection, archiveTradingDateObservations, loadMarketCrossSectionArchive,
+import { archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations, loadMarketCrossSectionArchive,
   type StoredMarketCrossSection, type StoredTradingDateBarObservation } from "../../../src/storage/index.ts";
 
 test("CLI reconstructs scored daily candidates from exact local archive revisions", async () => {
@@ -121,6 +121,58 @@ test("CLI reconstructs scored daily candidates from exact local archive revision
           signals: { values: { signal_volume_surge: true } } },
       }],
     } } });
+
+    const periodEnd = "2023-09-30", actualDisclosureDate = "2023-10-20";
+    const provider = { symbol, coverage: "unknown", market: "A", source: "tushare" } as const;
+    const financeObservedAt = "2023-10-21T02:00:00Z";
+    const reportRef = await archiveFinancialObservations({
+      ...provider, endpoint: "fina_indicator", observedAt: financeObservedAt,
+      requested: { startPeriod: periodEnd, endPeriod: periodEnd }, rows: [{
+        periodEnd, announcementDate: actualDisclosureDate, updateFlag: null,
+        basicEarningsPerShare: 0, earningsPerShareCurrency: "unknown",
+        bookValuePerShare: 10, bookValueCurrency: "unknown", roe: null, grossProfitMargin: null, netProfitMargin: null,
+        operatingRevenueYoyPct: 10, totalOperatingRevenueYoyPct: null, parentNetProfitYoyPct: null,
+        debtToAssets: 25, ratioUnit: "provider-native",
+      }],
+    });
+    const disclosureRef = await archiveFinancialObservations({
+      ...provider, endpoint: "disclosure_date", observedAt: financeObservedAt,
+      requested: { periodEnd }, rows: [{
+        periodEnd, actualDisclosureDate, planAnnouncementDate: null, plannedDisclosureDate: null, modificationRecord: null,
+      }],
+    });
+    const financial = {
+      symbol, financialReportRevisions: [reportRef.revision], financialDisclosureRevisions: [disclosureRef.revision],
+    };
+    writeFileSync(manifest, JSON.stringify({ ...list, stocks: [financial, { symbol: emptySymbol }] }));
+    const replay = await run(...listCommand);
+    expect(replay).toMatchObject({ code: 0, output: { ok: true, data: { rows: [{
+      instrument: { symbol }, metrics: { history: null },
+      observations: { financial: { status: "available", tradingDate: tradeDate, periodEnd, actualDisclosureDate,
+        report: { basicEarningsPerShare: 0, earningsPerShareCurrency: "unknown", roe: null },
+        reportEvidence: [{ ref: reportRef, observedAt: financeObservedAt }],
+        disclosureEvidence: [{ ref: disclosureRef, observedAt: financeObservedAt }] } },
+    }, { instrument: { symbol: emptySymbol } }] } } });
+    expect(replay.output.data.rows[1].observations).not.toHaveProperty("financial");
+    expect(await run("observation", "read-list-quotes", "--manifest", manifest)).toMatchObject({
+      code: 0, output: { ok: true, data: { fixed: replay.output.data, quotes: { status: "outside-current-day" } } },
+    });
+    writeFileSync(manifest, JSON.stringify({ ...list, stocks: [{ ...financial, dailyRevision: dailyRef.revision }] }));
+    expect(await run(...listCommand)).toMatchObject({ code: 0, output: { ok: true, data: { rows: [{
+      metrics: { history: { ref: dailyRef } }, observations: { financial: { status: "available" } },
+    }] } } });
+    for (const stock of [
+      { ...financial, financialReportRevisions: ["../private"] },
+      { ...financial, financialDisclosureRevisions: [reportRef.revision] },
+      { ...financial, financialReportRevisions: [reportRef.revision, reportRef.revision] },
+      { ...financial, limitsRevision: "0".repeat(64) },
+    ]) {
+      writeFileSync(manifest, JSON.stringify({ ...list, stocks: [stock] }));
+      expect(await run(...listCommand)).toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
+    }
+    writeFileSync(manifest, JSON.stringify({ ...list, stocks: [{ ...financial, financialReportRevisions: ["0".repeat(64)] }] }));
+    expect(await run(...listCommand)).toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
+
     writeFileSync(manifest, JSON.stringify({ ...list, stocks: [{ symbol, limitsRevision: "0".repeat(64) }] }));
     expect(await run(...listCommand)).toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
     for (const stocks of [[{ symbol }, { symbol }], [{ symbol: "600003.SH" }],

@@ -235,7 +235,8 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
     limitCalendar = { revision, sessions };
   }
   const stocks = manifest.stocks.map(item => {
-    const { watchlistHistoryRevision, tradingLimitsRevision, candleBars, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision", "candleBars"]);
+    const { watchlistHistoryRevision, tradingLimitsRevision, candleBars, financialReportRevisions, financialDisclosureRevisions, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision", "candleBars",
+      "financialReportRevisions", "financialDisclosureRevisions"]);
     if (watchlistHistoryRevision !== undefined && (watchlistMembershipRevision === undefined ||
       typeof watchlistHistoryRevision !== "string" || !revisionPattern.test(watchlistHistoryRevision))) throw invalid();
     if (candleBars !== undefined && (typeof candleBars !== "number" || !Number.isInteger(candleBars) ||
@@ -245,13 +246,22 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
     const limit = typeof tradingLimitsRevision === "string" ? {
       tradingLimitsRef: { version: 1, kind: "daily-trading-limits", revision: tradingLimitsRevision } as const,
     } : {};
+    const reports = financialReportRevisions === undefined ? [] : validateRevisions(financialReportRevisions);
+    const disclosures = financialDisclosureRevisions === undefined ? [] : validateRevisions(financialDisclosureRevisions);
+    if (new Set([...reports, ...disclosures]).size !== reports.length + disclosures.length) throw invalid();
+    const finance = financialReportRevisions === undefined && financialDisclosureRevisions === undefined ? {} : {
+      financialArchives: [
+        ...reports.map(revision => ({ version: 1, kind: "report-financial-indicators", revision }) as const),
+        ...disclosures.map(revision => ({ version: 1, kind: "financial-disclosure-dates", revision }) as const),
+      ],
+    };
     const watchlistHistory = watchlistHistoryRevision === undefined ? {} :
       { watchlistHistoryRef: { version: 2, revision: watchlistHistoryRevision } as const };
     if (Object.keys(entry).length === 1 && typeof entry.symbol === "string" && datedStock.test(entry.symbol)) {
-      return { symbol: entry.symbol, ...watchlistHistory, ...limit };
+      return { symbol: entry.symbol, ...watchlistHistory, ...limit, ...finance };
     }
     const { symbol, ...history } = parseArchivedStockHistory(entry);
-    return { symbol, history: { ...history, ...(candleBars !== undefined && { candleBars }) }, ...watchlistHistory, ...limit };
+    return { symbol, history: { ...history, ...(candleBars !== undefined && { candleBars }) }, ...watchlistHistory, ...limit, ...finance };
   });
   return { ...parseDatedMarketArchiveScope(manifest), stocks, limitCalendar,
     ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }) };
