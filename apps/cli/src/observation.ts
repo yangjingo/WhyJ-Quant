@@ -235,9 +235,11 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
     limitCalendar = { revision, sessions };
   }
   const stocks = manifest.stocks.map(item => {
-    const { watchlistHistoryRevision, tradingLimitsRevision, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision"]);
+    const { watchlistHistoryRevision, tradingLimitsRevision, candleBars, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision", "candleBars"]);
     if (watchlistHistoryRevision !== undefined && (watchlistMembershipRevision === undefined ||
       typeof watchlistHistoryRevision !== "string" || !revisionPattern.test(watchlistHistoryRevision))) throw invalid();
+    if (candleBars !== undefined && (typeof candleBars !== "number" || !Number.isInteger(candleBars) ||
+      candleBars < 5 || candleBars > 60 || entry.dailyRevision === undefined)) throw invalid();
     if (tradingLimitsRevision !== undefined && (typeof tradingLimitsRevision !== "string" ||
       !revisionPattern.test(tradingLimitsRevision) || entry.limitsRevision !== undefined)) throw invalid();
     const limit = typeof tradingLimitsRevision === "string" ? {
@@ -249,7 +251,7 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
       return { symbol: entry.symbol, ...watchlistHistory, ...limit };
     }
     const { symbol, ...history } = parseArchivedStockHistory(entry);
-    return { symbol, history, ...watchlistHistory, ...limit };
+    return { symbol, history: { ...history, ...(candleBars !== undefined && { candleBars }) }, ...watchlistHistory, ...limit };
   });
   return { ...parseDatedMarketArchiveScope(manifest), stocks, limitCalendar,
     ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }) };
