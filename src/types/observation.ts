@@ -366,6 +366,32 @@ export interface DatedIndexMinuteArchiveRef {
   revision: string;
 }
 
+export interface StoredDatedStockMinuteBatch {
+  source: "tickflow";
+  endpoint: "/v1/klines";
+  market: "A";
+  symbol: string;
+  assetType: "stock";
+  tradeDate: string;
+  observedAt: string;
+  coverage: "unknown";
+  interval: "1m";
+  adjustment: "none";
+  priceUnit: "provider-native";
+  volumeUnit: "provider-native";
+  amountUnit: "provider-native";
+  timeZone: "Asia/Shanghai";
+  timestampLabel: "provider-native";
+  finality: "unknown";
+  rows: { sourceTimestamp: number; open: number; high: number; low: number; close: number; volume: number; amount: number | null }[];
+}
+
+export interface DatedStockMinuteArchiveRef {
+  version: 1;
+  kind: "dated-stock-minute";
+  revision: string;
+}
+
 export interface StoredDatedIndexDailyBar extends StoredIndexBarObservation {
   tradeDate: string;
 }

@@ -87,6 +87,8 @@ Storage 接收带身份和版本的内容，交付已提交的记录、固定引
 
 指数分钟行情使用 `archiveDatedIndexMinutes` 写入独立的 `dated-index-minute` 归档。每次捕获固定一个标的和上海日期，保留 TickFlow 的指数点位 OHLC、原始时间戳、量额和本地观察时间。空请求结果也可按摘要读取。归档校验承诺仅到保存的证据，覆盖仍为 `unknown`。`loadDatedIndexMinuteArchive` 按精确摘要读 `.ohquant/data/dated-index-minute-archives-v1/`。供应商条目与 WhyJ 后续计算的昨收涨跌分别保存和标注。
 
+TickFlow 个股分钟行情使用 `archiveDatedStockMinutes` 保存为独立的 `dated-stock-minute` 归档。一份归档固定一个个股和已结束的上海日期，保留供应商时间戳、未复权请求、原始 OHLC 与量额、观测时间及未确认的单位、标签和最终状态。空结果仍保留查询范围，相同内容的并发写入复用同一版本。`loadDatedStockMinuteArchive` 按摘要读取 `.ohquant/data/dated-stock-minute-archives-v1/`。供应商修订生成新版本，历史归档可按旧版本读取。[#684](https://github.com/yangjingo/WhyJ-Quant/issues/684)
+
 指数日线使用 `archiveDatedIndexDailyBars` 写入 `dated-index-daily` 归档。记录固定上海日期区间、指数点位 OHLC、供应商毫秒时间戳和原始量额。`loadDatedIndexDailyArchive` 按精确摘要读取 `.ohquant/data/dated-index-daily-archives-v1/`。空区间也能按其引用回放，覆盖保持 `unknown`。这个档案为指数日线图和指标窗口提供输入，基准收益档案继续提供其独立的收盘点位和收益契约。
 
 市场截面通过 `archiveMarketCrossSection` 保存一个交易日的 Tushare `bak_basic` 股票池、`daily` 行情和 `daily_basic` 交易统计。各响应保存独立交易日、观察时刻和原始单位。未匹配到股票池的行情仍保留在归档，空响应和字段空值也原样保留。文件位于 `.ohquant/data/market-cross-section-archives-v1/`，通过 `loadMarketCrossSectionArchive` 按精确引用读取并验证摘要。股票池匹配、单位转换和覆盖率统计由回放层处理。观察时间记录采集时刻，历史数据的实际可得时间仍由数据使用方核实。

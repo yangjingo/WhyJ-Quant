@@ -5,9 +5,9 @@ import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
 import type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../../types/money-flow.ts";
 import type { DatedPopularityList, PopularityArchiveRef } from "../../types/popularity.ts";
-import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedEtfDailyArchiveRef, DatedIndexDailyArchiveRef, DatedIndexMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
+import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedEtfDailyArchiveRef, DatedIndexDailyArchiveRef, DatedIndexMinuteArchiveRef, DatedStockMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
   HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, MarketRegimeManifestRef, ObservationArchiveRef, QuotePollArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
-  StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedEtfDailyBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDepthSnapshot,
+  StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedEtfDailyBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDatedStockMinuteBatch, StoredDepthSnapshot,
   StoredFinancialObservationBatch, StoredHistoricalMinuteBatch, StoredMarketCrossSection, StoredObservation,
   StoredQuotePollCapture, StoredRiskWarningBatch, StoredSectorObservationBatch, StoredTradingDateBarObservation,
   TradingDateArchiveRef, TradingLimitArchiveRef, ValuationQuotePollArchiveRef } from "../../types/observation.ts";
@@ -708,6 +708,18 @@ function validIndexBarValues(row: Record<string, unknown>): boolean {
     nonnegative(row.volume) && (row.amount === null || nonnegative(row.amount));
 }
 
+function validateDatedMinuteRows(rows: unknown, tradeDate: string, observedAt: string, keys: string[], validateValues: (row: Record<string, unknown>) => boolean) {
+  if (!Array.isArray(rows) || rows.length >= 10_000 || tradeDate >= shanghaiDate(Date.parse(observedAt))) throw fail();
+  const start = Date.parse(tradeDate + "T09:25:00+08:00");
+  const end = Date.parse(tradeDate + "T15:05:00+08:00");
+  let previous = 0;
+  for (const row of rows) {
+    if (!object(row) || !exactKeys(row, keys) || typeof row.sourceTimestamp !== "number" || !Number.isSafeInteger(row.sourceTimestamp) ||
+      row.sourceTimestamp <= previous || row.sourceTimestamp < start || row.sourceTimestamp > end || !validateValues(row)) throw fail();
+    previous = row.sourceTimestamp;
+  }
+}
+
 function validateDatedIndexMinutes(batch: unknown): asserts batch is StoredDatedIndexMinuteBatch {
   if (!object(batch) || !exactKeys(batch, [...datedIndexBatchKeys, "tradeDate"]) || batch.source !== "tickflow" ||
     batch.endpoint !== "/v1/klines" || batch.market !== "A" || typeof batch.symbol !== "string" ||
@@ -715,20 +727,8 @@ function validateDatedIndexMinutes(batch: unknown): asserts batch is StoredDated
     typeof batch.observedAt !== "string" || !instant(batch.observedAt) || batch.coverage !== "unknown" ||
     batch.interval !== "1m" || batch.priceBasis !== "index-level" || batch.priceUnit !== "index-points" ||
     batch.volumeUnit !== "provider-native" || batch.amountUnit !== "provider-native" || batch.timeZone !== "Asia/Shanghai" ||
-    batch.timestampLabel !== "provider-native" || !Array.isArray(batch.rows) || batch.rows.length >= 10_000) throw fail();
-
-  const capturedAt = Date.parse(batch.observedAt);
-  if (batch.tradeDate >= shanghaiDate(capturedAt)) throw fail();
-  const start = Date.parse(batch.tradeDate + "T09:25:00+08:00");
-  const end = Date.parse(batch.tradeDate + "T15:05:00+08:00");
-  let previous = 0;
-  for (const row of batch.rows) {
-    if (!object(row) || !exactKeys(row, datedIndexBarKeys) ||
-      typeof row.sourceTimestamp !== "number" || !Number.isSafeInteger(row.sourceTimestamp) ||
-      row.sourceTimestamp <= previous || row.sourceTimestamp < start || row.sourceTimestamp > end ||
-      !validIndexBarValues(row)) throw fail();
-    previous = row.sourceTimestamp;
-  }
+    batch.timestampLabel !== "provider-native") throw fail();
+  validateDatedMinuteRows(batch.rows, batch.tradeDate, batch.observedAt, datedIndexBarKeys, validIndexBarValues);
 }
 
 export async function archiveDatedIndexMinutes(batch: StoredDatedIndexMinuteBatch, signal?: AbortSignal): Promise<DatedIndexMinuteArchiveRef> {
@@ -743,6 +743,46 @@ export async function loadDatedIndexMinuteArchive(ref: DatedIndexMinuteArchiveRe
   const data = await readFixedArchive(datedIndexMinutePath(ref), ref.revision, signal);
   if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== datedIndexMinuteKind) throw fail();
   validateDatedIndexMinutes(data.batch);
+  return data.batch;
+}
+
+const datedStockMinuteKind = "dated-stock-minute";
+const datedStockMinuteDir = () => join(resolveDataDir(), "dated-stock-minute-archives-v1");
+const datedStockMinuteKeys = ["source", "endpoint", "market", "symbol", "assetType", "tradeDate", "observedAt", "coverage", "interval",
+  "adjustment", "priceUnit", "volumeUnit", "amountUnit", "timeZone", "timestampLabel", "finality", "rows"];
+const datedStockMinuteBarKeys = ["sourceTimestamp", "open", "high", "low", "close", "volume", "amount"];
+
+function datedStockMinutePath(ref: DatedStockMinuteArchiveRef): string {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== datedStockMinuteKind ||
+    typeof ref.revision !== "string" || !/^[a-f0-9]{64}$/.test(ref.revision)) throw fail();
+  return join(datedStockMinuteDir(), `${ref.revision}.json`);
+}
+
+function validateDatedStockMinutes(batch: unknown): asserts batch is StoredDatedStockMinuteBatch {
+  if (!object(batch) || !exactKeys(batch, datedStockMinuteKeys) || batch.source !== "tickflow" || batch.endpoint !== "/v1/klines" ||
+    batch.market !== "A" || batch.assetType !== "stock" || typeof batch.symbol !== "string" || !stockSymbol.test(batch.symbol) ||
+    isAIndexSymbol(batch.symbol) || !dailyDate(batch.tradeDate) || batch.tradeDate < "0001-01-01" ||
+    typeof batch.observedAt !== "string" || !instant(batch.observedAt) || batch.coverage !== "unknown" || batch.interval !== "1m" ||
+    batch.adjustment !== "none" || batch.priceUnit !== "provider-native" || batch.volumeUnit !== "provider-native" ||
+    batch.amountUnit !== "provider-native" || batch.timeZone !== "Asia/Shanghai" || batch.timestampLabel !== "provider-native" ||
+    batch.finality !== "unknown") throw fail();
+  validateDatedMinuteRows(batch.rows, batch.tradeDate, batch.observedAt, datedStockMinuteBarKeys, row =>
+    nonnegative(row.open) && nonnegative(row.high) && nonnegative(row.low) && nonnegative(row.close) && row.low > 0 &&
+    row.high >= Math.max(row.open, row.close) && row.low <= Math.min(row.open, row.close) && nonnegative(row.volume) && nonnegativeOrNull(row.amount));
+}
+
+export async function archiveDatedStockMinutes(batch: StoredDatedStockMinuteBatch, signal?: AbortSignal): Promise<DatedStockMinuteArchiveRef> {
+  validateDatedStockMinutes(batch);
+  const content = canonical({ version: 1, kind: datedStockMinuteKind, batch });
+  const ref: DatedStockMinuteArchiveRef = { version: 1, kind: datedStockMinuteKind, revision: digest(content) };
+  await writeFixedArchive(datedStockMinuteDir(), datedStockMinutePath(ref), content, signal);
+  return ref;
+}
+
+export async function loadDatedStockMinuteArchive(ref: DatedStockMinuteArchiveRef, signal?: AbortSignal): Promise<StoredDatedStockMinuteBatch> {
+  const data = await readFixedArchive(datedStockMinutePath(ref), ref.revision, signal);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "batch"]) || data.version !== 1 || data.kind !== datedStockMinuteKind) throw fail();
+  validateDatedStockMinutes(data.batch);
   return data.batch;
 }
 
