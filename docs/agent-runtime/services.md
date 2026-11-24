@@ -757,6 +757,8 @@ whyj --json observation read-list-quotes --manifest ./list-rows.json
 
 两条列表命令的股票项可同时填写 `dailyRevision` 和 `candleBars`，其中 `candleBars` 为 5 至 60 的整数。`replay-list-rows` 和 `read-list-quotes` 的固定结果均从同一归档提供 `observations.dailyCandles`。无效窗口或缺少 `dailyRevision` 返回 `invalid_arguments`，已有引用找不到归档时返回 `observation_archive_unavailable`。
 
+两条列表命令还可从 `screener: { histories, strategies }` 读取完整的选股候选范围和策略配置，字段格式与 `replay-screener-union` 相同。在 `stocks` 中只填需要展示的标的，评分与排名仍基于 `histories` 中的候选。重复策略或候选代码、无效清单字段返回 `invalid_arguments`，归档不可用或与列表范围不符返回 `observation_archive_unavailable`。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。

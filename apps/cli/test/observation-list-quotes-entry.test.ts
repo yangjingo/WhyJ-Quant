@@ -8,7 +8,8 @@ import { DEFAULT_SETTINGS } from "../../../src/types/config.ts";
 
 const symbol = "600000.SH";
 function marketArchive(tradeDate: string) {
-  const meta = { tradeDate, observedAt: new Date().toISOString(), coverage: "unknown" } as const;
+  const observedAt = new Date(tradeDate + "T10:00:00+08:00").toISOString();
+  const meta = { tradeDate, observedAt, coverage: "unknown" } as const;
   return archiveMarketCrossSection({
     tradeDate, market: "A", source: "tushare",
     universe: { ...meta, endpoint: "bak_basic", universe: "provider-dated-stocks",
@@ -28,10 +29,31 @@ test("only the explicit list quote command contacts the configured provider", as
   process.env.OHQUANT_DIR = root;
   const requests: string[] = [];
   let failure = false;
-  const timestamp = Date.now();
-  const date = new Intl.DateTimeFormat("sv-SE", {
-    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
-  }).format(timestamp);
+  const date = "2024-03-05";
+  const now = Date.parse(date + "T10:00:00+08:00");
+  const timestamp = now - 1_000;
+  const clock = join(root, "clock.cjs");
+  // The CLI uses both no-argument Intl formatting and Date to select and timestamp current quotes.
+  writeFileSync(clock, `
+const fixed = ${now};
+globalThis.Date = new Proxy(Date, {
+  apply(target) { return new target(fixed).toString(); },
+  construct(target, args, newTarget) {
+    return Reflect.construct(target, args.length ? args : [fixed], newTarget);
+  },
+  get(target, key, receiver) {
+    return key === "now" ? () => fixed : Reflect.get(target, key, receiver);
+  },
+});
+const formatGetter = Object.getOwnPropertyDescriptor(Intl.DateTimeFormat.prototype, "format").get;
+Object.defineProperty(Intl.DateTimeFormat.prototype, "format", {
+  configurable: true,
+  get() {
+    const format = formatGetter.call(this);
+    return (value = fixed) => format(value);
+  },
+});
+`);
   const provider = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const url = new URL(request.url);
     requests.push(url.pathname + "?" + url.searchParams.get("symbols"));
@@ -45,7 +67,7 @@ test("only the explicit list quote command contacts the configured provider", as
     const [marketRef, historicalRef] = await Promise.all([marketArchive(date), marketArchive("2024-03-04")]);
     const input = { version: 1, marketRevision: marketRef.revision, adjustment: "none", stocks: [{ symbol }] };
     const run = async (...args: string[]) => {
-      const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
+      const child = Bun.spawn([process.execPath, "run", "--preload", clock, "src/index.ts", "--json", ...args], {
         cwd: fileURLToPath(new URL("..", import.meta.url)), stdout: "pipe", stderr: "pipe",
         env: { ...process.env, OHQUANT_DIR: root, WHYJ_QUANT_TICKFLOW_API_KEY: "" },
       });
