@@ -16,7 +16,7 @@ export interface TspListRowsRequest {
   watchlistMembershipRevision?: string;
   stocks: readonly {
     symbol: string;
-    history?: { ref: TradingDateArchiveRef; exchange?: DailySignalExchangeRefs };
+    history?: { ref: TradingDateArchiveRef; exchange?: DailySignalExchangeRefs; candleBars?: number };
     watchlistHistoryRef?: TradingDateArchiveRef;
     tradingLimitsRef?: TradingLimitArchiveRef;
     financialArchives?: readonly FinancialObservationArchiveRef[];
@@ -65,10 +65,22 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
     const { volumeShares, metrics: liquidity } = archivedListLiquidity(bar, basic);
     const amountCny = bar?.amount != null ? bar.amount * 1_000 : null;
     if (amountCny !== null && !Number.isFinite(amountCny)) throw new Error("List traded amount overflow");
+    const candleBars = history?.candleBars;
+    if (candleBars !== undefined && (!Number.isInteger(candleBars) || candleBars < 5 || candleBars > 60)) {
+      throw new Error("List candle window must be an integer from 5 to 60");
+    }
     const resolved = history ? await resolveTspArchiveIndicators(history.ref, signal, history.exchange) : null;
     const derived = resolved?.preview ?? null;
     if (derived && (derived.input.symbol !== symbol || derived.input.adjustment !== adjustment ||
       derived.input.lastTradeDate > tradeDate)) throw new Error("List history has a mismatched symbol, price basis or future trade date");
+    const dailyCandles = resolved && candleBars !== undefined ? {
+      ref: resolved.preview.archiveRef,
+      ...resolved.preview.input,
+      requestedBars: candleBars,
+      volumeUnit: resolved.records[0]!.volumeUnit,
+      amountUnit: resolved.records[0]!.amountUnit,
+      rows: resolved.records.slice(-candleBars).map(({ tradeDate, sourceTimestamp, values }) => ({ tradeDate, sourceTimestamp, ...values })),
+    } : undefined;
     const sameDay = derived?.input.lastTradeDate === tradeDate;
     let watchlistReturn = null;
     if (membership && watchlistHistoryRef !== undefined) {
@@ -101,7 +113,8 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
       instrument: roster.get(symbol)!,
       ...(membership && { membership }),
       observations: { bar, basic, quantities: { volumeShares, amountCny },
-        ...(financial === undefined ? {} : { financial }), ...(tradingLimits && { tradingLimits }) },
+        ...(financial === undefined ? {} : { financial }), ...(tradingLimits && { tradingLimits }),
+        ...(dailyCandles && { dailyCandles }) },
       metrics: {
         liquidity,
         ...(membership && { watchlistReturn }),
