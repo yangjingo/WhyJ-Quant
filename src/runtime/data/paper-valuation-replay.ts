@@ -1,5 +1,6 @@
 import { isDailyDate } from "../../market/bars.ts";
-import { computeTspPaperValuation, type TspPaperPriceMark, type TspPaperValuationInput } from "../../quant/index.ts";
+import { computeTspPaperComparison, computeTspPaperValuation, type TspPaperComparisonAccount,
+  type TspPaperPriceMark, type TspPaperValuationInput } from "../../quant/index.ts";
 import { loadDatedEtfDailyArchive, loadQuotePollArchive, loadTradingDateArchive, loadValuationQuotePollArchive,
   type DatedEtfDailyArchiveRef, type QuotePollArchiveRef, type TradingDateArchiveRef, type ValuationQuotePollArchiveRef } from "../../storage/index.ts";
 
@@ -17,7 +18,14 @@ export type PaperValuationReplayRequest = Omit<TspPaperValuationInput, "basis" |
 /** Revalue fixed private holdings using the exact dated market evidence supplied by the caller. */
 export async function replayTspPaperValuation(request: PaperValuationReplayRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { basis, priceBasisConfirmation, dailyRefs, etfDailyRefs, quoteRef, valuationQuoteRef, ...scope } = structuredClone(request);
+  const { valuation, inputs } = await resolvePaperValuation(structuredClone(request), signal);
+  signal?.throwIfAborted();
+  return { ...computeTspPaperValuation(valuation), inputs };
+}
+
+async function resolvePaperValuation(request: PaperValuationReplayRequest, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const { basis, priceBasisConfirmation, dailyRefs, etfDailyRefs, quoteRef, valuationQuoteRef, ...scope } = request;
   const { currency, tradeDate, positions } = scope;
   if (!isDailyDate(tradeDate) || currency !== "CNY" || priceBasisConfirmation !== "caller-confirmed-unadjusted-CNY" ||
     !Array.isArray(positions)) throw new Error("Paper valuation replay requires exact dated unadjusted CNY evidence");
@@ -59,7 +67,7 @@ export async function replayTspPaperValuation(request: PaperValuationReplayReque
     }
     signal?.throwIfAborted();
     return {
-      ...computeTspPaperValuation({ ...scope, basis, marks }),
+      valuation: { ...scope, basis, marks },
       inputs: {
         priceBasisConfirmation, daily: evidence, etfDaily: etfEvidence,
         noDailyReferenceSymbols: [...stocks].filter(symbol => !seen.has(symbol)).sort(),
@@ -92,7 +100,47 @@ export async function replayTspPaperValuation(request: PaperValuationReplayReque
   });
   signal?.throwIfAborted();
   return {
-    ...computeTspPaperValuation({ ...scope, basis, marks }),
+    valuation: { ...scope, basis, marks },
     inputs: { priceBasisConfirmation, quotePoll: { ref, ...capture, quotes } },
   };
+}
+
+export interface PaperComparisonReplayAccount extends Omit<TspPaperComparisonAccount, "finalizedMarks" | "snapshotMarks"> {
+  dailyRefs: readonly TradingDateArchiveRef[];
+  etfDailyRefs?: readonly DatedEtfDailyArchiveRef[];
+  snapshotRef?: QuotePollArchiveRef | ValuationQuotePollArchiveRef;
+}
+
+export interface PaperComparisonReplayRequest {
+  tradeDate: string;
+  currency: "CNY";
+  priceBasisConfirmation: PaperValuationReplayRequest["priceBasisConfirmation"];
+  accounts: readonly PaperComparisonReplayAccount[];
+}
+
+/** Compare private accounts using their explicit scope and immutable market evidence. */
+export async function replayTspPaperComparison(request: PaperComparisonReplayRequest, signal?: AbortSignal) {
+  signal?.throwIfAborted();
+  const { tradeDate, currency, priceBasisConfirmation, accounts } = structuredClone(request);
+  if (!isDailyDate(tradeDate) || currency !== "CNY" || priceBasisConfirmation !== "caller-confirmed-unadjusted-CNY" ||
+    !Array.isArray(accounts)) throw new Error("Invalid paper comparison replay scope");
+  const resolvedAccounts: TspPaperComparisonAccount[] = [];
+  const inputs = [];
+  for (const account of accounts as readonly PaperComparisonReplayAccount[]) {
+    if (!account || (account.snapshotRef !== undefined && (account.status !== "active" ||
+      (account.snapshotRef?.kind !== "quote-poll" && account.snapshotRef?.kind !== "valuation-quote-poll")))) {
+      throw new Error("Invalid paper comparison replay account");
+    }
+    const { accountId, name, status, cash, initialCash, positions, fills, finalizedNav, dailyRefs, etfDailyRefs, snapshotRef } = account;
+    const scope = { accountId, tradeDate, currency, priceBasisConfirmation, cash, initialCash, positions, finalizedNav };
+    const finalized = await resolvePaperValuation({ ...scope, basis: "finalized", dailyRefs, etfDailyRefs }, signal);
+    const snapshot = snapshotRef === undefined ? null : await resolvePaperValuation(snapshotRef.kind === "quote-poll"
+      ? { ...scope, basis: "snapshot", quoteRef: snapshotRef }
+      : { ...scope, basis: "snapshot", valuationQuoteRef: snapshotRef }, signal);
+    resolvedAccounts.push({ accountId, name, status, cash, initialCash, positions, fills, finalizedNav,
+      finalizedMarks: finalized.valuation.marks, snapshotMarks: snapshot?.valuation.marks });
+    inputs.push({ accountId, finalized: finalized.inputs, snapshot: snapshot?.inputs ?? null });
+  }
+  signal?.throwIfAborted();
+  return { ...computeTspPaperComparison({ tradeDate, currency, accounts: resolvedAccounts }), inputs };
 }
