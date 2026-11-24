@@ -51,6 +51,7 @@ import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-w
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
 import { replayTspSectorMonitor, type SectorMonitorReplayRequest } from "../../../src/runtime/data/sector-monitor-replay.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
+import { previewCurrentTspListIntraday, type CurrentTspListIntradayRequest } from "../../../src/runtime/data/tickflow-stock-minute-replay.ts";
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
@@ -237,6 +238,32 @@ function parseIntradayPreviousClose(value: unknown) {
   const { revision, priceBasis } = observationManifestObject(value, ["revision", "priceBasis"]);
   if (typeof revision !== "string" || !revisionPattern.test(revision) || priceBasis !== "caller-confirmed-same-basis") throw invalid();
   return { ref: { version: 1, kind: "daily-trading-limits", revision }, priceBasis } as const;
+}
+
+function parseCurrentStockMinuteManifest(value: unknown): CurrentTspListIntradayRequest {
+  const { version, tradeDate, stocks, interpretation: rawInterpretation } =
+    observationManifestObject(value, ["version", "tradeDate", "stocks", "interpretation"]);
+  if (version !== 1 || tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(stocks) ||
+    !stocks.length || stocks.length > 100) throw invalid();
+
+  let interpretation: CurrentTspListIntradayRequest["interpretation"];
+  if (rawInterpretation !== undefined) {
+    const { timestampLabel, priceBasis } = observationManifestObject(rawInterpretation, ["timestampLabel", "priceBasis"]);
+    if ((timestampLabel !== "minute-start" && timestampLabel !== "minute-end") ||
+      priceBasis !== "caller-confirmed-unadjusted-CNY") throw invalid();
+    interpretation = { timestampLabel, priceBasis };
+  }
+
+  const seen = new Set<string>();
+  const targets = stocks.map((stock: unknown) => {
+    const { symbol, previousClose: rawClose } = observationManifestObject(stock, ["symbol", "previousClose"]);
+    const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
+    if (!datedStock.test(code) || isAIndexSymbol(code) || seen.has(code) ||
+      (rawClose !== undefined && !interpretation)) throw invalid();
+    seen.add(code);
+    return { symbol: code, previousClose: parseIntradayPreviousClose(rawClose) };
+  });
+  return { tradeDate, stocks: targets, interpretation };
 }
 
 function parseListIntraday(value: unknown): NonNullable<TspListRowsRequest["stocks"][number]["intraday"]> {
@@ -1023,6 +1050,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the dated index minutes. Check the configured Source and provider access."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "read-current-stock-minutes") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseCurrentStockMinuteManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try {
+      return await previewCurrentTspListIntraday(request, { signal, timeoutMs: 10_000 });
+    } catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not read current stock minutes with the requested evidence."), { code: "observation_collection_failed" });
     }
   }
   if (action === "read-current-index-minutes") {
