@@ -232,6 +232,26 @@ function parseListCalendar(value: unknown): NonNullable<TspListRowsRequest["limi
   return { revision, sessions };
 }
 
+function parseIntradayPreviousClose(value: unknown) {
+  if (value === undefined) return undefined;
+  const { revision, priceBasis } = observationManifestObject(value, ["revision", "priceBasis"]);
+  if (typeof revision !== "string" || !revisionPattern.test(revision) || priceBasis !== "caller-confirmed-same-basis") throw invalid();
+  return { ref: { version: 1, kind: "daily-trading-limits", revision }, priceBasis } as const;
+}
+
+function parseListIntraday(value: unknown): NonNullable<TspListRowsRequest["stocks"][number]["intraday"]> {
+  const { minuteRevision, interpretation, previousClose } = observationManifestObject(value, ["minuteRevision", "interpretation", "previousClose"]);
+  const { timestampLabel, priceBasis, volumeUnit, amountUnit } = observationManifestObject(
+    interpretation, ["timestampLabel", "priceBasis", "volumeUnit", "amountUnit"],
+  );
+  if (typeof minuteRevision !== "string" || !revisionPattern.test(minuteRevision) ||
+    (timestampLabel !== "minute-start" && timestampLabel !== "minute-end") ||
+    priceBasis !== "caller-confirmed-unadjusted-CNY" || (volumeUnit !== undefined && volumeUnit !== "share" && volumeUnit !== "hand") ||
+    (amountUnit !== undefined && amountUnit !== "CNY" && amountUnit !== "CNY-thousand")) throw invalid();
+  return { ref: { version: 1, kind: "dated-stock-minute", revision: minuteRevision },
+    interpretation: { timestampLabel, priceBasis, volumeUnit, amountUnit }, previousClose: parseIntradayPreviousClose(previousClose) };
+}
+
 function parseListRowsManifest(value: unknown): TspListRowsRequest {
   const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks", "limitCalendar",
     "watchlistMembershipRevision", "screener", "deviationCalendar"]);
@@ -246,8 +266,8 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
   const limitCalendar = manifest.limitCalendar === undefined ? undefined : parseListCalendar(manifest.limitCalendar);
   const deviationCalendar = manifest.deviationCalendar === undefined ? undefined : parseListCalendar(manifest.deviationCalendar);
   const stocks = manifest.stocks.map(item => {
-    const { watchlistHistoryRevision, tradingLimitsRevision, candleBars, financialReportRevisions, financialDisclosureRevisions, deviation, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision", "candleBars",
-      "financialReportRevisions", "financialDisclosureRevisions", "deviation"]);
+    const { watchlistHistoryRevision, tradingLimitsRevision, candleBars, financialReportRevisions, financialDisclosureRevisions, deviation, intraday, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision", "tradingLimitsRevision", "candleBars",
+      "financialReportRevisions", "financialDisclosureRevisions", "deviation", "intraday"]);
     if (deviation !== undefined && deviationCalendar === undefined) throw invalid();
     const deviationRefs = deviation === undefined
       ? undefined
@@ -270,13 +290,14 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
         ...disclosures.map(revision => ({ version: 1, kind: "financial-disclosure-dates", revision }) as const),
       ],
     };
+    const minute = intraday === undefined ? undefined : parseListIntraday(intraday);
     const watchlistHistory = watchlistHistoryRevision === undefined ? {} :
       { watchlistHistoryRef: { version: 2, revision: watchlistHistoryRevision } as const };
     if (Object.keys(entry).length === 1 && typeof entry.symbol === "string" && datedStock.test(entry.symbol)) {
-      return { symbol: entry.symbol, ...watchlistHistory, ...limit, ...finance, ...(deviationRefs && { deviation: deviationRefs }) };
+      return { symbol: entry.symbol, ...watchlistHistory, ...limit, ...finance, ...(deviationRefs && { deviation: deviationRefs }), ...(minute && { intraday: minute }) };
     }
     const { symbol, ...history } = parseArchivedStockHistory(entry);
-    return { symbol, history: { ...history, ...(candleBars !== undefined && { candleBars }) }, ...watchlistHistory, ...limit, ...finance, ...(deviationRefs && { deviation: deviationRefs }) };
+    return { symbol, history: { ...history, ...(candleBars !== undefined && { candleBars }) }, ...watchlistHistory, ...limit, ...finance, ...(deviationRefs && { deviation: deviationRefs }), ...(minute && { intraday: minute }) };
   });
   return { ...parseDatedMarketArchiveScope(manifest), stocks, limitCalendar,
     ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }),
