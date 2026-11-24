@@ -1,20 +1,24 @@
+import { isDailyDate } from "../../market/bars.ts";
+import { computeTspLimitStreaks, TSP_INDICATOR_REVISION, TSP_LIMIT_STREAK_FORMULA_VERSION } from "../../quant/index.ts";
 import { TICKFLOW_SYMBOL_BATCH_SIZE, type SourceRequestOptions } from "../../source/index.ts";
-import { loadMarketCrossSectionArchive, loadPanelPortfolio, loadTradingDateArchive,
-  type FinancialObservationArchiveRef, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef } from "../../storage/index.ts";
+import { loadDailyTradingLimitArchive, loadMarketCrossSectionArchive, loadPanelPortfolio, loadTradingDateArchive,
+  type FinancialObservationArchiveRef, type MarketCrossSectionArchiveRef, type TradingDateArchiveRef, type TradingLimitArchiveRef } from "../../storage/index.ts";
 import { replayFinancialResearchInputs } from "./financial-input-replay.ts";
 import { archivedListLiquidity } from "./list-liquidity.ts";
-import { deriveTspArchiveIndicators, type DailySignalExchangeRefs } from "./observation-collection.ts";
+import { resolveTspArchiveIndicators, type DailySignalExchangeRefs } from "./observation-collection.ts";
 import { createConfiguredMarketDataSource } from "./source-runtime.ts";
 import { projectTspWatchlistReturn, resolveTspWatchlistMembership } from "./watchlist-return.ts";
 
 export interface TspListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
+  limitCalendar?: { revision: string; sessions: readonly string[] };
   watchlistMembershipRevision?: string;
   stocks: readonly {
     symbol: string;
     history?: { ref: TradingDateArchiveRef; exchange?: DailySignalExchangeRefs };
     watchlistHistoryRef?: TradingDateArchiveRef;
+    tradingLimitsRef?: TradingLimitArchiveRef;
     financialArchives?: readonly FinancialObservationArchiveRef[];
   }[];
 }
@@ -22,7 +26,7 @@ export interface TspListRowsRequest {
 /** Join fixed market observations and same-day WHYJ calculations for either stock list. */
 export async function replayTspListRows(request: TspListRowsRequest, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const { marketRef, adjustment, stocks, watchlistMembershipRevision } = structuredClone(request);
+  const { marketRef, adjustment, stocks, watchlistMembershipRevision, limitCalendar } = structuredClone(request);
   if (adjustment !== "none" && adjustment !== "forward") throw new Error("Invalid list price basis");
   if (watchlistMembershipRevision === undefined ? stocks.some(stock => stock.watchlistHistoryRef !== undefined) :
     typeof watchlistMembershipRevision !== "string" || !/^[a-f0-9]{64}$/.test(watchlistMembershipRevision)) {
@@ -31,6 +35,16 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   const portfolio = watchlistMembershipRevision === undefined ? undefined : loadPanelPortfolio();
   if (portfolio && portfolio.revision !== watchlistMembershipRevision) throw new Error("Saved watchlist membership revision changed.");
   const { source, market, tradeDate, universe, bars, basics } = await loadMarketCrossSectionArchive(marketRef, signal);
+  let calendarDates: Set<string> | undefined;
+  if (limitCalendar !== undefined) {
+    if (!limitCalendar || typeof limitCalendar.revision !== "string" || !limitCalendar.revision.trim() ||
+      limitCalendar.revision.length > 256 || !Array.isArray(limitCalendar.sessions) || limitCalendar.sessions.at(-1) !== tradeDate ||
+      limitCalendar.sessions.some((date, index, sessions) => typeof date !== "string" || date < "0001-01-01" ||
+        !isDailyDate(date) || (index > 0 && date <= sessions[index - 1]!))) {
+      throw new Error("List limit calendar must contain ordered sessions ending at the trade date");
+    }
+    calendarDates = new Set(limitCalendar.sessions);
+  }
   const { members, ...rosterObservation } = universe;
   const { rows: barRows, ...dailyObservation } = bars;
   const { rows: basicRows, ...dailyBasicObservation } = basics;
@@ -42,15 +56,17 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
   const barsBySymbol = new Map(barRows.map(row => [row.symbol, row]));
   const basicsBySymbol = new Map(basicRows.map(row => [row.symbol, row]));
   const rows = [];
-  for (const { symbol, history, watchlistHistoryRef, financialArchives } of stocks) {
+  for (const { symbol, history, watchlistHistoryRef, financialArchives, tradingLimitsRef } of stocks) {
     signal?.throwIfAborted();
     const membership = portfolio && resolveTspWatchlistMembership(portfolio, symbol);
+    if (history?.exchange && tradingLimitsRef !== undefined) throw new Error("List stock has competing trading limit references");
     const bar = barsBySymbol.get(symbol) ?? null;
     const basic = basicsBySymbol.get(symbol) ?? null;
     const { volumeShares, metrics: liquidity } = archivedListLiquidity(bar, basic);
     const amountCny = bar?.amount != null ? bar.amount * 1_000 : null;
     if (amountCny !== null && !Number.isFinite(amountCny)) throw new Error("List traded amount overflow");
-    const derived = history ? await deriveTspArchiveIndicators(history.ref, signal, history.exchange) : null;
+    const resolved = history ? await resolveTspArchiveIndicators(history.ref, signal, history.exchange) : null;
+    const derived = resolved?.preview ?? null;
     if (derived && (derived.input.symbol !== symbol || derived.input.adjustment !== adjustment ||
       derived.input.lastTradeDate > tradeDate)) throw new Error("List history has a mismatched symbol, price basis or future trade date");
     const sameDay = derived?.input.lastTradeDate === tradeDate;
@@ -64,10 +80,28 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
     const financial = financialArchives === undefined ? undefined : (await replayFinancialResearchInputs({
       symbol, tradingDates: [tradeDate], references: financialArchives,
     }, signal))[0]!;
+    const limitArchive = resolved?.tradingLimits ?? (tradingLimitsRef === undefined ? undefined : {
+      ref: tradingLimitsRef, ...await loadDailyTradingLimitArchive(tradingLimitsRef, signal),
+    });
+    if (limitArchive && limitArchive.symbol !== symbol) throw new Error("List trading limits do not match the stock");
+    let tradingLimits;
+    if (limitArchive) {
+      const { rows, ...evidence } = limitArchive;
+      tradingLimits = { ...evidence, row: rows.find(row => row.tradeDate === tradeDate) ?? null };
+    }
+    const latestStreak = limitCalendar && calendarDates && resolved?.tradingLimits ?
+      computeTspLimitStreaks(limitCalendar.sessions, resolved.preview.dailySignals.rows.filter(row => calendarDates.has(row.date))).at(-1) : undefined;
+    const limitStreaks = limitCalendar && {
+      producer: "whyj" as const,
+      formula: { id: "tsp_limit_streaks" as const, version: TSP_LIMIT_STREAK_FORMULA_VERSION, revision: TSP_INDICATOR_REVISION },
+      consecutiveLimitUps: latestStreak?.consecutiveLimitUps ?? null,
+      consecutiveLimitDowns: latestStreak?.consecutiveLimitDowns ?? null,
+    };
     rows.push({
       instrument: roster.get(symbol)!,
       ...(membership && { membership }),
-      observations: { bar, basic, quantities: { volumeShares, amountCny }, ...(financial === undefined ? {} : { financial }) },
+      observations: { bar, basic, quantities: { volumeShares, amountCny },
+        ...(financial === undefined ? {} : { financial }), ...(tradingLimits && { tradingLimits }) },
       metrics: {
         liquidity,
         ...(membership && { watchlistReturn }),
@@ -77,12 +111,14 @@ export async function replayTspListRows(request: TspListRowsRequest, signal?: Ab
           producer: derived.dailySignals.producer, formula: derived.dailySignals.formula,
           exchangeInputs: derived.dailySignals.exchangeInputs ?? null, ...derived.dailySignals.rows.at(-1)!,
         } : null,
+        ...(limitStreaks && { limitStreaks }),
       },
     });
   }
   signal?.throwIfAborted();
   return {
     marketRef, source, market, tradeDate, adjustment, rows,
+    ...(limitCalendar && { limitCalendar: { ...limitCalendar, zone: "Asia/Shanghai" as const } }),
     observations: { roster: rosterObservation, daily: dailyObservation, dailyBasic: dailyBasicObservation },
   };
 }
