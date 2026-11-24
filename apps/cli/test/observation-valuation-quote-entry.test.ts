@@ -18,13 +18,14 @@ test("CLI archives a mixed stock and ETF quote poll and replays exact intraday m
   const requested = [missing, etf, stock];
   const prices = [{ symbol: etf, price: 4.5 }, { symbol: stock, price: 11 }];
   const requests: string[] = [];
-  let timestamp = 0, stopped = false;
+  // Simulate an earlier quote on the requested date, independent of either process's receipt clock.
+  const timestamp = Date.parse(tradeDate + "T00:00:00+08:00");
+  let stopped = false;
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
     const url = new URL(request.url);
     requests.push(url.pathname + url.search);
     if (url.pathname !== "/v1/quotes" || url.searchParams.get("symbols") !== requested.join(",") ||
       request.headers.get("x-api-key") !== "valuation-quotes-cli-fixture") return new Response("", { status: 403 });
-    timestamp = Date.now();
     return Response.json({ data: prices.map(({ symbol, price }) => ({
       symbol, region: "CN", timestamp, last_price: price, prev_close: price, open: price,
       high: price, low: price, volume: 100, amount: null,
@@ -63,7 +64,7 @@ test("CLI archives a mixed stock and ETF quote poll and replays exact intraday m
     const capture = await collect([stock, missing, etf]);
     expect(capture).toMatchObject({ code: 0, output: { ok: true, data: {
       source: "tickflow", endpoint: "/v1/quotes", tradeDate, status: "archived",
-      requestedSymbols: requested, rowCount: 2, missingSymbols: [missing], ref: { kind: "valuation-quote-poll", version: 1 },
+      requestedSymbols: requested, rowCount: 2, missingSymbols: [missing], outsideCaptureSymbols: [], ref: { kind: "valuation-quote-poll", version: 1 },
     } } });
     const ref = capture.output.data.ref;
     expect(ref.revision).toMatch(/^[a-f0-9]{64}$/);
