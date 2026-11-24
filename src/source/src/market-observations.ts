@@ -170,6 +170,12 @@ export interface DatedIndexMinuteObservations {
   rows: DatedIndexMinuteRow[];
 }
 
+export interface CurrentIndexMinuteObservations extends DatedIndexMinuteObservations {
+  finality: "provisional";
+  /** Null when the Shanghai request window has yet to start. */
+  requestedWindow: { startTime: number; endTime: number } | null;
+}
+
 export interface DailyMarketBasic {
   symbol: string;
   close: number | null;
@@ -289,6 +295,8 @@ export interface MarketObservationSource {
     Promise<MarketObservation<DatedEtfDailyObservations>>;
   fetchDatedIndexMinutes(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions):
     Promise<MarketObservation<DatedIndexMinuteObservations>>;
+  fetchCurrentIndexMinutes(request: { symbol: string; market: Market; tradeDate: string }, options?: SourceRequestOptions):
+    Promise<MarketObservation<CurrentIndexMinuteObservations>>;
   fetchTradingCalendar(request: { market: Market; start: string; end: string }, options?: SourceRequestOptions): Promise<MarketObservation<TradingCalendar>>;
   fetchInstrumentUniverse(request: { market: Market; universe: "mainboard" }, options?: SourceRequestOptions): Promise<InstrumentUniverse>;
   fetchHistoricalStockUniverse(request: { market: Market; tradeDate: string }, options?: SourceRequestOptions):
@@ -316,6 +324,7 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchDatedIndexDailyBars: { tickflow: "A" },
   fetchDatedEtfDailyBars: { tickflow: "A", tushare: "A" },
   fetchDatedIndexMinutes: { tickflow: "A" },
+  fetchCurrentIndexMinutes: { tickflow: "A" },
   fetchTradingCalendar: { akshare: "A" },
   fetchInstrumentUniverse: { akshare: "A" },
   fetchHistoricalStockUniverse: { tushare: "A" },
@@ -324,6 +333,23 @@ const markets: Record<keyof MarketObservationSource, Partial<Record<ProviderSour
   fetchHistoricalMinuteBars: { tushare: "A" },
 };
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+
+function indexMinuteSymbol(symbol: string): string {
+  const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
+  if (!isDatedBenchmarkIndexSymbol(code)) throw new Error("An exchange-qualified A-share benchmark index is required");
+  return code;
+}
+
+function shanghaiMinuteWindow(tradeDate: string) {
+  return { startTime: Date.parse(tradeDate + "T09:25:00+08:00"), endTime: Date.parse(tradeDate + "T15:05:00+08:00") };
+}
+
+function completedMinuteWindow(tradeDate: string) {
+  if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate < "0001-01-01" || tradeDate >= shanghaiDate.format()) {
+    throw new Error("A completed Shanghai trading date is required");
+  }
+  return shanghaiMinuteWindow(tradeDate);
+}
 const CALENDAR_SCRIPT = `import json,sys,akshare as ak
 start,end=sys.argv[1:]
 days=ak.tool_trade_date_hist_sina()
@@ -345,6 +371,7 @@ export function marketObservationCapabilities(source: ProviderSource): MarketObs
     fetchDatedIndexDailyBars: status("fetchDatedIndexDailyBars"),
     fetchDatedEtfDailyBars: status("fetchDatedEtfDailyBars"),
     fetchDatedIndexMinutes: status("fetchDatedIndexMinutes"),
+    fetchCurrentIndexMinutes: status("fetchCurrentIndexMinutes"),
     fetchTradingCalendar: status("fetchTradingCalendar"), fetchInstrumentUniverse: status("fetchInstrumentUniverse"),
     fetchHistoricalStockUniverse: status("fetchHistoricalStockUniverse"),
     fetchDatedRiskWarnings: status("fetchDatedRiskWarnings"),
@@ -412,6 +439,21 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
       return { symbol, row };
     }).sort((left, right) => left.symbol.localeCompare(right.symbol));
   }
+
+  const indexMinutes = async (
+    symbol: string, tradeDate: string, window: ReturnType<typeof shanghaiMinuteWindow> | null, options?: SourceRequestOptions,
+  ): Promise<DatedIndexMinuteObservations> => {
+    const rows = window ? (await readReference(options, signal => fetchTickFlowKlines(symbol, {
+      period: "1m", adjustment: "none", ...window,
+    }, { apiKey, baseUrl, env, signal }))).rows : [];
+    return {
+      symbol, tradeDate, interval: "1m", priceBasis: "index-level", priceUnit: "index-points",
+      volumeUnit: "provider-native", amountUnit: "provider-native", timeZone: "Asia/Shanghai", timestampLabel: "provider-native",
+      rows: rows.map(({ timestamp, open, high, low, close, volume, amount }) => ({
+        sourceTimestamp: timestamp, openPoints: open, highPoints: high, lowPoints: low, closePoints: close, volume, amount,
+      })),
+    };
+  };
 
   const result = <T>(market: Market, endpoint: string, data: T, observedAt = new Date().toISOString()): MarketObservation<T> =>
     ({ source, endpoint, market, data, observedAt, coverage: "unknown" });
@@ -665,22 +707,19 @@ export function createMarketObservationSource(connection: SourceConnection, fetc
     },
     async fetchDatedIndexMinutes({ symbol, market, tradeDate }, options) {
       validate("fetchDatedIndexMinutes", market);
-      const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
-      if (!isDatedBenchmarkIndexSymbol(code)) throw new Error("An exchange-qualified A-share benchmark index is required");
-      if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate < "0001-01-01" ||
-        tradeDate >= shanghaiDate.format()) throw new Error("A completed Shanghai trading date is required");
-      const startTime = Date.parse(tradeDate + "T09:25:00+08:00");
-      const endTime = Date.parse(tradeDate + "T15:05:00+08:00");
-      const { rows } = await readReference(options, signal => fetchTickFlowKlines(code, {
-        period: "1m", adjustment: "none", startTime, endTime,
-      }, { apiKey, baseUrl, env, signal }));
-      return result<DatedIndexMinuteObservations>(market, "/v1/klines", {
-        symbol: code, tradeDate, interval: "1m", priceBasis: "index-level", priceUnit: "index-points",
-        volumeUnit: "provider-native", amountUnit: "provider-native", timeZone: "Asia/Shanghai", timestampLabel: "provider-native",
-        rows: rows.map(({ timestamp, open, high, low, close, volume, amount }) => ({
-          sourceTimestamp: timestamp, openPoints: open, highPoints: high, lowPoints: low, closePoints: close, volume, amount,
-        })),
-      });
+      const code = indexMinuteSymbol(symbol);
+      return result(market, "/v1/klines", await indexMinutes(code, tradeDate, completedMinuteWindow(tradeDate), options));
+    },
+    async fetchCurrentIndexMinutes({ symbol, market, tradeDate }, options) {
+      validate("fetchCurrentIndexMinutes", market);
+      const code = indexMinuteSymbol(symbol);
+      options?.signal?.throwIfAborted();
+      const now = Date.now();
+      if (tradeDate !== shanghaiDate.format(now)) throw new Error("The current Shanghai date is required");
+      const { startTime, endTime } = shanghaiMinuteWindow(tradeDate);
+      const requestedWindow = now < startTime ? null : { startTime, endTime: Math.min(now, endTime) };
+      const minutes = await indexMinutes(code, tradeDate, requestedWindow, options);
+      return result<CurrentIndexMinuteObservations>(market, "/v1/klines", { ...minutes, requestedWindow, finality: "provisional" });
     },
     async fetchTradingCalendar({ market, start, end }, options) {
       validate("fetchTradingCalendar", market);
