@@ -221,17 +221,25 @@ function parseScreenerUnionManifest(value: unknown): ScreenerUnionReplayRequest 
 }
 
 function parseListRowsManifest(value: unknown): TspListRowsRequest {
-  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks"]);
+  const manifest = observationManifestObject(value, ["version", "marketRevision", "adjustment", "stocks", "watchlistMembershipRevision"]);
+  const { watchlistMembershipRevision } = manifest;
+  if (watchlistMembershipRevision !== undefined &&
+    (typeof watchlistMembershipRevision !== "string" || !revisionPattern.test(watchlistMembershipRevision))) throw invalid();
   if (!Array.isArray(manifest.stocks)) throw invalid();
   const stocks = manifest.stocks.map(item => {
-    const entry = observationManifestObject(item, archivedStockKeys);
+    const { watchlistHistoryRevision, ...entry } = observationManifestObject(item, [...archivedStockKeys, "watchlistHistoryRevision"]);
+    if (watchlistHistoryRevision !== undefined && (watchlistMembershipRevision === undefined ||
+      typeof watchlistHistoryRevision !== "string" || !revisionPattern.test(watchlistHistoryRevision))) throw invalid();
+    const watchlistHistory = watchlistHistoryRevision === undefined ? {} :
+      { watchlistHistoryRef: { version: 2, revision: watchlistHistoryRevision } as const };
     if (Object.keys(entry).length === 1 && typeof entry.symbol === "string" && datedStock.test(entry.symbol)) {
-      return { symbol: entry.symbol };
+      return { symbol: entry.symbol, ...watchlistHistory };
     }
     const { symbol, ...history } = parseArchivedStockHistory(entry);
-    return { symbol, history };
+    return { symbol, history, ...watchlistHistory };
   });
-  return { ...parseDatedMarketArchiveScope(manifest), stocks };
+  return { ...parseDatedMarketArchiveScope(manifest), stocks,
+    ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }) };
 }
 
 function parseRealizedTrades(value: unknown): TspBacktestRobustnessInput["trades"] {

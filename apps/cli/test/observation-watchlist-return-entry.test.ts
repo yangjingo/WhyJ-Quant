@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { archiveTradingDateObservations, loadPanelPortfolio, savePanelPortfolio, type StoredTradingDateBarObservation } from "../../../src/storage/index.ts";
+import { archiveMarketCrossSection, archiveTradingDateObservations, loadPanelPortfolio, savePanelPortfolio,
+  type StoredTradingDateBarObservation } from "../../../src/storage/index.ts";
 
 const symbol = "600519.SH", asOf = "2024-03-04";
 function observation(tradeDate: string, close: number): StoredTradingDateBarObservation {
@@ -49,11 +50,52 @@ test("CLI combines local membership and fixed archives offline with revision evi
     } } });
     expect(report.output.data.metrics.pctSinceAdded).toBeCloseTo(0.1, 12);
     expect(await run(...args)).toEqual(report);
+    const meta = { tradeDate: asOf, observedAt: "2024-03-05T02:00:00Z", coverage: "unknown" } as const;
+    const market = await archiveMarketCrossSection({
+      market: "A", source: "tushare", tradeDate: asOf,
+      universe: { ...meta, endpoint: "bak_basic", universe: "provider-dated-stocks",
+        members: [{ symbol, name: "fixture", listedOn: null, industry: null }] },
+      bars: { ...meta, endpoint: "daily", adjustment: "none", priceUnit: "CNY", volumeUnit: "hand", amountUnit: "CNY-thousand", rows: [] },
+      basics: { ...meta, endpoint: "daily_basic", priceUnit: "CNY", shareUnit: "ten-thousand-shares",
+        marketValueUnit: "CNY-ten-thousand", rows: [] },
+    });
+    const manifestPath = join(root, "list.json");
+    const list = async (action: string, manifest: unknown) => {
+      await Bun.write(manifestPath, JSON.stringify(manifest));
+      return run("observation", action, "--manifest", manifestPath);
+    };
+    const basicList = { version: 1, marketRevision: market.revision, adjustment: "none", stocks: [{ symbol }] };
+    const withMembership = { ...basicList, watchlistMembershipRevision: membershipRevision };
+    const withReturn = { ...withMembership, stocks: [{ symbol, watchlistHistoryRevision: ref.revision }] };
+    const fixed = await list("replay-list-rows", withReturn);
+    expect(fixed).toMatchObject({ code: 0, output: { ok: true, data: { rows: [{
+      membership: report.output.data.input.membership,
+      observations: { bar: null, basic: null },
+      metrics: { watchlistReturn: { ...report.output.data.metrics, history: report.output.data.input.history } },
+    }] } } });
+    expect(await list("read-list-quotes", withReturn)).toMatchObject({ code: 0, output: { ok: true, data: {
+      fixed: fixed.output.data, quotes: { status: "outside-current-day" },
+    } } });
+    expect(await list("replay-list-rows", withMembership)).toMatchObject({ code: 0, output: { ok: true, data: { rows: [{
+      membership: report.output.data.input.membership, metrics: { watchlistReturn: null },
+    }] } } });
+    const legacy = await list("replay-list-rows", basicList);
+    expect(legacy).toMatchObject({ code: 0, output: { ok: true } });
+    expect(legacy.output.data.rows[0]).not.toHaveProperty("membership");
+    expect(legacy.output.data.rows[0].metrics).not.toHaveProperty("watchlistReturn");
+    for (const invalid of [{ ...withReturn, watchlistMembershipRevision: undefined },
+      { ...withReturn, watchlistMembershipRevision: "../private" },
+      { ...withMembership, stocks: [{ symbol, watchlistHistoryRevision: "../private" }] }]) {
+      expect(await list("replay-list-rows", invalid)).toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
+    }
+    expect(await list("replay-list-rows", { ...withMembership, stocks: [{ symbol, watchlistHistoryRevision: "f".repeat(64) }] }))
+      .toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
     const unavailable = await run("observation", "replay-watchlist-return", "--revision", missingBaseline.revision, "--as-of", asOf);
     expect(unavailable.output.data.metrics).toMatchObject({ status: "missing-baseline", pctSinceAdded: null });
     expect(loadPanelPortfolio().revision).toBe(membershipRevision);
     savePanelPortfolio({ ...loadPanelPortfolio(), symbols: [{ code: symbol, name: "fixture", added: asOf }] });
     expect(await run(...args)).toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
+    expect(await list("read-list-quotes", withReturn)).toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
     expect(await run("observation", "replay-watchlist-return", "--revision", ref.revision))
       .toMatchObject({ code: 1, output: { error: { code: "invalid_arguments" } } });
   } finally {
