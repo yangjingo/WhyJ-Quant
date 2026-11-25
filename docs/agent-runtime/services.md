@@ -350,6 +350,31 @@ Runtime 的 `replayTspDailyMonitorAlerts` 从精确的 A 股日线归档重建�
 
 响应列出缺失的标的交易日、实际命中的条件和操作数、冷却期内被抑制的次数、规则与行情证据版本。事件 ID 由规则、回放时点和归档证据计算。回放窗口从空冷却状态开始，调用方应带上需要影响后续判断的前序交易日。结果是 `historical-reconstruction`，归档采集时点随结果返回。实际推送和告警历史另行接入。[日线告警回放](https://github.com/yangjingo/WhyJ-Quant/issues/673)
 
+用 `whyj --json observation replay-daily-monitor-alerts --manifest ./daily-alert.json` 离线回放。下面的 `evaluatedAt` 是上海时间 2026-03-11 15:10 对应的 Unix 毫秒数。把 `DAILY_SHA256` 换成 `collect-daily` 返回的归档版本。
+
+```json
+{
+  "version": 1,
+  "adjustment": "none",
+  "sessions": [{ "tradeDate": "2026-03-11", "evaluatedAt": 1773213000000 }],
+  "roster": ["600000.SH"],
+  "histories": [{ "symbol": "600000.SH", "dailyRevision": "DAILY_SHA256" }],
+  "rule": {
+    "id": "close_threshold",
+    "revision": "close-threshold-v1",
+    "assetType": "stock",
+    "type": "price",
+    "scope": { "kind": "all" },
+    "logic": "and",
+    "cooldownMs": 86400000,
+    "severity": "info",
+    "conditions": [{ "field": "close", "op": ">=", "value": 10, "unit": "CNY" }]
+  }
+}
+```
+
+`scope.kind` 也接受 `symbols` 和 `watchlist_group`，两者都填写 `symbols`，自选分组还需填写固定的 `membershipRevision`。内置信号条件使用 `op: "truth"`，数值条件填写 `unit`。使用交易所信号时，给相应历史添加 `limitsRevision`。技术字段使用前复权日线时，再提供同标的未复权 `rawRevision` 供该信号使用。清单本身无效返回 `invalid_arguments`，引用缺失、损坏或不匹配返回 `observation_archive_unavailable`。
+
 历史分时通过配置的 Tushare `stk_mins` 采集。一次请求一个 A 股标的，日期窗口至多 31 天并且早于上海当天。采集完成后，用第一条返回的 `data.ref.revision` 离线回放。
 
 ```powershell

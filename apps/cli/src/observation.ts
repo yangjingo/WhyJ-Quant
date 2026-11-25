@@ -11,12 +11,14 @@ import {
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianPlanInput, type TspStrategyGuardianThresholds,
-  type TspPaperLedgerEntry, type TspPaperLedgerInput, type TspPaperStatisticsInput,
+  type TspMonitorCondition, type TspPaperLedgerEntry, type TspPaperLedgerInput, type TspPaperStatisticsInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { replayTspAbnormalSnapshot, type AbnormalSnapshotReplayRequest } from "../../../src/runtime/data/abnormal-snapshot-replay.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
+import { replayTspDailyMonitorAlerts, TSP_DAILY_MONITOR_UNITS,
+  type DailyMonitorAlertReplayRequest } from "../../../src/runtime/data/daily-monitor-alert-replay.ts";
 import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-collection.ts";
 import { collectDragonTigerBoard, replayTspDragonTiger } from "../../../src/runtime/data/dragon-tiger.ts";
 import { replayTspFactorEvaluation, replayTspFactorMiningScreen, replayTspFactorSignificance,
@@ -161,6 +163,62 @@ function parseArchivedStockHistory({ symbol, dailyRevision, limitsRevision, rawR
 function parseArchivedStockHistories(histories: unknown): AbnormalSnapshotReplayRequest["histories"] {
   if (!Array.isArray(histories)) throw invalid();
   return histories.map(item => parseArchivedStockHistory(observationManifestObject(item, archivedStockKeys)));
+}
+
+function parseDailyMonitorRule(value: unknown, roster: ReadonlySet<string>): DailyMonitorAlertReplayRequest["rule"] {
+  const { id, revision, type, assetType, scope: rawScope, conditions: rawConditions, logic, cooldownMs, severity } =
+    observationManifestObject(value, ["id", "revision", "type", "assetType", "scope", "conditions", "logic", "cooldownMs", "severity"]);
+  if (typeof id !== "string" || !/^[a-z0-9_]{1,40}$/.test(id) || typeof revision !== "string" || !revision.trim() || assetType !== "stock" ||
+    (type !== "signal" && type !== "price" && type !== "market") || (logic !== "and" && logic !== "or") ||
+    typeof cooldownMs !== "number" || !Number.isSafeInteger(cooldownMs) || cooldownMs < 0 ||
+    (severity !== "info" && severity !== "warn" && severity !== "critical") || !Array.isArray(rawConditions) || !rawConditions.length) {
+    throw invalid();
+  }
+  const { kind, symbols, membershipRevision } = observationManifestObject(rawScope, ["kind", "symbols", "membershipRevision"]);
+  let scope: DailyMonitorAlertReplayRequest["rule"]["scope"];
+  if (kind === "all" && symbols === undefined && membershipRevision === undefined) scope = { kind };
+  else {
+    if (!Array.isArray(symbols) || new Set(symbols).size !== symbols.length ||
+      symbols.some(symbol => typeof symbol !== "string" || !roster.has(symbol))) throw invalid();
+    if (kind === "symbols" && membershipRevision === undefined) scope = { kind, symbols };
+    else if (kind === "watchlist_group" && typeof membershipRevision === "string" && membershipRevision.trim()) {
+      scope = { kind, symbols, membershipRevision };
+    } else throw invalid();
+  }
+  const conditions = rawConditions.map((entry: unknown): TspMonitorCondition => {
+    const { field, op, value, unit } = observationManifestObject(entry, ["field", "op", "value", "unit"]);
+    if (typeof field !== "string") throw invalid();
+    if (op === "truth" && value === undefined && unit === undefined && TSP_DAILY_SIGNAL_FIELDS.some(signal => signal === field)) {
+      return { field, op };
+    }
+    const comparison = ([">", ">=", "<", "<=", "==", "!="] as const).find(candidate => candidate === op);
+    if (!comparison || typeof value !== "number" || !Number.isFinite(value) || typeof unit !== "string" ||
+      !Object.hasOwn(TSP_DAILY_MONITOR_UNITS, field) || TSP_DAILY_MONITOR_UNITS[field as keyof typeof TSP_DAILY_MONITOR_UNITS] !== unit) {
+      throw invalid();
+    }
+    return { field, op: comparison, value, unit };
+  });
+  return { id, revision, type, assetType, scope, conditions, logic, cooldownMs, severity };
+}
+
+function parseDailyMonitorAlertManifest(value: unknown): DailyMonitorAlertReplayRequest {
+  const { version, rule, adjustment, sessions: rawSessions, roster, histories: rawHistories } =
+    observationManifestObject(value, ["version", "rule", "adjustment", "sessions", "roster", "histories"]);
+  if (version !== 1 || (adjustment !== "none" && adjustment !== "forward") || !Array.isArray(rawSessions) ||
+    !Array.isArray(roster) || new Set(roster).size !== roster.length ||
+    roster.some(symbol => typeof symbol !== "string" || !datedStock.test(symbol) || isAIndexSymbol(symbol))) throw invalid();
+  const rosterSet = new Set<string>(roster);
+  const sessions = rawSessions.map((entry: unknown) => {
+    const { tradeDate, evaluatedAt } = observationManifestObject(entry, ["tradeDate", "evaluatedAt"]);
+    if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || typeof evaluatedAt !== "number" || !Number.isSafeInteger(evaluatedAt) ||
+      evaluatedAt < Date.parse(tradeDate + "T15:00:00+08:00") || evaluatedAt >= Date.parse(tradeDate + "T16:00:00Z")) throw invalid();
+    return { tradeDate, evaluatedAt };
+  });
+  parseExchangeSessions(sessions.map(session => session.tradeDate));
+  const histories = parseArchivedStockHistories(rawHistories);
+  const referenced = new Set(histories.map(history => history.symbol));
+  if (referenced.size !== histories.length || histories.some(history => !rosterSet.has(history.symbol))) throw invalid();
+  return { rule: parseDailyMonitorRule(rule, rosterSet), adjustment, sessions, roster, histories };
 }
 
 function parseDatedMarketArchiveScope({ version, marketRevision, adjustment }: Record<string, unknown>):
@@ -981,6 +1039,15 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
         { signal, previousClose: close });
     } catch {
       throw Object.assign(new Error("Could not replay the requested minute signal archives."), { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-daily-monitor-alerts") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseDailyMonitorAlertManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspDailyMonitorAlerts(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested daily monitor archives."), { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-list-rows" || action === "read-list-quotes") {
