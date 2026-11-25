@@ -653,6 +653,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 复验返回基线、当前分段稳健得分、相对退化比例、交易数、最差回撤及原因码。结果状态为 `healthy`、`watch`、`retired`、`skipped` 或 `unavailable`。这两条命令只读取本地清单。格式、阈值或分段不符时返回 `invalid_arguments`。 [策略健康度指标定义](../quant-harness/tsp-panel-coverage.md#strategy-guardian)
 
+`whyj --json observation replay-strategy-guardian-history --manifest history.json` 读取一个策略的固定检查历史。清单使用 `schemaVersion: 1`、`strategyId` 和按归档追加顺序排列的 `checks: [{ verdict?, error? }]`。无判定时省略 `verdict` 或填 `null`。响应给出 WhyJ 公式版本、检查总数、尾部连续无错误观察次数和达到两次时的告警。命令只读取本地清单，格式错误返回 `invalid_arguments`。
+
 在因子检验清单中增加可选的 `marketEnvironment` 对象，即可启用前一交易日的市场状态分层。对象沿用 `replay-market-environment` 的 `sessions`、`marketRevisions`、`limitRevisions`、`priceHistory` 和 `benchmark` 格式，也可以提供 `riskWarningRevisions`。其日历须连续包含正式的因子检验区间和已知前驱。`phaseMode` 可省略或填 `causal`。`data.information.marketRegime` 返回分层统计及每个使用日期的前驱、状态和分数。
 
 ### 回测交易稳健性
