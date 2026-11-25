@@ -167,6 +167,82 @@ test("binds current ETF charts to same-provider daily close evidence for the dec
   } finally { await provider.stop(true); clock.mockRestore(); }
 });
 
+test("reads one optional later quote batch and keeps both stock and ETF minute evidence intact", async () => {
+  let time = stamp(first, "09:31:20");
+  const clock = spyOn(Date, "now").mockImplementation(() => time);
+  const etf = "510300.SH", stale = "000001.SZ";
+  const providerCalls: URL[] = [];
+  let failQuotes = false;
+  let omitSecondQuote = false;
+  const minuteEpoch = stamp(first, "09:31:00");
+  const ticks = { [symbol]: stamp(first, "09:31:45"), [etf]: stamp(first, "09:32:20"), [stale]: stamp(first, "09:31:10") };
+  const source = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    if (request.headers.get("x-api-key") !== "tsp-tail-runtime-fixture") return new Response(null, { status: 403 });
+    const url = new URL(request.url);
+    providerCalls.push(url);
+    const symbols = url.searchParams.get("symbols")!.split(",");
+    if (url.pathname === "/v1/klines/intraday/batch") {
+      time = stamp(first, "09:31:20");
+      return Response.json({ data: Object.fromEntries(symbols.map(symbol => [symbol, {
+        timestamp: [minuteEpoch], open: [10], high: [11], low: [10], close: [11], volume: [0], amount: [0],
+      }])) });
+    }
+    expect(url.pathname).toBe("/v1/quotes");
+    time = symbols.includes(etf) ? stamp(first, "09:32:25") : stamp(first, "09:31:55");
+    if (failQuotes) return new Response("fixture unavailable", { status: 403 });
+    const quotedSymbols = omitSecondQuote ? symbols.slice(0, 1) : symbols;
+    return Response.json({ data: quotedSymbols.map(symbol => ({ symbol, region: "CN", timestamp: ticks[symbol as keyof typeof ticks],
+      last_price: 12, prev_close: 10, open: 10, high: 12, low: 10, volume: 300, amount: 3_000 })) });
+  } });
+  try {
+    saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
+      env: { WHYJ_QUANT_TICKFLOW_API_KEY: "tsp-tail-runtime-fixture", TICKFLOW_BASE_URL: source.url.origin } });
+    const quoteTail = { maxAgeMs: 60_000, priceBasis: "caller-confirmed-same-basis" } as const;
+    const stockRequest = { tradeDate: first, stocks: [{ symbol }, { symbol: stale }],
+      interpretation: { timestampLabel: "minute-start", priceBasis: "caller-confirmed-unadjusted-CNY" } } as const;
+    await expect(previewCurrentTspListIntraday({ ...stockRequest, quoteTail, interpretation: undefined })).rejects.toThrow("price basis");
+    await expect(previewCurrentTspListIntraday({ ...stockRequest, quoteTail: { ...quoteTail, maxAgeMs: -1 } })).rejects.toThrow("quote age");
+    expect(providerCalls).toHaveLength(0);
+    const baseStock = await previewCurrentTspListIntraday(stockRequest);
+    expect(providerCalls.map(url => url.pathname)).toEqual(["/v1/klines/intraday/batch"]);
+    expect(baseStock.input).not.toHaveProperty("quoteTail");
+
+    const stock = await previewCurrentTspListIntraday({ ...stockRequest, quoteTail });
+    expect(stock.input.minutes.frames).toEqual(baseStock.input.minutes.frames);
+    expect(stock.input.quoteTail).toMatchObject({ status: "observed", source: "tickflow", units: "unknown",
+      data: [{ symbol, timestamp: ticks[symbol], lastPrice: 12, volume: 300, amount: 3_000 }, { symbol: stale }] });
+    expect(stock.rows[0]).toMatchObject({ quoteTail: { producer: "whyj", status: "updated", applied: { price: 12, finality: "provisional" } },
+      metrics: { points: [{ minute: "09:31", close: 12, averageClose: 12, sourceTimestamp: ticks[symbol], priceSource: "quote" }] } });
+    expect(stock.rows[1]).toMatchObject({ quoteTail: { status: "unchanged", reason: "covered" }, metrics: { points: [{ close: 11 }] } });
+
+    const fund = await previewCurrentTspEtfIntraday({ tradeDate: first, etfs: [{ symbol: etf }], quoteTail,
+      interpretation: { timestampLabel: "minute-end", priceBasis: "caller-confirmed-unadjusted-CNY" } });
+    expect(fund.input.minutes).toMatchObject({ assetType: "etf", frames: [{ symbol: etf, rows: [{ close: 11, volume: 0, amount: 0 }] }] });
+    expect(fund.rows[0]).toMatchObject({ quoteTail: { status: "appended", applied: { price: 12, finality: "provisional" } },
+      metrics: { points: [
+        { minute: "09:30", close: 11, sourceTimestamp: minuteEpoch },
+        { minute: "09:32", close: 12, averageClose: 11.5, sourceTimestamp: ticks[etf], priceSource: "quote" },
+      ] } });
+
+    omitSecondQuote = true;
+    const oldOrMissing = await previewCurrentTspListIntraday({ ...stockRequest, quoteTail: { ...quoteTail, maxAgeMs: 5_000 } });
+    expect(oldOrMissing.input.quoteTail).toMatchObject({ status: "observed", missingSymbols: [stale] });
+    expect(oldOrMissing.rows[0]?.quoteTail).toMatchObject({ status: "unchanged", reason: "stale-quote" });
+    expect(oldOrMissing.rows[1]?.quoteTail).toMatchObject({ status: "unchanged", reason: "missing-quote" });
+    expect(oldOrMissing.rows.map(row => row.metrics)).toEqual(baseStock.rows.map(row => row.metrics));
+
+    failQuotes = true;
+    const degraded = await previewCurrentTspListIntraday({ ...stockRequest, quoteTail });
+    expect(degraded.input.quoteTail).toMatchObject({ status: "unavailable" });
+    expect(degraded.rows[0]?.metrics).toEqual(baseStock.rows[0]?.metrics);
+    expect(providerCalls.slice(1).map(url => url.pathname)).toEqual(
+      Array.from({ length: 4 }).flatMap(() => ["/v1/klines/intraday/batch", "/v1/quotes"]),
+    );
+    expect(providerCalls[2]!.searchParams.get("symbols")).toBe([symbol, stale].join(","));
+    expect(providerCalls[4]!.searchParams.get("symbols")).toBe(etf);
+  } finally { await source.stop(true); clock.mockRestore(); }
+});
+
 test("collects native TickFlow minute bars and archives a valid empty response with the same scope", async () => {
   const count = { calls: 0 };
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
