@@ -30,7 +30,7 @@ import { collectFinancialObservations, type FinancialCollectionRequest } from ".
 import { collectDatedEtfDailyBars } from "../../../src/runtime/data/etf-daily-observations.ts";
 import { replayTspPaperComparison, replayTspPaperValuation, type PaperComparisonReplayRequest,
   type PaperValuationReplayRequest } from "../../../src/runtime/data/paper-valuation-replay.ts";
-import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
+import { collectDatedIndexDailyBars, readDatedIndexDailyWithQuote, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, previewCurrentIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
 import { replayTspIntradayMonitorAlerts, TSP_INTRADAY_MONITOR_SIGNALS, TSP_INTRADAY_MONITOR_UNITS,
@@ -1311,13 +1311,24 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
         { code: "observation_collection_failed" });
     }
   }
-  if (action === "replay-index-daily") {
-    const fields = parseOptions(options, ["--revision", "--start", "--end"]);
+  if (action === "replay-index-daily" || action === "read-index-daily-quote") {
+    const readQuote = action === "read-index-daily-quote";
+    const allowed = ["--revision", "--start", "--end"];
+    if (readQuote) allowed.push("--calendar-revision", "--previous-date", "--date");
+    const fields = parseOptions(options, allowed);
     const revision = fields.get("--revision"), start = fields.get("--start"), end = fields.get("--end");
     if (!revision || !revisionPattern.test(revision) ||
-      (fields.size > 1 && (!start || !end || !isDailyDate(start) || !isDailyDate(end) || start < "0001-01-01" || start > end))) throw invalid();
+      ((start || end) && (!start || !end || !isDailyDate(start) || !isDailyDate(end) || start < "0001-01-01" || start > end))) throw invalid();
     const displayRange = start && end ? { start, end } : undefined;
-    try { return await replayDatedIndexDailyBars({ ref: { version: 1, kind: "dated-index-daily", revision }, displayRange }, signal); }
+    const calendar = readQuote ? parseObservationSessionPair({
+      revision: fields.get("--calendar-revision"), previousTradeDate: fields.get("--previous-date"), tradeDate: fields.get("--date"),
+    }) : undefined;
+    if (calendar && calendar.previousTradeDate < "0001-01-01") throw invalid();
+    const ref = { version: 1, kind: "dated-index-daily", revision } as const;
+    try {
+      if (calendar) return await readDatedIndexDailyWithQuote({ ref, displayRange, calendar }, { signal, timeoutMs: 10_000 });
+      return await replayDatedIndexDailyBars({ ref, displayRange }, signal);
+    }
     catch {
       throw Object.assign(new Error("Could not replay the index daily revision for the requested display range."),
         { code: "observation_archive_unavailable" });

@@ -11,6 +11,16 @@ const dates = ["2024-02-23", "2024-02-26", "2024-02-27", "2024-02-28", "2024-02-
 const close = [101, 102, 103, 104, 105, 106];
 const timestamps = dates.map(date => Date.parse(date + "T15:00:00+08:00"));
 
+async function runIndexDaily(root: string, ...args: string[]) {
+  const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
+    cwd: fileURLToPath(new URL("..", import.meta.url)), stdout: "pipe", stderr: "pipe",
+    env: { ...process.env, OHQUANT_DIR: root, WHYJ_QUANT_TICKFLOW_API_KEY: "" },
+  });
+  const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+  expect(stderr).toBe("");
+  return { code, output: JSON.parse(stdout) };
+}
+
 test("CLI replays exact index daily chart metrics after the capture endpoint closes", async () => {
   const root = mkdtempSync(join(tmpdir(), "whyj-index-daily-cli-"));
   const previous = process.env.OHQUANT_DIR;
@@ -26,14 +36,7 @@ test("CLI replays exact index daily chart metrics after the capture endpoint clo
       low: close.map(value => value - 1), volume: [0, 11, 12, 13, 14, 15], amount: close.map(() => null) } });
   } });
   let stopped = false;
-  const run = async (...args: string[]) => {
-    const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
-      cwd: fileURLToPath(new URL("..", import.meta.url)), env: { ...process.env, OHQUANT_DIR: root }, stdout: "pipe", stderr: "pipe",
-    });
-    const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect(stderr).toBe("");
-    return { code, output: JSON.parse(stdout) };
-  };
+  const run = (...args: string[]) => runIndexDaily(root, ...args);
   process.env.OHQUANT_DIR = root;
   try {
     saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
@@ -76,6 +79,77 @@ test("CLI replays exact index daily chart metrics after the capture endpoint clo
     expect(requests).toBe(2);
   } finally {
     if (!stopped) await server.stop(true);
+    if (previous === undefined) delete process.env.OHQUANT_DIR;
+    else process.env.OHQUANT_DIR = previous;
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("CLI requests a provisional index chart only through the explicit quote command", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-index-daily-quote-cli-"));
+  const previous = process.env.OHQUANT_DIR;
+  const requests: string[] = [];
+  const shanghai = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
+  });
+  const timestamp = Date.now();
+  const tradeDate = shanghai.format(timestamp);
+  const history = Array.from({ length: 5 }, (_, offset) => shanghai.format(timestamp - (5 - offset) * 86_400_000));
+  const start = history[0]!, previousTradeDate = history.at(-1)!;
+  const values = [100, 101, 102, 103, 104];
+  let denyQuote = false;
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(request) {
+    const url = new URL(request.url);
+    requests.push(url.pathname);
+    if (request.headers.get("x-api-key") !== "fixture-index-live-quote") return new Response(null, { status: 403 });
+    if (url.pathname === "/v1/klines" && url.searchParams.get("symbol") === symbol) {
+      return Response.json({ data: { symbol, timestamp: history.map(date => Date.parse(date + "T15:00:00+08:00")),
+        open: values, high: values, low: values, close: values, volume: values } });
+    }
+    if (url.pathname === "/v1/quotes" && url.searchParams.get("symbols") === symbol && !denyQuote) {
+      return Response.json({ data: [{ symbol, region: "CN", timestamp, last_price: 111, prev_close: 104,
+        open: 110, high: 112, low: 109, volume: 0, amount: null }] });
+    }
+    return new Response(null, { status: 403 });
+  } });
+  const run = (...args: string[]) => runIndexDaily(root, ...args);
+  process.env.OHQUANT_DIR = root;
+  try {
+    saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
+      env: { WHYJ_QUANT_TICKFLOW_API_KEY: "fixture-index-live-quote", TICKFLOW_BASE_URL: server.url.origin } });
+    const help = await run("--help");
+    expect(help.output.data.commands.map((entry: { command: string }) => entry.command))
+      .toContain("whyj --json observation read-index-daily-quote");
+    const capture = await run("observation", "collect-index-daily", "--symbol", symbol, "--start", start, "--end", previousTradeDate);
+    expect(capture).toMatchObject({ code: 0, output: { data: { status: "archived", rowCount: 5 } } });
+    const revision = capture.output.data.ref.revision;
+    const replay = await run("observation", "replay-index-daily", "--revision", revision);
+    const fixed = replay.output.data;
+    const read = ["observation", "read-index-daily-quote", "--revision", revision];
+    const dates = ["--date", tradeDate, "--previous-date", previousTradeDate];
+    const options = [...dates, "--calendar-revision", "fixture-calendar"];
+    const invalid = { code: 1, output: { error: { code: "invalid_arguments" } } };
+    expect(await run(...read, ...dates)).toMatchObject(invalid);
+    expect(await run(...read, "--date", tradeDate, "--previous-date", tradeDate, "--calendar-revision", "fixture-calendar")).toMatchObject(invalid);
+    expect(await run(...read, ...options, "--start", start)).toMatchObject(invalid);
+    expect(await run("observation", "read-index-daily-quote", "--revision", "f".repeat(64), ...options))
+      .toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
+    expect(await run(...read, ...options, "--start", start, "--end", tradeDate))
+      .toMatchObject({ code: 1, output: { error: { code: "observation_archive_unavailable" } } });
+    expect(await run(...read, "--date", previousTradeDate, "--previous-date", start, "--calendar-revision", "fixture-calendar"))
+      .toMatchObject({ code: 0, output: { data: { fixed, provisional: { status: "outside-current-day" } } } });
+    expect(requests).toEqual(["/v1/klines"]);
+    expect(await run(...read, ...options)).toMatchObject({ code: 0, output: { data: {
+      fixed, calendar: { revision: "fixture-calendar", tradeDate, previousTradeDate },
+      provisional: { status: "available", finality: "provisional", source: "tickflow", sourceTimestamp: timestamp,
+        snapshot: { volume: 0, amount: null }, candle: { closePoints: 111 },
+        metrics: { producer: "whyj", row: { ma5: 104.2, vol_ratio_5d: null } } },
+    } } });
+    denyQuote = true;
+    expect(await run(...read, ...options)).toMatchObject({ code: 0, output: { data: { fixed, provisional: { status: "unavailable" } } } });
+    expect(requests).toEqual(["/v1/klines", "/v1/quotes", "/v1/quotes"]);
+  } finally {
+    await server.stop(true);
     if (previous === undefined) delete process.env.OHQUANT_DIR;
     else process.env.OHQUANT_DIR = previous;
     rmSync(root, { recursive: true, force: true });
