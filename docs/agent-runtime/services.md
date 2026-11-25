@@ -886,6 +886,8 @@ CLI 使用 `whyj --json observation read-current-etf-minutes --manifest PATH`，
 
 股票和 ETF 的 Runtime 分时预览可通过 `quoteTail: { maxAgeMs, priceBasis: "caller-confirmed-same-basis" }` 显式追加一次同供应商的 TickFlow 报价读取。需同时声明分钟标签和价格口径，`maxAgeMs` 为非负安全整数。源分钟和报价分别保留在 `input.minutes` 和 `input.quoteTail`。WHYJ 只使用时间戳晚于分钟帧接收时刻、同标的、同一连续交易时段且符合新鲜度要求的报价。应用报价的点带有 `priceSource: "quote"`，逐标的 `quoteTail` 记录应用状态。报价缺失、过期或接口不可用时保留原分时曲线。行情原生量额保留各自的单位，新增分钟的量额未知。
 
+`read-current-stock-minutes` 和 `read-current-etf-minutes` 的第 1 版清单都可在设置 `interpretation` 后加入 `"quoteTail": { "maxAgeMs": 60000, "priceBasis": "caller-confirmed-same-basis" }`。配置无效时返回 `invalid_arguments`，且不会发起供应商请求。省略该字段时只读取原有分钟数据。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。

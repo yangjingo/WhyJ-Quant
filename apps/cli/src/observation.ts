@@ -394,9 +394,18 @@ function parseCurrentMinuteInterpretation(value: unknown): CurrentTspListIntrada
   return { timestampLabel, priceBasis };
 }
 
+function parseCurrentMinuteQuoteTail(value: unknown, interpretation: CurrentTspListIntradayRequest["interpretation"]):
+  CurrentTspListIntradayRequest["quoteTail"] {
+  if (value === undefined) return undefined;
+  const { maxAgeMs, priceBasis } = observationManifestObject(value, ["maxAgeMs", "priceBasis"]);
+  if (!interpretation || typeof maxAgeMs !== "number" || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 0 ||
+    priceBasis !== compatiblePriceBasis) throw invalid();
+  return { maxAgeMs, priceBasis };
+}
+
 function parseCurrentStockMinuteManifest(value: unknown): CurrentTspListIntradayRequest {
-  const { version, tradeDate, stocks, interpretation: rawInterpretation } =
-    observationManifestObject(value, ["version", "tradeDate", "stocks", "interpretation"]);
+  const { version, tradeDate, stocks, interpretation: rawInterpretation, quoteTail: rawQuoteTail } =
+    observationManifestObject(value, ["version", "tradeDate", "stocks", "interpretation", "quoteTail"]);
   if (version !== 1 || tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(stocks) ||
     !stocks.length || stocks.length > 100) throw invalid();
 
@@ -411,12 +420,13 @@ function parseCurrentStockMinuteManifest(value: unknown): CurrentTspListIntraday
     seen.add(code);
     return { symbol: code, previousClose: parseIntradayPreviousClose(rawClose) };
   });
-  return { tradeDate, stocks: targets, interpretation };
+  const quoteTail = parseCurrentMinuteQuoteTail(rawQuoteTail, interpretation);
+  return { tradeDate, stocks: targets, interpretation, ...(quoteTail && { quoteTail }) };
 }
 
 function parseCurrentEtfMinuteManifest(value: unknown): CurrentTspEtfIntradayRequest {
-  const { version, tradeDate, etfs, interpretation: rawInterpretation } =
-    observationManifestObject(value, ["version", "tradeDate", "etfs", "interpretation"]);
+  const { version, tradeDate, etfs, interpretation: rawInterpretation, quoteTail: rawQuoteTail } =
+    observationManifestObject(value, ["version", "tradeDate", "etfs", "interpretation", "quoteTail"]);
   if (version !== 1 || tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(etfs) || !etfs.length || etfs.length > 100) throw invalid();
   const interpretation = parseCurrentMinuteInterpretation(rawInterpretation);
   const seen = new Set<string>();
@@ -432,7 +442,8 @@ function parseCurrentEtfMinuteManifest(value: unknown): CurrentTspEtfIntradayReq
     if (calendar.tradeDate !== tradeDate) throw invalid();
     return { symbol: code, previousClose: { dailyRef: { version: 1, kind: "dated-etf-daily", revision: dailyRevision }, calendar, priceBasis } } as const;
   });
-  return { tradeDate, etfs: targets, interpretation };
+  const quoteTail = parseCurrentMinuteQuoteTail(rawQuoteTail, interpretation);
+  return { tradeDate, etfs: targets, interpretation, ...(quoteTail && { quoteTail }) };
 }
 
 function parseListIntraday(value: unknown): NonNullable<TspListRowsRequest["stocks"][number]["intraday"]> {
