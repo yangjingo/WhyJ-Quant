@@ -5,7 +5,7 @@ import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from ".
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
-  parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger,
+  parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
@@ -31,6 +31,8 @@ import { replayTspPaperComparison, replayTspPaperValuation, type PaperComparison
 import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../../../src/runtime/data/index-daily-observations.ts";
 import { collectDatedIndexMinutes, previewCurrentIndexMinutes, replayDatedIndexMinutes, type DatedIndexMinuteReplayRequest } from "../../../src/runtime/data/index-minute-observations.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../../src/runtime/data/intraday-replay.ts";
+import { replayTspIntradayMonitorAlerts, TSP_INTRADAY_MONITOR_SIGNALS, TSP_INTRADAY_MONITOR_UNITS,
+  type IntradayMonitorAlertReplayRequest } from "../../../src/runtime/data/intraday-monitor-alert-replay.ts";
 import { replayTspIntradaySignal } from "../../../src/runtime/data/intraday-signal-replay.ts";
 import { collectMarketCrossSection, deriveTspMarketBreadthArchive } from "../../../src/runtime/data/market-cross-section.ts";
 import { replayTspMarketEmotion, type MarketEmotionReplayRequest } from "../../../src/runtime/data/market-emotion-replay.ts";
@@ -165,7 +167,19 @@ function parseArchivedStockHistories(histories: unknown): AbnormalSnapshotReplay
   return histories.map(item => parseArchivedStockHistory(observationManifestObject(item, archivedStockKeys)));
 }
 
-function parseDailyMonitorRule(value: unknown, roster: ReadonlySet<string>): DailyMonitorAlertReplayRequest["rule"] {
+function parseMonitorRoster(value: unknown): string[] {
+  if (!Array.isArray(value) || new Set(value).size !== value.length ||
+    value.some(symbol => typeof symbol !== "string" || !datedStock.test(symbol) || isAIndexSymbol(symbol))) throw invalid();
+  return value;
+}
+
+function validateMonitorHistories(histories: readonly { symbol: string }[], roster: ReadonlySet<string>) {
+  const referenced = new Set(histories.map(history => history.symbol));
+  if (referenced.size !== histories.length || histories.some(history => !roster.has(history.symbol))) throw invalid();
+}
+
+function parseMonitorRule(value: unknown, roster: ReadonlySet<string>, signalFields: readonly string[], units: Readonly<Record<string, string>>):
+  DailyMonitorAlertReplayRequest["rule"] {
   const { id, revision, type, assetType, scope: rawScope, conditions: rawConditions, logic, cooldownMs, severity } =
     observationManifestObject(value, ["id", "revision", "type", "assetType", "scope", "conditions", "logic", "cooldownMs", "severity"]);
   if (typeof id !== "string" || !/^[a-z0-9_]{1,40}$/.test(id) || typeof revision !== "string" || !revision.trim() || assetType !== "stock" ||
@@ -188,12 +202,12 @@ function parseDailyMonitorRule(value: unknown, roster: ReadonlySet<string>): Dai
   const conditions = rawConditions.map((entry: unknown): TspMonitorCondition => {
     const { field, op, value, unit } = observationManifestObject(entry, ["field", "op", "value", "unit"]);
     if (typeof field !== "string") throw invalid();
-    if (op === "truth" && value === undefined && unit === undefined && TSP_DAILY_SIGNAL_FIELDS.some(signal => signal === field)) {
+    if (op === "truth" && value === undefined && unit === undefined && signalFields.includes(field)) {
       return { field, op };
     }
     const comparison = ([">", ">=", "<", "<=", "==", "!="] as const).find(candidate => candidate === op);
     if (!comparison || typeof value !== "number" || !Number.isFinite(value) || typeof unit !== "string" ||
-      !Object.hasOwn(TSP_DAILY_MONITOR_UNITS, field) || TSP_DAILY_MONITOR_UNITS[field as keyof typeof TSP_DAILY_MONITOR_UNITS] !== unit) {
+      !Object.hasOwn(units, field) || units[field] !== unit) {
       throw invalid();
     }
     return { field, op: comparison, value, unit };
@@ -202,12 +216,11 @@ function parseDailyMonitorRule(value: unknown, roster: ReadonlySet<string>): Dai
 }
 
 function parseDailyMonitorAlertManifest(value: unknown): DailyMonitorAlertReplayRequest {
-  const { version, rule, adjustment, sessions: rawSessions, roster, histories: rawHistories } =
+  const { version, rule, adjustment, sessions: rawSessions, roster: rawRoster, histories: rawHistories } =
     observationManifestObject(value, ["version", "rule", "adjustment", "sessions", "roster", "histories"]);
-  if (version !== 1 || (adjustment !== "none" && adjustment !== "forward") || !Array.isArray(rawSessions) ||
-    !Array.isArray(roster) || new Set(roster).size !== roster.length ||
-    roster.some(symbol => typeof symbol !== "string" || !datedStock.test(symbol) || isAIndexSymbol(symbol))) throw invalid();
-  const rosterSet = new Set<string>(roster);
+  if (version !== 1 || (adjustment !== "none" && adjustment !== "forward") || !Array.isArray(rawSessions)) throw invalid();
+  const roster = parseMonitorRoster(rawRoster);
+  const rosterSet = new Set(roster);
   const sessions = rawSessions.map((entry: unknown) => {
     const { tradeDate, evaluatedAt } = observationManifestObject(entry, ["tradeDate", "evaluatedAt"]);
     if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || typeof evaluatedAt !== "number" || !Number.isSafeInteger(evaluatedAt) ||
@@ -216,9 +229,38 @@ function parseDailyMonitorAlertManifest(value: unknown): DailyMonitorAlertReplay
   });
   parseExchangeSessions(sessions.map(session => session.tradeDate));
   const histories = parseArchivedStockHistories(rawHistories);
-  const referenced = new Set(histories.map(history => history.symbol));
-  if (referenced.size !== histories.length || histories.some(history => !rosterSet.has(history.symbol))) throw invalid();
-  return { rule: parseDailyMonitorRule(rule, rosterSet), adjustment, sessions, roster, histories };
+  validateMonitorHistories(histories, rosterSet);
+  return { rule: parseMonitorRule(rule, rosterSet, TSP_DAILY_SIGNAL_FIELDS, TSP_DAILY_MONITOR_UNITS), adjustment, sessions, roster, histories };
+}
+
+function parseIntradayMonitorAlertManifest(value: unknown): IntradayMonitorAlertReplayRequest {
+  const { version, rule, slots: rawSlots, roster: rawRoster, histories: rawHistories, customSignals: rawCustomSignals = [] } =
+    observationManifestObject(value, ["version", "rule", "slots", "roster", "histories", "customSignals"]);
+  if (version !== 1 || !Array.isArray(rawSlots) || !rawSlots.length || !Array.isArray(rawHistories) || !Array.isArray(rawCustomSignals)) throw invalid();
+  const roster = parseMonitorRoster(rawRoster);
+  const rosterSet = new Set(roster);
+  let prior = 0;
+  const slots = rawSlots.map((entry: unknown) => {
+    const { tradeDate, minute } = observationManifestObject(entry, ["tradeDate", "minute"]);
+    if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || typeof minute !== "string" || tspMinuteIndex(minute) < 0) throw invalid();
+    const evaluatedAt = Date.parse(`${tradeDate}T${minute}:00+08:00`) + 60_000;
+    if (!Number.isSafeInteger(evaluatedAt) || evaluatedAt <= prior) throw invalid();
+    prior = evaluatedAt;
+    return { tradeDate, minute };
+  });
+  const histories = rawHistories.map((entry: unknown): IntradayMonitorAlertReplayRequest["histories"][number] => {
+    const { symbol, minuteRevision, previousClose } = observationManifestObject(entry, ["symbol", "minuteRevision", "previousClose"]);
+    if (typeof symbol !== "string" || typeof minuteRevision !== "string" || !revisionPattern.test(minuteRevision)) throw invalid();
+    return { symbol, ref: { version: 1, kind: "historical-minute-bars", revision: minuteRevision }, previousClose: parseIntradayPreviousClose(previousClose) };
+  });
+  validateMonitorHistories(histories, rosterSet);
+  const customSignals = rawCustomSignals.map(value => {
+    try { return parseTspIntradaySignalRule(value); } catch { throw invalid(); }
+  });
+  const customFields = customSignals.map(({ id }) => `csgi_${id}`);
+  if (new Set(customFields).size !== customFields.length) throw invalid();
+  return { rule: parseMonitorRule(rule, rosterSet, [...TSP_INTRADAY_MONITOR_SIGNALS, ...customFields], TSP_INTRADAY_MONITOR_UNITS),
+    slots, roster, histories, customSignals };
 }
 
 function parseDatedMarketArchiveScope({ version, marketRevision, adjustment }: Record<string, unknown>):
@@ -1028,12 +1070,7 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (version !== 1 || typeof minuteRevision !== "string" || !revisionPattern.test(minuteRevision)) throw invalid();
     let rule;
     try { rule = parseTspIntradaySignalRule(conditions); } catch { throw invalid(); }
-    let close;
-    if (previousClose !== undefined) {
-      const { revision, priceBasis } = observationManifestObject(previousClose, ["revision", "priceBasis"]);
-      if (typeof revision !== "string" || !revisionPattern.test(revision) || priceBasis !== compatiblePriceBasis) throw invalid();
-      close = { ref: { version: 1, kind: "daily-trading-limits", revision }, priceBasis } as const;
-    }
+    const close = parseIntradayPreviousClose(previousClose);
     try {
       return await replayTspIntradaySignal({ version: 1, kind: "historical-minute-bars", revision: minuteRevision }, rule,
         { signal, previousClose: close });
@@ -1048,6 +1085,15 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     try { return await replayTspDailyMonitorAlerts(request, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested daily monitor archives."), { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-intraday-monitor-alerts") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseIntradayMonitorAlertManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspIntradayMonitorAlerts(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested intraday monitor archives."), { code: "observation_archive_unavailable" });
     }
   }
   if (action === "replay-list-rows" || action === "read-list-quotes") {

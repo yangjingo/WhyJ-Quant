@@ -392,6 +392,27 @@ Runtime 的 `replayTspIntradayMonitorAlerts` 接受固定规则、A 股标的范
 
 `replayTspIntradayMonitorAlerts` 的 TickFlow 历史输入使用同一份 `refs` 与 `interpretation`。可提供 `previousClose`，绑定同标的交易所昨收归档及 `caller-confirmed-same-basis`，逐日取精确日期的昨收。缺少该日期的证据时，相应比例和穿越保持为空。分钟指标和告警由 WhyJ 计算，来源与口径随结果返回。[TickFlow 分时接入](https://github.com/yangjingo/WhyJ-Quant/issues/685)
 
+用 `whyj --json observation replay-intraday-monitor-alerts --manifest ./intraday-alert.json` 回放。`minuteRevision` 填 `collect-minutes` 返回的归档版本。自定义信号在 `customSignals` 中声明，并用 `csgi_` 加规则 ID 作为监控条件。
+
+```json
+{
+  "version": 1,
+  "slots": [{ "tradeDate": "2026-01-05", "minute": "09:31" }],
+  "roster": ["600000.SH"],
+  "histories": [{ "symbol": "600000.SH", "minuteRevision": "MINUTE_SHA256" }],
+  "customSignals": [
+    { "id": "cross_ten", "conditions": [{ "left": "price", "op": "cross_up", "right": 10 }] }
+  ],
+  "rule": {
+    "id": "price_cross", "revision": "price-cross-v1", "assetType": "stock", "type": "signal",
+    "scope": { "kind": "all" }, "logic": "and", "cooldownMs": 60000, "severity": "info",
+    "conditions": [{ "field": "csgi_cross_ten", "op": "truth" }]
+  }
+}
+```
+
+使用昨收时，在对应 `histories` 项填写 `previousClose`，包含 `revision` 和 `priceBasis: "caller-confirmed-same-basis"`。`slots` 必须按时间升序且不能重复。无效清单返回 `invalid_arguments`，不可读取或不匹配的归档返回 `observation_archive_unavailable`。
+
 用已配置的 Tushare 采集同一交易日的行业或概念目录，再按板块代码采集所需成分。
 
 ```powershell
