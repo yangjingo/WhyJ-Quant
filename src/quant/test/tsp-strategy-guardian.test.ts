@@ -1,5 +1,36 @@
 import { expect, test } from "bun:test";
-import { evaluateTspStrategyGuardian, planTspStrategyGuardianCheck, type TspStrategyGuardianCheckInput } from "../index.ts";
+import {
+  evaluateTspStrategyGuardian, planTspStrategyGuardianCheck, summarizeTspStrategyGuardianHistory,
+  TSP_INDICATOR_REVISION, type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput,
+} from "../index.ts";
+
+test("reports the trailing successful watch count and the pinned two-check alert", () => {
+  const strategyId = "volume-momentum";
+  const watch = { verdict: "watch" } as const;
+  const calculate = (checks: TspStrategyGuardianHistoryInput["checks"]) => summarizeTspStrategyGuardianHistory({ strategyId, checks });
+  expect(calculate([])).toEqual({
+    producer: "whyj", formulaVersion: "tsp-strategy-guardian-history-v1", referenceRevision: TSP_INDICATOR_REVISION,
+    strategyId, checkCount: 0, consecutiveWatch: 0, alert: false,
+  });
+  expect(calculate([watch])).toMatchObject({ checkCount: 1, consecutiveWatch: 1, alert: false });
+  expect(calculate([{ verdict: "watch", error: "" }, { verdict: "watch", error: null }]))
+    .toMatchObject({ checkCount: 2, consecutiveWatch: 2, alert: true });
+  expect(calculate([watch, watch, watch])).toMatchObject({ checkCount: 3, consecutiveWatch: 3, alert: true });
+  for (const interruption of [{ verdict: "healthy" }, { verdict: "retired" }, { verdict: null },
+    { verdict: null, error: "no score" }, { verdict: "watch", error: "incomplete evidence" }] as const) {
+    expect(calculate([watch, watch, interruption])).toMatchObject({ checkCount: 3, consecutiveWatch: 0, alert: false });
+    expect(calculate([watch, interruption, watch, watch])).toMatchObject({ checkCount: 4, consecutiveWatch: 2, alert: true });
+  }
+});
+
+test("rejects invalid history scope or malformed checks even before the trailing watches", () => {
+  expect(() => summarizeTspStrategyGuardianHistory({ strategyId: " ", checks: [] })).toThrow();
+  for (const check of [null, {}, { verdict: "unknown" }, { verdict: "watch", error: false }]) {
+    expect(() => summarizeTspStrategyGuardianHistory({
+      strategyId: "x", checks: [check as TspStrategyGuardianHistoryInput["checks"][number], { verdict: "watch" }],
+    })).toThrow();
+  }
+});
 
 const sessions = ["2026-01-02", ...Array.from({ length: 61 }, (_, i) =>
   new Date(Date.UTC(2026, 0, 5 + i))).filter(date => date.getUTCDay() % 6 !== 0)

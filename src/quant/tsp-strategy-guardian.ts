@@ -5,6 +5,37 @@ import { planTspParameterValidation, summarizeTspRobustObjectives, TSP_PARAMETER
   type TspParameterSegmentEvidence } from "./tsp-parameter-robustness.ts";
 
 export const TSP_STRATEGY_GUARDIAN_FORMULA_VERSION = "tsp-strategy-guardian-v1";
+export const TSP_STRATEGY_GUARDIAN_HISTORY_FORMULA_VERSION = "tsp-strategy-guardian-history-v1";
+
+export interface TspStrategyGuardianHistoryInput {
+  strategyId: string;
+  /** Retained checks in their persisted append order. Null means the check has no verdict. */
+  checks: readonly { verdict: "healthy" | "watch" | "retired" | null; error?: string | null }[];
+}
+
+export function summarizeTspStrategyGuardianHistory(input: TspStrategyGuardianHistoryInput) {
+  const { strategyId, checks } = input;
+  if (typeof strategyId !== "string" || !strategyId.trim() || !Array.isArray(checks)) {
+    throw new Error("Invalid strategy guardian history");
+  }
+  let consecutiveWatch = 0;
+  for (const check of checks) {
+    if (!check || (check.verdict !== "healthy" && check.verdict !== "watch" && check.verdict !== "retired" && check.verdict !== null) ||
+      (check.error != null && typeof check.error !== "string")) {
+      throw new Error("Invalid strategy guardian history check");
+    }
+    consecutiveWatch = check.verdict === "watch" && !check.error ? consecutiveWatch + 1 : 0;
+  }
+  return {
+    producer: "whyj" as const,
+    formulaVersion: TSP_STRATEGY_GUARDIAN_HISTORY_FORMULA_VERSION,
+    referenceRevision: TSP_INDICATOR_REVISION,
+    strategyId,
+    checkCount: checks.length,
+    consecutiveWatch,
+    alert: consecutiveWatch >= 2,
+  };
+}
 
 export interface TspStrategyGuardianThresholds {
   watchFraction: number;

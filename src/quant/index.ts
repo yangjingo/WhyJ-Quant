@@ -40,8 +40,14 @@ export { computeTspFactorMiningScreen, TSP_FACTOR_MINING_SCREEN_FORMULA_VERSION,
 export type { TspFactorMiningRow, TspFactorMiningScreenInput } from "./tsp-factor-mining-screen.ts";
 export { computeTspMiningCandidateReport, TSP_MINING_CANDIDATE_REPORT_FORMULA_VERSION } from "./tsp-mining-candidate-report.ts";
 export type { TspMiningCandidateReportInput, TspMiningCandidateFoldEvidence, TspMiningCandidateFoldMetrics } from "./tsp-mining-candidate-report.ts";
-export { evaluateTspStrategyGuardian, planTspStrategyGuardianCheck, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION } from "./tsp-strategy-guardian.ts";
-export type { TspStrategyGuardianCheckInput, TspStrategyGuardianPlanInput, TspStrategyGuardianReason, TspStrategyGuardianThresholds } from "./tsp-strategy-guardian.ts";
+export {
+  evaluateTspStrategyGuardian, planTspStrategyGuardianCheck, summarizeTspStrategyGuardianHistory,
+  TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_GUARDIAN_HISTORY_FORMULA_VERSION,
+} from "./tsp-strategy-guardian.ts";
+export type {
+  TspStrategyGuardianCheckInput, TspStrategyGuardianHistoryInput, TspStrategyGuardianPlanInput,
+  TspStrategyGuardianReason, TspStrategyGuardianThresholds,
+} from "./tsp-strategy-guardian.ts";
 export { computeTspPaperStatistics, TSP_PAPER_STATISTICS_FORMULA_VERSION } from "./tsp-paper-statistics.ts";
 export { replayTspPaperLedger, TSP_PAPER_LEDGER_FORMULA_VERSION } from "./tsp-paper-ledger.ts";
 export type { TspPaperLedgerEntry, TspPaperLedgerInput } from "./tsp-paper-ledger.ts";
