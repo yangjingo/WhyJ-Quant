@@ -786,6 +786,10 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 通过 `whyj --json observation collect-index-daily --symbol 000001.SH --start 2024-02-23 --end 2024-03-01` 捕获包含预热历史的窗口。执行 `whyj --json observation replay-index-daily --revision DAILY_SHA256` 离线读回原始数据和指标。若只看其中一段，可同时传入 `--start` 和 `--end`。两者只控制显示范围，响应中的 `calculationWindow` 列出实际参与计算的观测范围。
 
+`readDatedIndexDailyWithQuote` 接受同一归档引用和显式上海交易日历（修订号、目标日与前一交易日）。查询当前上海日期时，为该指数读取一次 TickFlow 快照。报价和观测时间均须位于目标日期，且报价时间不能晚于观测时间。结果保留原始报价和标记为 `provisional` 的日 K。报价开高低为零时采用最新价作为临时图表值，记录替代字段。历史查询保持离线。
+
+历史中的当日行不参与临时指标计算。前一交易日与实际预热末日相符时，WHYJ 使用相同价格公式计算 MA、MACD、RSI、KDJ、布林带和 ATR。盘中成交量与历史成交量的口径尚未确认，量比保留为空。固定归档、原始报价和临时计算各自带有来源或公式证据。
+
 ### 从归档重建日线选股候选
 
 `replayTspScreener` 读取固定市场截面和调用方指定的股票日线修订。每个标的须属于当日股票池，同一次回放使用共同的前复权或未复权口径。归档晚于截面日期会报错，缺当日行情则显示不可判定。日线和交易所限价信号沿用同一固定归档回放逻辑。
