@@ -49,6 +49,8 @@ import { collectDatedMoneyFlow, replayDatedMoneyFlow } from "../../../src/runtim
 import { collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators } from "../../../src/runtime/data/observation-collection.ts";
 import { collectDatedPopularityList, replayDatedPopularityList } from "../../../src/runtime/data/popularity-list.ts";
 import { replayTspPriceDeviation, type PriceDeviationReplayRequest } from "../../../src/runtime/data/price-deviation-replay.ts";
+import { collectTspQuoteMonitorAlerts, replayTspQuoteMonitorAlerts, TSP_QUOTE_MONITOR_UNITS,
+  type CurrentQuoteMonitorRequest, type QuoteMonitorReplayRequest } from "../../../src/runtime/data/quote-monitor-alert-replay.ts";
 import { collectQuotePollCapture, collectValuationQuotePollCapture, replayTspQuotePollDelta,
   type QuotePollReplayRequest } from "../../../src/runtime/data/quote-poll-replay.ts";
 import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-warning-collection.ts";
@@ -278,6 +280,31 @@ function parseIntradayMonitorAlertManifest(value: unknown): IntradayMonitorAlert
   if (new Set(customFields).size !== customFields.length) throw invalid();
   return { rule: parseMonitorRule(rule, rosterSet, [...TSP_INTRADAY_MONITOR_SIGNALS, ...customFields], TSP_INTRADAY_MONITOR_UNITS),
     slots, roster, histories, customSignals };
+}
+
+function parseQuoteMonitorAlertManifest(value: unknown, mode: "collect" | "replay"):
+  { mode: "collect"; request: CurrentQuoteMonitorRequest } | { mode: "replay"; request: QuoteMonitorReplayRequest } {
+  const input = observationManifestObject(value, ["version", "rule", "roster", "maxAgeMs", "priceBasis", "volumeUnit", "amountUnit",
+    ...(mode === "collect" ? ["tradeDate", "priorCaptureRevisions"] : ["captureRevisions"])]);
+  const { version, rule, roster: rawRoster, maxAgeMs, priceBasis, volumeUnit, amountUnit } = input;
+  if (version !== 1 || typeof maxAgeMs !== "number" || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 0 ||
+    (priceBasis !== undefined && priceBasis !== "caller-confirmed-unadjusted-CNY") ||
+    (volumeUnit !== undefined && volumeUnit !== "share" && volumeUnit !== "hand") ||
+    (amountUnit !== undefined && amountUnit !== "CNY" && amountUnit !== "CNY-thousand")) throw invalid();
+  const roster = parseMonitorRoster(rawRoster);
+  if (roster.length < 1 || roster.length > 6_999) throw invalid();
+  const scope: Omit<QuoteMonitorReplayRequest, "captureRefs"> = {
+    rule: parseMonitorRule(rule, new Set(roster), [], TSP_QUOTE_MONITOR_UNITS), roster, maxAgeMs, priceBasis, volumeUnit, amountUnit,
+  };
+  if (mode === "collect") {
+    const { tradeDate, priorCaptureRevisions = [] } = input;
+    if (typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate !== shanghaiDate.format()) throw invalid();
+    const priorCaptureRefs = validateRevisions(priorCaptureRevisions).map(revision => ({ version: 1, kind: "quote-poll", revision } as const));
+    return { mode, request: { ...scope, tradeDate, priorCaptureRefs } };
+  }
+  const captureRefs = validateRevisions(input.captureRevisions).map(revision => ({ version: 1, kind: "quote-poll", revision } as const));
+  if (!captureRefs.length) throw invalid();
+  return { mode, request: { ...scope, captureRefs } };
 }
 
 function parseDatedMarketArchiveScope({ version, marketRevision, adjustment }: Record<string, unknown>):
@@ -1043,6 +1070,23 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     try { return await replayTspTickFlowStockMinutes(request, signal); }
     catch {
       throw Object.assign(new Error("Could not replay the requested TickFlow stock minute archives."), { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "collect-quote-monitor-alerts" || action === "replay-quote-monitor-alerts") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const parsed = parseQuoteMonitorAlertManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal),
+      action === "collect-quote-monitor-alerts" ? "collect" : "replay");
+    if (parsed.mode === "collect") {
+      try { return await collectTspQuoteMonitorAlerts(parsed.request, { signal }); }
+      catch {
+        throw Object.assign(new Error("Could not collect the quote monitor poll. Check the prior archives and the configured source."),
+          { code: "observation_collection_failed" });
+      }
+    }
+    try { return await replayTspQuoteMonitorAlerts(parsed.request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested quote monitor archives."), { code: "observation_archive_unavailable" });
     }
   }
   if (action === "collect-depth" || action === "collect-quote-poll" || action === "collect-valuation-quotes") {

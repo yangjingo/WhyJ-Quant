@@ -329,6 +329,15 @@ Runtime 的 `collectTspQuoteMonitorAlerts` 使用同一采集入口取得一轮�
 
 支持最新价 `price` 或 `close`、昨收 `prev_close`、涨跌额 `change_amount`、涨跌比例 `change_pct`、累计量 `volume` 和累计额 `amount`。只有独立确认价格为未复权人民币行情时，才提供 `priceBasis: "caller-confirmed-unadjusted-CNY"`。已确认的量额口径由 `volumeUnit` 和 `amountUnit` 声明，条件用手和人民币元比较。未确认口径、不可用的零价格、未返回或超过时效的报价不会触发相应数值条件。归档仍保留原始数值及其未知单位标记，判断结果保留实际报价时间、收包时间和可复现事件 ID。[快照告警](https://github.com/yangjingo/WhyJ-Quant/issues/679)
 
+用下列命令采集一轮或离线回放。两个清单均包含 `version: 1`、`roster`、`maxAgeMs` 和 `rule`，规则结构与日线告警相同。条件可比较上述快照字段，并填写匹配的数值单位。按已确认的口径填写 `priceBasis`、`volumeUnit` 或 `amountUnit`。
+
+```powershell
+whyj --json observation collect-quote-monitor-alerts --manifest ./quote-alert-collect.json
+whyj --json observation replay-quote-monitor-alerts --manifest ./quote-alert-replay.json
+```
+
+采集清单填上海当天的 `tradeDate`，可选的 `priorCaptureRevisions` 按时间顺序提供前序归档。采集返回新归档的 `data.capture.ref.revision`。离线清单用 `captureRevisions` 按顺序放入前序版本和本轮版本，沿用同一规则及口径设置。离线回放无需访问供应商。清单无效返回 `invalid_arguments`，采集失败返回 `observation_collection_failed`，回放归档不可用返回 `observation_archive_unavailable`。[CLI 接入](https://github.com/yangjingo/WhyJ-Quant/issues/681)
+
 `replayTspSectorMonitor` 固定同一天的板块目录、成分归档和按采集时间排序的股票快照重算板块分钟变化。板块涨跌幅取可用成员的 `lastPrice / previousClose - 1` 平均值，覆盖率分母取完整归档成分。允许快照未返回部分成分。请求范围与板块成分的交集在各轮保持一致。窗口按快照收包时间比较，原始报价时段和成分采集时点随证据返回，成分在历史具体时点的可得性仍未知。指数分支复用已结束交易日的同源分钟归档和前一交易日收盘价，时间轴保留供应商原始时间戳标签。
 
 用 `whyj --json observation replay-sector-monitor --manifest monitor.json` 回放。两种清单均包含 `"version": 1`。行业或概念用 `"kind": "sector"`，填写 `catalogRevision`、`memberRevision` 和按时间排序的 `quoteRevisions`。指数用 `"kind": "index"` 与 `minuteRevision`，可选 `name` 和 `previousClose`。后者包含 `dailyRevision` 及 `calendar`（`revision`、`previousTradeDate`、`tradeDate`）。两种清单均可选 `rule`，包含 `trigger`（`change_pct` 或 `momentum`）、`direction`（`up` 或 `down`）、小数比例 `thresholdFraction` 和毫秒 `cooldownMs`。分钟异动还需给出 `windowMinutes`（1、3、5、10 或 15）。清单无效返回 `invalid_arguments`，引用的归档缺失或不匹配返回 `observation_archive_unavailable`。
