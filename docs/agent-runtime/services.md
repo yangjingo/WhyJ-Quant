@@ -655,6 +655,10 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 `whyj --json observation replay-strategy-guardian-history --manifest history.json` 读取一个策略的固定检查历史。清单使用 `schemaVersion: 1`、`strategyId` 和按归档追加顺序排列的 `checks: [{ verdict?, error? }]`。无判定时省略 `verdict` 或填 `null`。响应给出 WhyJ 公式版本、检查总数、尾部连续无错误观察次数和达到两次时的告警。命令只读取本地清单，格式错误返回 `invalid_arguments`。
 
+`whyj --json observation replay-strategy-monitor-alerts --manifest strategy-results.json` 从固定策略结果回放买卖信号和股票池、ETF 池变动。清单使用 `schemaVersion: 1`、`rule` 和按时间升序排列的 `captures`。规则填写 `id`、`revision`、`strategyId`、`strategyRevision`、`assetType`（`stock` 或 `etf`）、`eventTypes` 和毫秒 `cooldownMs`，也可以填写包含边界值的 `scoreMin` 与 `scoreMax`。事件类型可选 `buy_signal`、`sell_signal`、`pool_entry` 和 `pool_exit`。
+
+每条采样填写 `revision`、Unix 毫秒 `evaluatedAt`、对应上海日期 `tradeDate` 和 `status`。`completed` 还需要 `rows: [{ symbol, score }]`、`buySignals: [{ symbol, signals }]` 和 `sellSignals: [{ symbol, signals }]`，没有结果时传空数组，缺失分数用 `null`。`unavailable` 只填写身份和日期字段，沿用上一轮已完成状态。首个 `completed` 在输出中标为 `baseline`。输出保留每轮的结果、规则与策略版本、告警类型和批次成员。输入不符时返回 `invalid_arguments`。 [策略告警计算](../quant-harness/tsp-dashboard-audit.md#alert-inputs-and-delivery)
+
 在因子检验清单中增加可选的 `marketEnvironment` 对象，即可启用前一交易日的市场状态分层。对象沿用 `replay-market-environment` 的 `sessions`、`marketRevisions`、`limitRevisions`、`priceHistory` 和 `benchmark` 格式，也可以提供 `riskWarningRevisions`。其日历须连续包含正式的因子检验区间和已知前驱。`phaseMode` 可省略或填 `causal`。`data.information.marketRegime` 返回分层统计及每个使用日期的前驱、状态和分数。
 
 ### 回测交易稳健性

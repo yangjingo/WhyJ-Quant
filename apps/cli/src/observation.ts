@@ -5,13 +5,14 @@ import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from ".
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
-  parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, summarizeTspStrategyGuardianHistory, tspMinuteIndex,
+  parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
+  summarizeTspStrategyGuardianHistory, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
-  TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, type TspScreenerScoreInput,
+  TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_MONITOR_EVENT_TYPES, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
-  type TspStrategyGuardianThresholds,
+  type TspStrategyGuardianThresholds, type TspStrategyMonitorCapture, type TspStrategyMonitorInput, type TspStrategyMonitorSignal,
   type TspMonitorCondition, type TspPaperLedgerEntry, type TspPaperLedgerInput, type TspPaperStatisticsInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
@@ -879,6 +880,52 @@ function parseGuardianHistory(value: unknown): TspStrategyGuardianHistoryInput {
   }) };
 }
 
+function parseStrategyMonitorSignals(value: unknown): TspStrategyMonitorSignal[] {
+  if (!Array.isArray(value)) throw invalid();
+  return value.map((entry: unknown) => {
+    const { symbol, signals } = observationManifestObject(entry, ["symbol", "signals"]);
+    if (typeof symbol !== "string" || !Array.isArray(signals) || signals.some(id => typeof id !== "string")) throw invalid();
+    return { symbol, signals };
+  });
+}
+
+function parseStrategyMonitorCapture(value: unknown): TspStrategyMonitorCapture {
+  const { revision, evaluatedAt, tradeDate, status, rows, buySignals, sellSignals } = observationManifestObject(value,
+    ["revision", "evaluatedAt", "tradeDate", "status", "rows", "buySignals", "sellSignals"]);
+  if (typeof revision !== "string" || typeof evaluatedAt !== "number" || typeof tradeDate !== "string") throw invalid();
+  if (status === "unavailable" && rows === undefined && buySignals === undefined && sellSignals === undefined) {
+    return { revision, evaluatedAt, tradeDate, status };
+  }
+  if (status !== "completed" || !Array.isArray(rows)) throw invalid();
+  return {
+    revision, evaluatedAt, tradeDate, status,
+    rows: rows.map((entry: unknown) => {
+      const { symbol, score } = observationManifestObject(entry, ["symbol", "score"]);
+      if (typeof symbol !== "string" || (score !== null && typeof score !== "number")) throw invalid();
+      return { symbol, score };
+    }),
+    buySignals: parseStrategyMonitorSignals(buySignals),
+    sellSignals: parseStrategyMonitorSignals(sellSignals),
+  };
+}
+
+function parseStrategyMonitorManifest(value: unknown): TspStrategyMonitorInput {
+  const { schemaVersion, rule, captures } = observationManifestObject(value, ["schemaVersion", "rule", "captures"]);
+  const { id, revision, strategyId, strategyRevision, assetType, eventTypes: rawEvents, cooldownMs, scoreMin, scoreMax } =
+    observationManifestObject(rule, ["id", "revision", "strategyId", "strategyRevision", "assetType", "eventTypes", "cooldownMs", "scoreMin", "scoreMax"]);
+  if (schemaVersion !== 1 || typeof id !== "string" || typeof revision !== "string" || typeof strategyId !== "string" ||
+    typeof strategyRevision !== "string" || (assetType !== "stock" && assetType !== "etf") || typeof cooldownMs !== "number" ||
+    !Array.isArray(rawEvents) || !Array.isArray(captures) || (scoreMin !== undefined && typeof scoreMin !== "number") ||
+    (scoreMax !== undefined && typeof scoreMax !== "number")) throw invalid();
+  const eventTypes = rawEvents.map((value: unknown) => {
+    const kind = TSP_STRATEGY_MONITOR_EVENT_TYPES.find(candidate => candidate === value);
+    if (!kind) throw invalid();
+    return kind;
+  });
+  return { rule: { id, revision, strategyId, strategyRevision, assetType, eventTypes, cooldownMs, scoreMin, scoreMax },
+    captures: captures.map(parseStrategyMonitorCapture) };
+}
+
 function parseGuardianCheck(value: unknown): TspStrategyGuardianCheckInput {
   const { strategyId, objective: rawObjective, baselineScore, baselineTradeCount, segments, ...scope } = observationManifestObject(value,
     [...guardianPlanKeys, "strategyId", "objective", "baselineScore", "baselineTradeCount", "segments"]);
@@ -1737,6 +1784,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const input = parseGuardianHistory(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return summarizeTspStrategyGuardianHistory(input); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-strategy-monitor-alerts") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseStrategyMonitorManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return replayTspStrategyMonitor(input); }
     catch { throw invalid(); }
   }
   if (action === "plan-strategy-guardian" || action === "replay-strategy-guardian") {
