@@ -5,12 +5,13 @@ import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from ".
 import {
   computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
-  parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, tspMinuteIndex,
+  parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, summarizeTspStrategyGuardianHistory, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, type TspScreenerScoreInput,
   type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
-  type TspStrategyGuardianCheckInput, type TspStrategyGuardianPlanInput, type TspStrategyGuardianThresholds,
+  type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
+  type TspStrategyGuardianThresholds,
   type TspMonitorCondition, type TspPaperLedgerEntry, type TspPaperLedgerInput, type TspPaperStatisticsInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
@@ -867,6 +868,17 @@ function parseGuardianPlan({ schemaVersion, dataAsOf, sessions, thresholds: rawT
   return { dataAsOf, sessions, thresholds };
 }
 
+function parseGuardianHistory(value: unknown): TspStrategyGuardianHistoryInput {
+  const { schemaVersion, strategyId, checks } = observationManifestObject(value, ["schemaVersion", "strategyId", "checks"]);
+  if (schemaVersion !== 1 || typeof strategyId !== "string" || !Array.isArray(checks)) throw invalid();
+  return { strategyId, checks: checks.map((entry: unknown) => {
+    const { verdict, error } = observationManifestObject(entry, ["verdict", "error"]);
+    if ((verdict != null && verdict !== "healthy" && verdict !== "watch" && verdict !== "retired") ||
+      (error != null && typeof error !== "string")) throw invalid();
+    return { verdict: verdict ?? null, error };
+  }) };
+}
+
 function parseGuardianCheck(value: unknown): TspStrategyGuardianCheckInput {
   const { strategyId, objective: rawObjective, baselineScore, baselineTradeCount, segments, ...scope } = observationManifestObject(value,
     [...guardianPlanKeys, "strategyId", "objective", "baselineScore", "baselineTradeCount", "segments"]);
@@ -1718,6 +1730,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const request = parseMiningCandidateManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspMiningCandidateReport(request); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-strategy-guardian-history") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseGuardianHistory(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return summarizeTspStrategyGuardianHistory(input); }
     catch { throw invalid(); }
   }
   if (action === "plan-strategy-guardian" || action === "replay-strategy-guardian") {
