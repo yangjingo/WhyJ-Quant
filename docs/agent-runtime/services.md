@@ -325,6 +325,10 @@ Runtime 可接受 `depth: { ref, asOf, maxAgeMs }`。盘口归档的交易日必
 
 用 `whyj --json observation collect-quote-poll --date YYYY-MM-DD --symbols-file symbols.json` 采集一轮，保存回执的 `data.ref.revision`。用 `whyj --json observation replay-quote-poll-delta --manifest polls.json` 离线比较指定的两轮。清单包含 `"version": 1`、`currentRevision` 和可选的 `previousRevision`。已确认单位时可添加 `volumeUnit`（`share` 或 `hand`）和 `amountUnit`（`CNY` 或 `CNY-thousand`）。可选的 `rule` 包含 `metric`（`volume` 或 `amount`）和大于等于 1 的 `threshold`，分别用手和人民币元比较。输出保留原始增量和换算结果。参数无效返回 `invalid_arguments`，归档缺失或两轮范围不匹配返回 `observation_archive_unavailable`。
 
+Runtime 的 `collectTspQuoteMonitorAlerts` 使用同一采集入口取得一轮当日股票快照，以该轮采集结束时间评估规则。调用方提供固定 `roster`、`maxAgeMs`、规则版本及可选的前序快照引用 `priorCaptureRefs`。前序快照用于重建本轮判断所需的冷却状态，返回的 `evaluation` 仅包含本轮判断。`replayTspQuoteMonitorAlerts` 接受相同规则和口径，用 `captureRefs` 离线重算全部指定时间点。各轮的请求标的必须一致，且采集时段按时间顺序排列并保持不重叠。
+
+支持最新价 `price` 或 `close`、昨收 `prev_close`、涨跌额 `change_amount`、涨跌比例 `change_pct`、累计量 `volume` 和累计额 `amount`。只有独立确认价格为未复权人民币行情时，才提供 `priceBasis: "caller-confirmed-unadjusted-CNY"`。已确认的量额口径由 `volumeUnit` 和 `amountUnit` 声明，条件用手和人民币元比较。未确认口径、不可用的零价格、未返回或超过时效的报价不会触发相应数值条件。归档仍保留原始数值及其未知单位标记，判断结果保留实际报价时间、收包时间和可复现事件 ID。[快照告警](https://github.com/yangjingo/WhyJ-Quant/issues/679)
+
 `replayTspSectorMonitor` 固定同一天的板块目录、成分归档和按采集时间排序的股票快照重算板块分钟变化。板块涨跌幅取可用成员的 `lastPrice / previousClose - 1` 平均值，覆盖率分母取完整归档成分。允许快照未返回部分成分。请求范围与板块成分的交集在各轮保持一致。窗口按快照收包时间比较，原始报价时段和成分采集时点随证据返回，成分在历史具体时点的可得性仍未知。指数分支复用已结束交易日的同源分钟归档和前一交易日收盘价，时间轴保留供应商原始时间戳标签。
 
 用 `whyj --json observation replay-sector-monitor --manifest monitor.json` 回放。两种清单均包含 `"version": 1`。行业或概念用 `"kind": "sector"`，填写 `catalogRevision`、`memberRevision` 和按时间排序的 `quoteRevisions`。指数用 `"kind": "index"` 与 `minuteRevision`，可选 `name` 和 `previousClose`。后者包含 `dailyRevision` 及 `calendar`（`revision`、`previousTradeDate`、`tradeDate`）。两种清单均可选 `rule`，包含 `trigger`（`change_pct` 或 `momentum`）、`direction`（`up` 或 `down`）、小数比例 `thresholdFraction` 和毫秒 `cooldownMs`。分钟异动还需给出 `windowMinutes`（1、3、5、10 或 15）。清单无效返回 `invalid_arguments`，引用的归档缺失或不匹配返回 `observation_archive_unavailable`。
