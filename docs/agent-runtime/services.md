@@ -392,7 +392,29 @@ Runtime 的 `replayTspIntradayMonitorAlerts` 接受固定规则、A 股标的范
 
 `replayTspIntradayMonitorAlerts` 的 TickFlow 历史输入使用同一份 `refs` 与 `interpretation`。可提供 `previousClose`，绑定同标的交易所昨收归档及 `caller-confirmed-same-basis`，逐日取精确日期的昨收。缺少该日期的证据时，相应比例和穿越保持为空。分钟指标和告警由 WhyJ 计算，来源与口径随结果返回。[TickFlow 分时接入](https://github.com/yangjingo/WhyJ-Quant/issues/685)
 
-用 `whyj --json observation replay-intraday-monitor-alerts --manifest ./intraday-alert.json` 回放。`minuteRevision` 填 `collect-minutes` 返回的归档版本。自定义信号在 `customSignals` 中声明，并用 `csgi_` 加规则 ID 作为监控条件。
+选定 TickFlow 后，可用以下命令采集一个已结束的上海交易日，再离线回放。多天行情可分别采集，按交易日升序将 `data.ref.revision` 放入清单的 `minuteRevisions`。
+
+```powershell
+whyj --json observation collect-tickflow-stock-minutes --symbol 600000.SH --date 2026-01-05
+whyj --json observation replay-tickflow-stock-minutes --manifest ./tickflow-minute.json
+```
+
+```json
+{
+  "version": 1,
+  "minuteRevisions": ["MINUTE_SHA256"],
+  "interpretation": {
+    "timestampLabel": "minute-end",
+    "priceBasis": "caller-confirmed-unadjusted-CNY",
+    "volumeUnit": "share",
+    "amountUnit": "CNY"
+  }
+}
+```
+
+示例中的标签和单位是调用方声明。只有得到相应证据时才填写；未知量额可省略。需要昨收时可加 `previousClose`，填写 `revision` 和 `priceBasis: "caller-confirmed-same-basis"`。无效清单返回 `invalid_arguments`，采集失败返回 `observation_collection_failed`，不可读或范围不匹配的归档返回 `observation_archive_unavailable`。[CLI 接入](https://github.com/yangjingo/WhyJ-Quant/issues/687)
+
+用 `whyj --json observation replay-intraday-monitor-alerts --manifest ./intraday-alert.json` 回放。Tushare 历史项用 `minuteRevision` 填写 `collect-minutes` 返回的版本。TickFlow 历史项填写 `symbol`、`minuteRevisions`、`interpretation` 及可选的 `previousClose`。自定义信号在 `customSignals` 中声明，并用 `csgi_` 加规则 ID 作为监控条件。
 
 ```json
 {
