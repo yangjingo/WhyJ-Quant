@@ -1,7 +1,7 @@
 import { isDailyDate } from "../../market/bars.ts";
 import { isDatedEtfSymbol } from "../../market/symbols.ts";
-import { computeTspIntraday, computeTspListIntraday, tspMinuteIndex, TSP_INDICATOR_REVISION, TSP_INTRADAY_FORMULA_VERSION, type TspCompletedMinuteBar } from "../../quant/index.ts";
-import { TICKFLOW_SYMBOL_BATCH_SIZE, type CurrentStockMinuteFrame, type SourceRequestOptions } from "../../source/index.ts";
+import { computeTspIntraday, computeTspListIntraday, projectTspListQuoteTail, tspMinuteIndex, TSP_INDICATOR_REVISION, TSP_INTRADAY_FORMULA_VERSION, type TspCompletedMinuteBar } from "../../quant/index.ts";
+import { TICKFLOW_SYMBOL_BATCH_SIZE, type CurrentStockMinuteFrame, type Quote, type SourceRequestOptions } from "../../source/index.ts";
 import { archiveDatedStockMinutes, loadDatedEtfDailyArchive, loadDatedStockMinuteArchive, loadDailyTradingLimitArchive,
   type DatedEtfDailyArchiveRef, type DatedStockMinuteArchiveRef, type StoredDatedStockMinuteBatch } from "../../storage/index.ts";
 import type { IntradayReplayOptions } from "./intraday-replay.ts";
@@ -20,10 +20,16 @@ export interface TickFlowStockMinuteReplayRequest {
   previousClose?: IntradayReplayOptions["previousClose"];
 }
 
+interface CurrentTspQuoteTailOptions {
+  maxAgeMs: number;
+  priceBasis: "caller-confirmed-same-basis";
+}
+
 export interface CurrentTspListIntradayRequest {
   tradeDate: string;
   stocks: readonly { symbol: string; previousClose?: IntradayReplayOptions["previousClose"] }[];
   interpretation?: Pick<TickFlowStockMinuteInterpretation, "timestampLabel" | "priceBasis">;
+  quoteTail?: CurrentTspQuoteTailOptions;
 }
 
 type EtfPreviousClose = {
@@ -36,6 +42,7 @@ export interface CurrentTspEtfIntradayRequest {
   tradeDate: string;
   etfs: readonly { symbol: string; previousClose?: EtfPreviousClose }[];
   interpretation?: CurrentTspListIntradayRequest["interpretation"];
+  quoteTail?: CurrentTspQuoteTailOptions;
 }
 
 export async function collectDatedTickFlowStockMinutes(
@@ -95,25 +102,67 @@ function currentListInterpretation(interpretation: CurrentTspListIntradayRequest
   return { timestampLabel, priceBasis };
 }
 
+function validateQuoteTail(tail: CurrentTspQuoteTailOptions | undefined, choice: ReturnType<typeof currentListInterpretation>) {
+  if (tail !== undefined && (!tail || !choice || tail.priceBasis !== "caller-confirmed-same-basis" ||
+    !Number.isSafeInteger(tail.maxAgeMs) || tail.maxAgeMs < 0)) throw new Error("Current quote tail requires a confirmed price basis and valid quote age");
+}
+
+async function readCurrentMinuteQuoteTail(
+  selected: Awaited<ReturnType<typeof createConfiguredMarketDataSource>>, symbols: string[], frameObservedAt: string,
+  tail: CurrentTspQuoteTailOptions | undefined, control: SourceRequestOptions,
+) {
+  if (!tail) return undefined;
+  const { maxAgeMs, priceBasis } = tail;
+  const frameTime = Date.parse(frameObservedAt);
+  try {
+    const result = await selected.fetchQuotes({ symbols }, control);
+    control.signal?.throwIfAborted();
+    const asOf = Date.now();
+    const scope = new Set(symbols);
+    const bySymbol = new Map(result.data.map(row => [row.symbol, row]));
+    if (asOf < frameTime || result.source !== "tickflow" || result.endpoint !== "/v1/quotes" || bySymbol.size !== result.data.length ||
+      result.data.some(row => !scope.has(row.symbol)) ||
+      result.missingSymbols.some(symbol => !scope.has(symbol))) throw new Error("Current quote does not match its scope");
+    return { frameObservedAt: frameTime, asOf, maxAgeMs, bySymbol,
+      receipt: { ...result, status: result.data.length ? "observed" as const : "empty" as const, maxAgeMs, priceBasis, asOf } };
+  } catch {
+    control.signal?.throwIfAborted();
+    const asOf = Math.max(Date.now(), frameTime);
+    return { frameObservedAt: frameTime, asOf, maxAgeMs, bySymbol: new Map<string, Quote>(),
+      receipt: { status: "unavailable" as const, maxAgeMs, priceBasis, asOf } };
+  }
+}
+
 function currentListMinuteChart(
-  { status, rows }: CurrentStockMinuteFrame, tradeDate: string, choice: ReturnType<typeof currentListInterpretation>, previousClose: number | null,
+  { symbol, status, rows }: CurrentStockMinuteFrame, tradeDate: string,
+  choice: ReturnType<typeof currentListInterpretation>, previousClose: number | null,
+  tail: Awaited<ReturnType<typeof readCurrentMinuteQuoteTail>>,
 ) {
   const excluded: StockMinuteExclusion[] = [];
   if (!choice || status !== "observed") return { metrics: null, excluded };
   const shift = choice.timestampLabel === "minute-end" ? 60_000 : 0;
-  const bars: (Pick<TspCompletedMinuteBar, "tradingDate" | "minute" | "open" | "close"> & { sourceTimestamp: number })[] = [];
-  for (const { sourceTimestamp, open, close } of rows) {
+  const bars: (TspCompletedMinuteBar & { sourceTimestamp: number })[] = [];
+  for (const { sourceTimestamp, open, high, low, close } of rows) {
     const label = stockMinuteLabel(sourceTimestamp, shift);
     if ("reason" in label) {
       excluded.push({ tradeDate, sourceTimestamp, reason: label.reason });
       continue;
     }
-    bars.push({ tradingDate: tradeDate, minute: label.minute, sourceTimestamp, open, close });
+    bars.push({ tradingDate: tradeDate, minute: label.minute, sourceTimestamp, open, high, low, close, volumeShares: null, amountCny: null });
   }
-  const chart = computeTspListIntraday({ tradeDate, bars, previousClose });
+  const quote = tail?.bySymbol.get(symbol);
+  const overlay = tail && projectTspListQuoteTail({ symbol, tradeDate, bars,
+    frameObservedAt: tail.frameObservedAt, asOf: tail.asOf, maxQuoteAgeMs: tail.maxAgeMs,
+    quote: quote ? { symbol: quote.symbol, timestamp: quote.timestamp, price: quote.lastPrice } : null });
+  const chart = computeTspListIntraday({ tradeDate, bars: overlay?.bars ?? bars, previousClose });
+  const applied = overlay?.applied;
   const metrics = { ...chart, finality: "provisional" as const,
-    points: chart.points.map((point, index) => ({ ...point, sourceTimestamp: bars[index]!.sourceTimestamp })) };
-  return { metrics, excluded };
+    points: chart.points.map((point, index) => applied && index === chart.points.length - 1
+      ? { ...point, sourceTimestamp: applied.quoteTimestamp, priceSource: "quote" as const }
+      : { ...point, sourceTimestamp: bars[index]!.sourceTimestamp }) };
+  if (!overlay) return { metrics, excluded };
+  const { bars: _bars, ...quoteTail } = overlay;
+  return { metrics, excluded, quoteTail };
 }
 
 /** The caller selects a display interpretation for still-provisional chart points. */
@@ -121,11 +170,12 @@ export async function previewCurrentTspListIntraday(request: CurrentTspListIntra
   const control = { ...options };
   const { signal } = control;
   signal?.throwIfAborted();
-  const { tradeDate, stocks, interpretation } = structuredClone(request);
+  const { tradeDate, stocks, interpretation, quoteTail } = structuredClone(request);
   if (tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(stocks) || !stocks.length || stocks.length > TICKFLOW_SYMBOL_BATCH_SIZE) {
     throw new Error("Invalid current stock-minute preview scope");
   }
   const choice = currentListInterpretation(interpretation);
+  validateQuoteTail(quoteTail, choice);
   const targets = Array.from(stocks, stock => ({ ...stock, symbol: stock.symbol.trim().toUpperCase() }));
   const symbols = targets.map(stock => stock.symbol);
   if (new Set(symbols).size !== symbols.length) throw new Error("Duplicate current stock minute symbol");
@@ -149,12 +199,14 @@ export async function previewCurrentTspListIntraday(request: CurrentTspListIntra
     data.tradeDate !== tradeDate || data.finality !== "provisional" || data.frames.length !== symbols.length ||
     data.frames.some(({ symbol }, index) => symbol !== symbols[index])) throw new Error("Current stock-minute response does not match its scope");
   signal?.throwIfAborted();
+  const tails = await readCurrentMinuteQuoteTail(selected, symbols, observedAt, quoteTail, control);
   const rows = data.frames.map(frame => {
     const previousClose = closes.get(frame.symbol) ?? null;
     return { symbol: frame.symbol, status: frame.status, previousClose,
-      ...currentListMinuteChart(frame, tradeDate, choice, previousClose?.rows[0]?.price ?? null) };
+      ...currentListMinuteChart(frame, tradeDate, choice, previousClose?.rows[0]?.price ?? null, tails) };
   });
-  return { input: { minutes: { ...data, source, endpoint, market, observedAt, coverage }, interpretation: choice }, rows };
+  return { input: { minutes: { ...data, source, endpoint, market, observedAt, coverage }, interpretation: choice,
+    ...(tails && { quoteTail: tails.receipt }) }, rows };
 }
 
 async function readEtfMinutePreviousClose(symbol: string, tradeDate: string, input: EtfPreviousClose, signal?: AbortSignal) {
@@ -178,11 +230,12 @@ export async function previewCurrentTspEtfIntraday(request: CurrentTspEtfIntrada
   const control = { ...options };
   const { signal } = control;
   signal?.throwIfAborted();
-  const { tradeDate, etfs, interpretation } = structuredClone(request);
+  const { tradeDate, etfs, interpretation, quoteTail } = structuredClone(request);
   if (tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(etfs) || !etfs.length || etfs.length > TICKFLOW_SYMBOL_BATCH_SIZE) {
     throw new Error("Invalid current ETF-minute preview scope");
   }
   const choice = currentListInterpretation(interpretation);
+  validateQuoteTail(quoteTail, choice);
   const targets = etfs.map(item => ({ ...item, symbol: typeof item?.symbol === "string" ? item.symbol.trim().toUpperCase() : "" }));
   const symbols = targets.map(({ symbol }) => symbol);
   if (symbols.some(symbol => !isDatedEtfSymbol(symbol)) || new Set(symbols).size !== symbols.length) {
@@ -203,12 +256,14 @@ export async function previewCurrentTspEtfIntraday(request: CurrentTspEtfIntrada
     data.tradeDate !== tradeDate || data.finality !== "provisional" || data.frames.length !== symbols.length ||
     data.frames.some(({ symbol }, index) => symbol !== symbols[index])) throw new Error("Current ETF-minute response does not match its scope");
   signal?.throwIfAborted();
+  const tails = await readCurrentMinuteQuoteTail(selected, symbols, observedAt, quoteTail, control);
   const rows = data.frames.map(frame => {
     const previousClose = closes.get(frame.symbol) ?? null;
     return { symbol: frame.symbol, status: frame.status, previousClose,
-      ...currentListMinuteChart(frame, tradeDate, choice, previousClose?.row?.close ?? null) };
+      ...currentListMinuteChart(frame, tradeDate, choice, previousClose?.row?.close ?? null, tails) };
   });
-  return { input: { minutes: { ...data, source, endpoint, market, observedAt, coverage }, interpretation: choice }, rows };
+  return { input: { minutes: { ...data, source, endpoint, market, observedAt, coverage }, interpretation: choice,
+    ...(tails && { quoteTail: tails.receipt }) }, rows };
 }
 
 export async function resolveTickFlowStockMinutes(request: TickFlowStockMinuteReplayRequest, signal?: AbortSignal) {

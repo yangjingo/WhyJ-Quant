@@ -884,6 +884,8 @@ Runtime 的 `previewCurrentTspEtfIntraday` 对沪深 ETF 支持同一套临时�
 
 CLI 使用 `whyj --json observation read-current-etf-minutes --manifest PATH`，清单包含 `version: 1`、上海当天的 `tradeDate` 和 1 至 100 只互异 ETF 的 `etfs: [{ "symbol": "510300.SH" }]`。配置 `interpretation` 后可查看 WHYJ 临时指标。对应 ETF 可提供 `previousClose: { dailyRevision, calendar, priceBasis }`，其中 `calendar` 的日期与 Runtime 契约一致，`dailyRevision` 引用同一 TickFlow ETF 的日线归档。输出保留原始帧和可用的逐标的指标。
 
+股票和 ETF 的 Runtime 分时预览可通过 `quoteTail: { maxAgeMs, priceBasis: "caller-confirmed-same-basis" }` 显式追加一次同供应商的 TickFlow 报价读取。需同时声明分钟标签和价格口径，`maxAgeMs` 为非负安全整数。源分钟和报价分别保留在 `input.minutes` 和 `input.quoteTail`。WHYJ 只使用时间戳晚于分钟帧接收时刻、同标的、同一连续交易时段且符合新鲜度要求的报价。应用报价的点带有 `priceSource: "quote"`，逐标的 `quoteTail` 记录应用状态。报价缺失、过期或接口不可用时保留原分时曲线。行情原生量额保留各自的单位，新增分钟的量额未知。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
