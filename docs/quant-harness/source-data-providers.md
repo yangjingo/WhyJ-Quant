@@ -30,6 +30,10 @@ Source 可通过 `getMarketDataCapabilities` 查询当前选定供应商在统�
 
 `fetchDatedDragonTigerBoard(tradeDate, boardKind)` 用同一扶摇凭证读取指定交易日的全部榜、机构榜或游资榜。个股、机构和游资记录保留原始顺序和上榜区间，金额单位为元，涨跌幅和占比为小数。缺失交易所代码时保留原始 `ticker`，标的身份仍为空；同时保留上游计数、时间戳及实际采集时刻。响应交易日和榜单种类必须与请求一致。供应商时间戳单独记录，覆盖及发布时间未知。 [扶摇龙虎榜接口](https://fuyao.aicubes.cn/docs/api-reference/dragon-tiger-data/)
 
+`fetchTspExtensionPage` 使用单独的 `WHYJ_QUANT_TSP_BASE_URL` 和 `WHYJ_QUANT_TSP_READ_EXT_TOKEN` 读取已配置扩展表的投影。请求指定表 ID、字段、偏移量、页大小及当前快照或一个时间序列分区。回执包含实际来源、字段原生类型、页和配置架构的内容修订、源端总行数和接收时刻。快照的北京时间同步字段与时间序列分区分别保存。原始发布者、数值单位和源端发布时间保留为未知。
+
+单页包含全部报告行且没有省略投影字段时标记该投影完整。零值和 null 原样保存，省略字段在回执中单列。不同页的本地修订只标识各自内容，无法证明它们来自同一上游版本。 [TSP 扩展行读取](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/ext_data.py#L625)
+
 原生适配器每次调用均请求供应商，共享取数层当前仍有缓存命中与失败回退策略。[#261](https://github.com/yangjingo/WhyJ-Quant/issues/261) 单独跟踪取消普通日线查询的缓存替代，同时保留报告使用的不可变研究证据；该 issue 不等于策略已经变更。
 
 ## 回退提高可用性，也可能改变问题
