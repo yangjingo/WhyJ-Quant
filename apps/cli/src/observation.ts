@@ -55,8 +55,9 @@ import { collectRiskWarningObservations } from "../../../src/runtime/data/risk-w
 import { collectSectorObservations, type SectorCollectionRequest } from "../../../src/runtime/data/sector-collection.ts";
 import { replayTspSectorMonitor, type SectorMonitorReplayRequest } from "../../../src/runtime/data/sector-monitor-replay.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
-import { previewCurrentTspEtfIntraday, previewCurrentTspListIntraday, type CurrentTspEtfIntradayRequest, type CurrentTspListIntradayRequest } from "../../../src/runtime/data/tickflow-stock-minute-replay.ts";
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
+import { collectDatedTickFlowStockMinutes, previewCurrentTspEtfIntraday, previewCurrentTspListIntraday, replayTspTickFlowStockMinutes,
+  type CurrentTspEtfIntradayRequest, type CurrentTspListIntradayRequest, type TickFlowStockMinuteReplayRequest } from "../../../src/runtime/data/tickflow-stock-minute-replay.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes, type TspListRowsRequest } from "../../../src/runtime/data/list-rows.ts";
@@ -233,6 +234,16 @@ function parseDailyMonitorAlertManifest(value: unknown): DailyMonitorAlertReplay
   return { rule: parseMonitorRule(rule, rosterSet, TSP_DAILY_SIGNAL_FIELDS, TSP_DAILY_MONITOR_UNITS), adjustment, sessions, roster, histories };
 }
 
+function parseTickFlowStockMinuteReplay(minuteRevisions: unknown, value: unknown, previousClose: unknown): TickFlowStockMinuteReplayRequest {
+  const { timestampLabel, priceBasis, volumeUnit, amountUnit } = observationManifestObject(value, ["timestampLabel", "priceBasis", "volumeUnit", "amountUnit"]);
+  const revisions = validateRevisions(minuteRevisions);
+  if (!revisions.length || (timestampLabel !== "minute-start" && timestampLabel !== "minute-end") ||
+    priceBasis !== "caller-confirmed-unadjusted-CNY" || (volumeUnit !== undefined && volumeUnit !== "share" && volumeUnit !== "hand") ||
+    (amountUnit !== undefined && amountUnit !== "CNY" && amountUnit !== "CNY-thousand")) throw invalid();
+  return { refs: revisions.map(revision => ({ version: 1, kind: "dated-stock-minute", revision })),
+    interpretation: { timestampLabel, priceBasis, volumeUnit, amountUnit }, previousClose: parseIntradayPreviousClose(previousClose) };
+}
+
 function parseIntradayMonitorAlertManifest(value: unknown): IntradayMonitorAlertReplayRequest {
   const { version, rule, slots: rawSlots, roster: rawRoster, histories: rawHistories, customSignals: rawCustomSignals = [] } =
     observationManifestObject(value, ["version", "rule", "slots", "roster", "histories", "customSignals"]);
@@ -249,8 +260,14 @@ function parseIntradayMonitorAlertManifest(value: unknown): IntradayMonitorAlert
     return { tradeDate, minute };
   });
   const histories = rawHistories.map((entry: unknown): IntradayMonitorAlertReplayRequest["histories"][number] => {
-    const { symbol, minuteRevision, previousClose } = observationManifestObject(entry, ["symbol", "minuteRevision", "previousClose"]);
-    if (typeof symbol !== "string" || typeof minuteRevision !== "string" || !revisionPattern.test(minuteRevision)) throw invalid();
+    const { symbol, minuteRevision, minuteRevisions, interpretation, previousClose } =
+      observationManifestObject(entry, ["symbol", "minuteRevision", "minuteRevisions", "interpretation", "previousClose"]);
+    if (typeof symbol !== "string") throw invalid();
+    if (minuteRevisions !== undefined) {
+      if (minuteRevision !== undefined) throw invalid();
+      return { symbol, ...parseTickFlowStockMinuteReplay(minuteRevisions, interpretation, previousClose) };
+    }
+    if (interpretation !== undefined || typeof minuteRevision !== "string" || !revisionPattern.test(minuteRevision)) throw invalid();
     return { symbol, ref: { version: 1, kind: "historical-minute-bars", revision: minuteRevision }, previousClose: parseIntradayPreviousClose(previousClose) };
   });
   validateMonitorHistories(histories, rosterSet);
@@ -1005,6 +1022,29 @@ function parseSectorMonitorManifest(value: unknown): SectorMonitorReplayRequest 
 
 export async function runObservationCommand(args: readonly string[], signal?: AbortSignal) {
   const [action, ...options] = args;
+  if (action === "collect-tickflow-stock-minutes") {
+    const fields = parseOptions(options, ["--symbol", "--date"]);
+    const symbol = fields.get("--symbol")?.trim().toUpperCase(), tradeDate = fields.get("--date");
+    if (!symbol || !datedStock.test(symbol) || isAIndexSymbol(symbol) || !tradeDate || !isDailyDate(tradeDate) ||
+      tradeDate < "0001-01-01" || tradeDate >= shanghaiDate.format()) throw invalid();
+    try { return await collectDatedTickFlowStockMinutes({ symbol, tradeDate }, { signal }); }
+    catch {
+      throw Object.assign(new Error("Could not collect the requested TickFlow stock minute observations."), { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-tickflow-stock-minutes") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const { version, minuteRevisions, interpretation, previousClose } = observationManifestObject(
+      await readObservationJsonFile(path, maxObservationManifestBytes, signal), ["version", "minuteRevisions", "interpretation", "previousClose"],
+    );
+    if (version !== 1) throw invalid();
+    const request = parseTickFlowStockMinuteReplay(minuteRevisions, interpretation, previousClose);
+    try { return await replayTspTickFlowStockMinutes(request, signal); }
+    catch {
+      throw Object.assign(new Error("Could not replay the requested TickFlow stock minute archives."), { code: "observation_archive_unavailable" });
+    }
+  }
   if (action === "collect-depth" || action === "collect-quote-poll" || action === "collect-valuation-quotes") {
     const fields = parseOptions(options, ["--date", "--symbols-file"]);
     const tradeDate = fields.get("--date"), path = fields.get("--symbols-file");
