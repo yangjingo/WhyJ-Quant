@@ -58,7 +58,7 @@ function positive(value: number | null): value is number {
   return value !== null && Number.isFinite(value) && value > 0;
 }
 
-function validBar(bar: TspCompletedMinuteBar): boolean {
+export function isTspMinuteBar(bar: TspCompletedMinuteBar): boolean {
   return isDailyDate(bar.tradingDate) && positive(bar.close)
     && [bar.open, bar.high, bar.low].every(value => value === null || positive(value))
     && [bar.volumeShares, bar.amountCny].every(value => value === null || (Number.isFinite(value) && value >= 0))
@@ -110,7 +110,7 @@ export function computeTspIntraday(
     const { tradingDate, minute, close, volumeShares, amountCny } = bar;
     const index = tspMinuteIndex(minute);
     const newDate = tradingDate !== previous?.tradingDate;
-    if (index < 0 || !validBar(bar) || (previous && (tradingDate < previous.tradingDate || (!newDate && index <= previousIndex)))) {
+    if (index < 0 || !isTspMinuteBar(bar) || (previous && (tradingDate < previous.tradingDate || (!newDate && index <= previousIndex)))) {
       throw new Error("Invalid or unordered completed A-share minute bars");
     }
 
