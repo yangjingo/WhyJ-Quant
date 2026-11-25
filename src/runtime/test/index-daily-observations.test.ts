@@ -1,10 +1,10 @@
-import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readSettings, saveSettings } from "../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../types/config.ts";
-import { collectDatedIndexDailyBars, replayDatedIndexDailyBars } from "../data/index-daily-observations.ts";
+import { collectDatedIndexDailyBars, readDatedIndexDailyWithQuote, replayDatedIndexDailyBars } from "../data/index-daily-observations.ts";
 
 const dates = Array.from({ length: 66 }, (_, index) => new Date(Date.UTC(2024, 0, 2 + index)).toISOString().slice(0, 10));
 const close = dates.map((_, index) => 100 + index);
@@ -14,6 +14,7 @@ const fixture = { symbol, timestamp: dates.map(date => Date.parse(date + "T15:00
   open: close, close, high: close.map(value => value + 2), low: close.map(value => value - 2),
   volume: dates.map(() => 0), amount: dates.map(() => null) };
 const empty = { symbol, timestamp: [], open: [], close: [], high: [], low: [], volume: [] };
+const quoteNow = Date.parse("2026-03-11T10:00:00+08:00");
 
 let root: string;
 let previous: string | undefined;
@@ -67,6 +68,94 @@ test("replays the fixed chart with warm-up before the view and raw evidence sepa
     });
     expect(provider).toHaveBeenCalledTimes(2);
   } finally { provider.mockRestore(); }
+});
+
+test("previews the current index candle and its price indicators separately from the fixed chart", async () => {
+  const shanghai = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+  const now = quoteNow;
+  const tradeDate = shanghai.format(now);
+  const priorDates = Array.from({ length: 5 }, (_, offset) => shanghai.format(now - (5 - offset) * 86_400_000));
+  const previousTradeDate = priorDates.at(-1)!;
+  const points = [100, 101, 102, 103, 104];
+  const currentArchive = { symbol, timestamp: priorDates.map(date => Date.parse(date + "T15:00:00+08:00")),
+    open: points, high: points, low: points, close: points, volume: points.map(() => 10) };
+  const raw = { symbol, region: "CN", timestamp: now, last_price: 111, prev_close: 104,
+    open: 110, high: 112, low: 109, volume: 0, amount: null };
+  const provider = spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ data: currentArchive }))
+    .mockResolvedValueOnce(Response.json({ data: [raw] }))
+    .mockResolvedValueOnce(Response.json({ data: [{ ...raw, open: 0, high: 0, low: 0 }] }))
+    .mockResolvedValueOnce(Response.json({ data: [raw] }));
+  try {
+    setSystemTime(now);
+    const { ref } = await collectDatedIndexDailyBars({ symbol, start: priorDates[0]!, end: previousTradeDate });
+    const calendar = { revision: "fixture-sessions", tradeDate, previousTradeDate };
+    const request = { ref, calendar, displayRange: { start: previousTradeDate, end: previousTradeDate } };
+    const fixed = await replayDatedIndexDailyBars(request);
+    expect(fixed.input.daily.rows.at(-1)?.closePoints).toBe(104);
+    expect(fixed.metrics.rows.at(-1)?.ma5).toBe(102);
+    const preview = await readDatedIndexDailyWithQuote(request);
+    expect(preview.fixed).toEqual(fixed);
+    expect(preview.calendar).toEqual(calendar);
+    expect(preview.provisional).toMatchObject({
+      status: "available", finality: "provisional", source: "tickflow", endpoint: "/v1/quotes", units: "unknown",
+      snapshot: { symbol, timestamp: now, volume: 0, amount: null },
+      candle: { openPoints: 110, highPoints: 112, lowPoints: 109, closePoints: 111, substitutedFields: [] },
+      change: { producer: "whyj", changePoints: 7, changeFraction: 7 / 104 },
+      metrics: { status: "available", producer: "whyj", formulaVersion: fixed.metrics.formulaVersion,
+        calculationWindow: { firstDate: priorDates[0], lastDate: tradeDate, rowCount: 6 },
+        row: { date: tradeDate, ma5: 104.2, ma30: null, atr_14: expect.any(Number), vol_ratio_5d: null } },
+    });
+    const absentOhlc = await readDatedIndexDailyWithQuote(request);
+    expect(absentOhlc.provisional).toMatchObject({ snapshot: { open: 0, high: 0, low: 0 },
+      candle: { openPoints: 111, highPoints: 111, lowPoints: 111, closePoints: 111, substitutedFields: ["open", "high", "low"] } });
+    expect((await readDatedIndexDailyWithQuote({ ...request, calendar: { ...calendar, previousTradeDate: priorDates[0]! } })).provisional)
+      .toMatchObject({ status: "available", metrics: { status: "missing-previous-session" } });
+    expect(new URL(String(provider.mock.calls[1]![0])).pathname).toBe("/v1/quotes");
+    expect(new URL(String(provider.mock.calls[1]![0])).searchParams.get("symbols")).toBe(symbol);
+    expect(await replayDatedIndexDailyBars(request)).toEqual(fixed);
+    expect(provider).toHaveBeenCalledTimes(4);
+  } finally {
+    setSystemTime();
+    provider.mockRestore();
+  }
+});
+
+test("preserves the fixed index chart when the quote is ineligible or unavailable", async () => {
+  const shanghai = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
+  const now = quoteNow;
+  const tradeDate = shanghai.format(now);
+  const previousTimestamp = now - 86_400_000;
+  const raw = { symbol, region: "CN", timestamp: now, last_price: 111, prev_close: 104,
+    open: 110, high: 112, low: 109, volume: 100, amount: 1000 };
+  const provider = spyOn(globalThis, "fetch").mockResolvedValueOnce(Response.json({ data: fixture }))
+    .mockResolvedValueOnce(Response.json({ data: [{ ...raw, timestamp: previousTimestamp }] }))
+    .mockResolvedValueOnce(Response.json({ data: [{ ...raw, timestamp: now + 60_000 }] }))
+    .mockResolvedValueOnce(Response.json({ data: [{ ...raw, last_price: 0 }] }))
+    .mockResolvedValueOnce(Response.json({ data: [{ ...raw, high: 108 }] }))
+    .mockResolvedValueOnce(Response.json({ data: [] }))
+    .mockResolvedValueOnce(new Response(null, { status: 403 }));
+  try {
+    setSystemTime(now);
+    const { ref } = await collectDatedIndexDailyBars(query);
+    const fixed = await replayDatedIndexDailyBars({ ref });
+    const calendar = { revision: "fixture-sessions", tradeDate, previousTradeDate: shanghai.format(previousTimestamp) };
+    const request = { ref, calendar };
+    await expect(readDatedIndexDailyWithQuote({ ...request, calendar: { ...calendar, previousTradeDate: tradeDate } })).rejects.toThrow("calendar");
+    await expect(readDatedIndexDailyWithQuote(request, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
+    expect(await readDatedIndexDailyWithQuote({ ref, calendar: { ...calendar, tradeDate: "2024-02-01", previousTradeDate: "2024-01-31" } }))
+      .toMatchObject({ fixed, provisional: { status: "outside-current-day" } });
+    expect(provider).toHaveBeenCalledTimes(1);
+    for (const status of ["different-session", "future-timestamp", "invalid-candle", "invalid-candle", "missing", "unavailable"]) {
+      expect(await readDatedIndexDailyWithQuote(request)).toMatchObject({ fixed, provisional: { status } });
+    }
+    const settings = readSettings();
+    saveSettings({ ...settings, preferences: { ...settings.preferences, source: "tushare" } });
+    expect(await readDatedIndexDailyWithQuote(request)).toMatchObject({ fixed, provisional: { status: "unavailable" } });
+    expect(provider).toHaveBeenCalledTimes(7);
+  } finally {
+    setSystemTime();
+    provider.mockRestore();
+  }
 });
 
 test("fails without a receipt on cancellation or provider errors and rejects bad replay scope", async () => {
