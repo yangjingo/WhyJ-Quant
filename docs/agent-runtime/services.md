@@ -790,6 +790,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 历史中的当日行不参与临时指标计算。前一交易日与实际预热末日相符时，WHYJ 使用相同价格公式计算 MA、MACD、RSI、KDJ、布林带和 ATR。盘中成交量与历史成交量的口径尚未确认，量比保留为空。固定归档、原始报价和临时计算各自带有来源或公式证据。
 
+CLI 用 `whyj --json observation read-index-daily-quote --revision DAILY_SHA256 --date YYYY-MM-DD --previous-date YYYY-MM-DD --calendar-revision ID` 读取该结果。可用 `--start` 和 `--end` 控制固定归档的显示窗口。返回 `fixed`、`calendar` 和 `provisional`。日历或参数格式无效时返回 `invalid_arguments`，归档无法读取或显示窗口越界时返回 `observation_archive_unavailable`。报价不可用时仍返回固定图表结果。
+
 ### 从归档重建日线选股候选
 
 `replayTspScreener` 读取固定市场截面和调用方指定的股票日线修订。每个标的须属于当日股票池，同一次回放使用共同的前复权或未复权口径。归档晚于截面日期会报错，缺当日行情则显示不可判定。日线和交易所限价信号沿用同一固定归档回放逻辑。
