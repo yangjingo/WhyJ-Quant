@@ -64,6 +64,7 @@ import { readTspListAuctionOverlay, type TspListAuctionOverlayRequest } from "..
 import { collectDatedTickFlowStockMinutes, previewCurrentTspEtfIntraday, previewCurrentTspListIntraday, replayTspTickFlowStockMinutes,
   type CurrentTspEtfIntradayRequest, type CurrentTspListIntradayRequest, type TickFlowStockMinuteReplayRequest } from "../../../src/runtime/data/tickflow-stock-minute-replay.ts";
 import { collectTspExtensionPage, replayTspExtensionPageGroups } from "../../../src/runtime/data/tsp-extension-replay.ts";
+import { replayTspBacktestBenchmark, type TspBacktestBenchmarkReplayRequest } from "../../../src/runtime/data/tsp-backtest-benchmark.ts";
 import { replayTspExtensionIntraday, type TspExtensionIntradayReplayRequest } from "../../../src/runtime/data/tsp-extension-intraday.ts";
 import type { TspExtensionRowsRequest } from "../../../src/types/tsp-extension.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
@@ -604,9 +605,33 @@ function parseBacktestRobustnessManifest(value: unknown): TspBacktestRobustnessI
   return { trades: parseRealizedTrades(rawTrades), periodicReturns, periodsPerYear, includeMonteCarlo };
 }
 
-function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInput {
-  const { schemaVersion, initialCapital, equityCurve, trades, includeMonteCarlo } =
-    observationManifestObject(value, ["schemaVersion", "initialCapital", "equityCurve", "trades", "includeMonteCarlo"]);
+type BacktestBenchmarkSupplement = Omit<TspBacktestBenchmarkReplayRequest, "strategy">;
+
+function parseBacktestBenchmarkSupplement(value: unknown): BacktestBenchmarkSupplement | undefined {
+  if (value === undefined) return undefined;
+  const { start, end, benchmarkRevisions } = observationManifestObject(value, ["start", "end", "benchmarkRevisions"]);
+  if (typeof start !== "string" || typeof end !== "string" || start < "0001-01-01" ||
+    !isDailyDate(start) || !isDailyDate(end) || start > end) throw invalid();
+  const revisions = validateRevisions(benchmarkRevisions);
+  if (!revisions.length) throw invalid();
+  return { range: { start, end }, refs: revisions.map(revision => ({ version: 1, kind: "benchmark-index", revision })) };
+}
+
+async function replayBacktestBenchmarkSupplement(
+  benchmark: BacktestBenchmarkSupplement, strategy: TspBacktestBenchmarkReplayRequest["strategy"],
+  observedRange: BacktestBenchmarkSupplement["range"] | null, signal?: AbortSignal,
+) {
+  if (observedRange && (observedRange.start < benchmark.range.start || observedRange.end > benchmark.range.end)) throw invalid();
+  try { return await replayTspBacktestBenchmark({ ...benchmark, strategy }, signal); }
+  catch {
+    signal?.throwIfAborted();
+    throw Object.assign(new Error("Could not replay the requested backtest benchmark archives."), { code: "observation_archive_unavailable" });
+  }
+}
+
+function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInput & { benchmark?: BacktestBenchmarkSupplement } {
+  const { schemaVersion, initialCapital, equityCurve, trades, includeMonteCarlo, benchmark } =
+    observationManifestObject(value, ["schemaVersion", "initialCapital", "equityCurve", "trades", "includeMonteCarlo", "benchmark"]);
   if (schemaVersion !== 1 || typeof initialCapital !== "number" || !Array.isArray(equityCurve) ||
     (includeMonteCarlo !== undefined && typeof includeMonteCarlo !== "boolean")) throw invalid();
   const samples = equityCurve.map((entry: unknown) => {
@@ -614,12 +639,13 @@ function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInp
     if (typeof date !== "string" || typeof equity !== "number" || typeof exposureFraction !== "number") throw invalid();
     return { date, equity, exposureFraction };
   });
-  return { initialCapital, equityCurve: samples, trades: parseRealizedTrades(trades), includeMonteCarlo };
+  return { initialCapital, equityCurve: samples, trades: parseRealizedTrades(trades), includeMonteCarlo,
+    benchmark: parseBacktestBenchmarkSupplement(benchmark) };
 }
 
-function parseBacktestCandidatesManifest(value: unknown): TspBacktestCandidateInput {
-  const { schemaVersion, candidateCount, trades: rawTrades, execution: rawExecution, includeMonteCarlo } =
-    observationManifestObject(value, ["schemaVersion", "candidateCount", "trades", "execution", "includeMonteCarlo"]);
+function parseBacktestCandidatesManifest(value: unknown): TspBacktestCandidateInput & { benchmark?: BacktestBenchmarkSupplement } {
+  const { schemaVersion, candidateCount, trades: rawTrades, execution: rawExecution, includeMonteCarlo, benchmark } =
+    observationManifestObject(value, ["schemaVersion", "candidateCount", "trades", "execution", "includeMonteCarlo", "benchmark"]);
   if (schemaVersion !== 1 || typeof candidateCount !== "number" || !Array.isArray(rawTrades) ||
     !rawExecution || typeof rawExecution !== "object" || Array.isArray(rawExecution) ||
     (includeMonteCarlo !== undefined && typeof includeMonteCarlo !== "boolean")) throw invalid();
@@ -634,7 +660,7 @@ function parseBacktestCandidatesManifest(value: unknown): TspBacktestCandidateIn
       typeof holdingDays !== "number") throw invalid();
     return { symbol, exitDate, pnlFraction, holdingDays };
   });
-  return { candidateCount, execution, trades, includeMonteCarlo };
+  return { candidateCount, execution, trades, includeMonteCarlo, benchmark: parseBacktestBenchmarkSupplement(benchmark) };
 }
 
 function parsePaperNavRows(value: unknown): TspPaperStatisticsInput["finalizedNav"] {
@@ -1813,15 +1839,27 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     const path = parseOptions(options, ["--manifest"]).get("--manifest");
     if (!path) throw invalid();
     const input = parseBacktestPortfolioManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
-    try { return computeTspBacktestPortfolio(input); }
+    let report;
+    try { report = computeTspBacktestPortfolio(input); }
     catch { throw invalid(); }
+    if (!input.benchmark) return report;
+    const totalReturn = report.status === "available" ? report.portfolio.totalReturn : null;
+    const dates = report.status === "available" ? { start: report.firstDate, end: report.lastDate } : null;
+    const benchmark = await replayBacktestBenchmarkSupplement(input.benchmark, { basis: "portfolio-nav", totalReturn }, dates, signal);
+    return { ...report, benchmark };
   }
   if (action === "replay-backtest-candidates") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");
     if (!path) throw invalid();
     const input = parseBacktestCandidatesManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
-    try { return computeTspBacktestCandidates(input); }
+    let report;
+    try { report = computeTspBacktestCandidates(input); }
     catch { throw invalid(); }
+    if (!input.benchmark) return report;
+    const totalReturn = report.status === "available" ? report.totalReturn : null;
+    const dates = report.status === "available" ? { start: report.curve[0]!.exitDate, end: report.curve.at(-1)!.exitDate } : null;
+    const benchmark = await replayBacktestBenchmarkSupplement(input.benchmark, { basis: "independent-exits", totalReturn }, dates, signal);
+    return { ...report, benchmark };
   }
   if (action === "replay-paper-ledger") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");
