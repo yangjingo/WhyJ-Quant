@@ -56,6 +56,8 @@
 
 组合成交可携带规范化的 `symbol`。至少一笔成交具有标的时，`perSymbol` 按标的输出成交数、复合收益、胜率、最好和最差单笔收益，额外记录统计纳入的成交数与总成交数。各标的按四位小数的复合收益降序排列，同收益保留标的首次出现顺序。该统计仅依赖已实现成交，组合净值为空时仍可用。 [TSP 分标的计算](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/engine.py#L3373)
 
+组合报告的 `curve.rows` 按原交易日输出净值、仓位比例和图表回撤。净值及已提供的现金金额保留两位小数，仓位比例和回撤保留四位。图表峰值以初始本金为起点，再逐日更新。摘要的最大回撤峰值从已观测净值开始，首个样本低于初始本金时两种回撤口径可能不同。现金及持仓数缺测返回 `null`，不从净值或仓位比例推算。 [TSP 图表计算](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/engine.py#L3140)
+
 ## 固定证据的 TSP 全量独立执行
 
 `computeTspBacktestCandidates` 接收一次扫描的候选数、执行计数和逐笔已实现样本。每笔样本携带规范化标的、已完成的退出交易日、持有天数和小数收益率。结果由 WhyJ 计算，记录 `tsp-backtest-candidate-execution-v1` 和参考修订。原始候选数、执行计数和已实现样本数各自保留。
