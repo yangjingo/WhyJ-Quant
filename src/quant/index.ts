@@ -7,6 +7,8 @@ export { computeTspBacktestRobustness, TSP_BACKTEST_ROBUSTNESS_FORMULA_VERSION }
 export type { TspBacktestRobustnessInput } from "./tsp-backtest-robustness.ts";
 export { computeTspBacktestPortfolio, TSP_BACKTEST_PORTFOLIO_FORMULA_VERSION } from "./tsp-backtest-portfolio.ts";
 export type { TspBacktestPortfolioInput } from "./tsp-backtest-portfolio.ts";
+export { computeTspBacktestCandidates, TSP_BACKTEST_CANDIDATE_FORMULA_VERSION } from "./tsp-backtest-candidates.ts";
+export type { TspBacktestCandidateInput } from "./tsp-backtest-candidates.ts";
 export { planTspWalkForward, computeTspWalkForward, TSP_WALK_FORWARD_FORMULA_VERSION } from "./tsp-walk-forward.ts";
 export type { TspWalkForwardSchedule, TspWalkForwardWindow, TspWalkForwardFoldEvidence, TspWalkForwardInput } from "./tsp-walk-forward.ts";
 export { computeTspParameterRobustness, planTspParameterValidation, TSP_PARAMETER_OBJECTIVES, TSP_PARAMETER_ROBUSTNESS_FORMULA_VERSION } from "./tsp-parameter-robustness.ts";
