@@ -888,6 +888,8 @@ CLI 使用 `whyj --json observation read-current-etf-minutes --manifest PATH`，
 
 `read-current-stock-minutes` 和 `read-current-etf-minutes` 的第 1 版清单都可在设置 `interpretation` 后加入 `"quoteTail": { "maxAgeMs": 60000, "priceBasis": "caller-confirmed-same-basis" }`。配置无效时返回 `invalid_arguments`，且不会发起供应商请求。省略该字段时只读取原有分钟数据。
 
+`readTspListAuctionOverlay` 为自选和选股读取指定日期的竞价数据。调用方指定同一 TSP 扩展表、标的、价格字段及可选的匹配量和未匹配量字段，并用 `caller-confirmed-shanghai-wall-clock` 确认时间口径。各字段的原始时刻、观测值、单位状态和内容修订保留在 `input`。WHYJ 在 `overlay` 中对齐 09:15:00 至 09:25:00 的实际观测，重复时刻单独标记并留空。未匹配量保持符号，分别标为买方、卖方或平衡。缺少价格时仍返回已观察的量字段。各字段独立读取，回执记录每次读取的内容。 [TSP 集合竞价读取](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/lib/intraday-auction.ts#L35)
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
