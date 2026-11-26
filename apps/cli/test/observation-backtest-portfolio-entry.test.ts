@@ -63,6 +63,26 @@ test("actual CLI replays a versioned portfolio and keeps bad evidence distinct",
     expect(result.output.data).not.toHaveProperty("monteCarlo");
     expect(result.output.data).not.toHaveProperty("perSymbol");
     expect(await replay(manifest)).toEqual(result);
+    expect(result.output.data.curve).toEqual({ formulaVersion: "tsp-backtest-portfolio-curve-v1", rows: [
+      { ...manifest.equityCurve[0], cash: null, positionCount: null, drawdownFraction: 0 },
+      { ...manifest.equityCurve[1], cash: null, positionCount: null, drawdownFraction: 0 },
+      { ...manifest.equityCurve[2], cash: null, positionCount: null, drawdownFraction: -0.1 },
+      { ...manifest.equityCurve[3], cash: null, positionCount: null, drawdownFraction: 0 },
+    ] });
+    const chartEvidence = [
+      { ...manifest.equityCurve[0], equity: 90, cash: 0, positionCount: 0 },
+      { ...manifest.equityCurve[1], equity: 85, cash: null },
+      { ...manifest.equityCurve[2], equity: 110, cash: 44.126, positionCount: 3 },
+      { ...manifest.equityCurve[3], equity: 105, positionCount: null },
+    ];
+    const chart = await replay({ ...manifest, equityCurve: chartEvidence });
+    expect(chart).toMatchObject({ code: 0, output: { ok: true, data: { portfolio: { maxDrawdown: -0.0556 } } } });
+    expect(chart.output.data.curve).toEqual({ formulaVersion: "tsp-backtest-portfolio-curve-v1", rows: [
+      { ...chartEvidence[0], drawdownFraction: -0.1 },
+      { ...chartEvidence[1], positionCount: null, drawdownFraction: -0.15 },
+      { ...chartEvidence[2], cash: 44.13, drawdownFraction: 0 },
+      { ...chartEvidence[3], cash: null, drawdownFraction: -0.0455 },
+    ] });
     const labelled = { ...manifest, trades: [
       { ...manifest.trades[0], symbol: "600000.SH" },
       { ...manifest.trades[1], symbol: "600000.SH" },
@@ -85,6 +105,10 @@ test("actual CLI replays a versioned portfolio and keeps bad evidence distinct",
     const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
     expect(await replay({ ...manifest, schemaVersion: 2 })).toMatchObject(invalid);
     expect(await replay({ ...manifest, equityCurve: manifest.equityCurve.toReversed() })).toMatchObject(invalid);
+    for (const extra of [{ cash: "0" }, { positionCount: "0" }, { positionCount: -1 }, { positionCount: 1.5 },
+      { positionCount: Number.MAX_SAFE_INTEGER + 1 }, { extra: true }]) {
+      expect(await replay({ ...manifest, equityCurve: [{ ...manifest.equityCurve[0], ...extra }] })).toMatchObject(invalid);
+    }
     expect(await replay({ ...manifest, trades: [{ pnlFraction: 0 }] })).toMatchObject(invalid);
     for (const symbol of [null, 600000, "600000", "600000.sh"]) {
       expect(await replay({ ...manifest, trades: [{ ...manifest.trades[0], symbol }] })).toMatchObject(invalid);
