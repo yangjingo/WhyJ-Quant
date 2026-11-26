@@ -121,6 +121,8 @@ export type { FinancialObservationArchiveRef, StoredFinancialDisclosureDate, Sto
 export { archiveMarketCrossSection, loadMarketCrossSectionArchive } from "./src/observation-archive.ts";
 export type { MarketCrossSectionArchiveRef, StoredMarketCrossSection } from "../types/observation.ts";
 export { archiveMarketRegimeManifest, loadMarketRegimeManifest, MARKET_REGIME_MANIFEST_MAX_BYTES } from "./src/observation-archive.ts";
+export { archiveTspExtensionPage, loadTspExtensionPageArchive } from "./src/observation-archive.ts";
+export type { TspExtensionPageArchiveRef } from "../types/tsp-extension.ts";
 export type { MarketRegimeManifestRef } from "../types/observation.ts";
 export { archiveBenchmarkIndexObservations, loadBenchmarkIndexArchive } from "./src/observation-archive.ts";
 export { archiveDatedIndexMinutes, loadDatedIndexMinuteArchive } from "./src/observation-archive.ts";

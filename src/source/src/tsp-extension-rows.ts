@@ -1,39 +1,12 @@
 import { createHash } from "node:crypto";
 import { isDailyDate } from "../../market/bars.ts";
+import type { TspExtensionCell as Cell, TspExtensionPage, TspExtensionRowsRequest,
+  TspExtensionSourceField as SourceField } from "../../types/tsp-extension.ts";
 import { getText } from "./http.ts";
 import { SourceRequestError } from "./market-data-error.ts";
 import type { SourceConnection, SourceRequestOptions } from "./market-data.ts";
 
-type SourceField = { name: string; dtype: "string" | "int" | "float" | "bool"; label: string };
-type Cell = string | number | boolean | null;
-
-export interface TspExtensionRowsRequest {
-  datasetId: string;
-  selection: { mode: "snapshot"; date?: never } | { mode: "timeseries"; date: string };
-  columns: readonly string[];
-  offset: number;
-  limit: number;
-}
-
-export interface TspExtensionPage {
-  source: "tsp";
-  origin: string;
-  endpoint: string;
-  originalPublisher: "unknown";
-  observedAt: string;
-  sourceAsOf: null;
-  request: TspExtensionRowsRequest;
-  datasetLabel: string;
-  partitionDate: string | null;
-  snapshotSyncLocal: string | null;
-  schemaRevision: string;
-  revision: string;
-  coverage: "complete" | "partial";
-  totalRows: number;
-  fields: SourceField[];
-  rows: Record<string, Cell>[];
-  omittedFields: string[];
-}
+export type { TspExtensionPage, TspExtensionRowsRequest } from "../../types/tsp-extension.ts";
 
 const responseLimit = 4 * 1024 * 1024;
 const tableId = /^[a-zA-Z0-9_]{1,128}$/;
