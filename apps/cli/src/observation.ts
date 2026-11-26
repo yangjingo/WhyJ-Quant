@@ -7,12 +7,13 @@ import {
   computeTspBacktestRobustness, computeTspCompositeFactor, computeTspExtensionGroups, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
   parseTspIntradaySignalRule, planTspMiningValidation, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
-  summarizeTspStrategyGuardianHistory, tspMinuteIndex,
+  summarizeTspMiningRegimes, summarizeTspStrategyGuardianHistory, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_MONITOR_EVENT_TYPES, type TspScreenerScoreInput,
   type TspBacktestCandidateInput, type TspBacktestDailyTradesInput, type TspBacktestFactorAttributionInput, type TspBacktestPortfolioInput,
   type TspBacktestRobustnessInput, type TspCompositeFactorInput, type TspParameterRobustnessInput,
-  type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspMiningValidationInput,
+  type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput,
+  type TspMiningRegimeFoldEvidence, type TspMiningRegimeReportInput, type TspMiningValidationInput,
   type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
   type TspStrategyGuardianThresholds, type TspStrategyMonitorCapture, type TspStrategyMonitorInput, type TspStrategyMonitorSignal,
@@ -1021,6 +1022,29 @@ function parseMiningValidationManifest(value: unknown): TspMiningValidationInput
     !Array.isArray(availableDates) || availableDates.some(date => typeof date !== "string") ||
     (start != null && typeof start !== "string") || (end != null && typeof end !== "string")) throw invalid();
   return { assetType, profile, availableDates, start, end };
+}
+
+function parseMiningRegimeManifest(value: unknown): TspMiningRegimeReportInput {
+  const { schemaVersion, candidateId, folds } = observationManifestObject(value, ["schemaVersion", "candidateId", "folds"]);
+  if (schemaVersion !== 1 || (candidateId != null && typeof candidateId !== "string") || !Array.isArray(folds)) throw invalid();
+  return { candidateId, folds: folds.map((value: unknown): TspMiningRegimeFoldEvidence => {
+    const { foldIndex, candidateId, state, testSessionCount, outcome: rawOutcome } =
+      observationManifestObject(value, ["foldIndex", "candidateId", "state", "testSessionCount", "outcome"]);
+    if (typeof foldIndex !== "number" || (candidateId !== null && typeof candidateId !== "string") ||
+      (state !== "overall" && state !== "strong" && state !== "range" && state !== "weak") ||
+      typeof testSessionCount !== "number") throw invalid();
+    const outcome = observationManifestObject(rawOutcome, ["status", "reason", "metrics"]);
+    const common: Omit<TspMiningRegimeFoldEvidence, "outcome"> = { foldIndex, candidateId, state, testSessionCount };
+    if (outcome.status === "skipped" && typeof outcome.reason === "string" && !Object.hasOwn(outcome, "metrics")) {
+      return { ...common, outcome: { status: "skipped", reason: outcome.reason } };
+    }
+    if (outcome.status !== "valid" || Object.hasOwn(outcome, "reason")) throw invalid();
+    const { totalReturnFraction, sharpe, maxDrawdownFraction } =
+      observationManifestObject(outcome.metrics, ["totalReturnFraction", "sharpe", "maxDrawdownFraction"]);
+    if ((totalReturnFraction !== null && typeof totalReturnFraction !== "number") ||
+      (sharpe !== null && typeof sharpe !== "number") || (maxDrawdownFraction !== null && typeof maxDrawdownFraction !== "number")) throw invalid();
+    return { ...common, outcome: { status: "valid", metrics: { totalReturnFraction, sharpe, maxDrawdownFraction } } };
+  }) };
 }
 
 function parseMiningCandidateManifest(value: unknown): TspMiningCandidateReportInput {
@@ -2113,6 +2137,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const request = parseMiningValidationManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return planTspMiningValidation(request); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-mining-regimes") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseMiningRegimeManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return summarizeTspMiningRegimes(input); }
     catch { throw invalid(); }
   }
   if (action === "replay-mining-candidate") {
