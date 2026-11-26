@@ -785,6 +785,12 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 用 `whyj --json observation replay-extension-page-groups --manifest groups.json` 离线计算。清单包含 `schemaVersion: 1`、从采集回执 `data.ref.revision` 取得的 `revision`、`dimensionField`、`metrics` 和可选的 `units`。无效清单返回 `invalid_arguments`，缺少归档或归档字段与所选指标不兼容时返回 `observation_archive_unavailable`。
 
+#### 扩展数据分组分钟曲线
+
+`replayTspExtensionIntraday` 固定读取一页 TSP 扩展表，使用调用方指定的维度字段、完整标签和股票代码字段确定成员。结果记录归档页范围、覆盖、有效成员与无法识别代码的匹配行。时间序列页须与目标交易日一致。快照保留原同步时间，历史可用性为 `unknown`。
+
+回放使用指定市场范围内各股的未复权 1 分钟归档，以及可选的同股指定日期日线归档。分钟点保留归档的原始毫秒标签，参与比较的归档须使用一致的分钟标签口径。所提供的日线归档须覆盖声明的日期，缺少该日有效收盘价时使用首笔有效分钟收盘作基准。`input` 保留 TSP 页与行情供应商来源、归档引用和观测时间。曲线由 WHYJ 计算，分组和市场分别报告每分钟的有效样本数。 [计算口径](../quant-harness/tsp-panel-coverage.md#extension-schema)
+
 ### 指数分钟行情回放
 
 `collectDatedIndexMinutes` 使用当前 Source 捕获指定指数和历史上海日期，返回固定归档引用。空响应也有可回放的引用。`replayDatedIndexMinutes` 按引用读取原始分钟和 WhyJ 派生指标。若提供昨收输入，还须提供日线归档及调用方确认的相邻交易日对与日历版本。仅使用同 TickFlow 指数在该上一交易日的收盘点位。查询范围内缺少该观察时，分时涨跌为空。本地回放无需供应商访问。时间戳和量额单位保留供应商标记。 [指标口径](../quant-harness/tsp-dashboard-audit.md#index-minute-chart-returns)
