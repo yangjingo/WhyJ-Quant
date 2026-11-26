@@ -82,6 +82,10 @@ The report uses the mean of observed fold returns and Sharpe ratios, the worst o
 
 The report's metric eligibility requires at least two valid folds, a positive-return ratio of at least two thirds, mean Sharpe of at least 0.5, worst drawdown of at least −25%, and at least 60 trades. Exploratory runs are ineligible. Strict runs also require positive worst-fold Sharpe when measured. The strict rule follows the TSP publication service, which supplies worst-fold Sharpe to the gate. WhyJ reports the thresholds, result and reason codes based on the supplied folds. [TSP thresholds and reasons](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/mining.py#L198) · [TSP publication check](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/services/mining_candidates.py#L122)
 
+## Mining outcomes by market regime
+
+`summarizeTspMiningRegimes` consumes fixed out-of-sample fold outcomes for `overall`, `strong`, `range`, and `weak`. A supplied candidate ID limits the comparison to its rows. An omitted ID includes all candidates. For each state, WHYJ sums the session counts of successful rows even when folds overlap, averages available per-fold returns and Sharpe equally across folds, and takes the minimum signed drawdown. Skipped rows contribute only to the skipped count. Coverage preserves zero-valued observations and missing metrics separately. The saved folds provide the state, session count and measured outcomes. [TSP workbench projection](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/mining.py#L823)
+
 ## Strategy Guardian
 
 `planTspStrategyGuardianCheck` uses a fixed exchange-session sequence and counts sessions strictly after the strategy baseline date. The defaults require 30 new sessions and split the fresh span into as many as four equal calendar segments with at least 14 days each. The planner reports insufficient new sessions and short calendar spans separately.
