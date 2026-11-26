@@ -64,6 +64,7 @@ import { readTspListAuctionOverlay, type TspListAuctionOverlayRequest } from "..
 import { collectDatedTickFlowStockMinutes, previewCurrentTspEtfIntraday, previewCurrentTspListIntraday, replayTspTickFlowStockMinutes,
   type CurrentTspEtfIntradayRequest, type CurrentTspListIntradayRequest, type TickFlowStockMinuteReplayRequest } from "../../../src/runtime/data/tickflow-stock-minute-replay.ts";
 import { collectTspExtensionPage, replayTspExtensionPageGroups } from "../../../src/runtime/data/tsp-extension-replay.ts";
+import { replayTspExtensionIntraday, type TspExtensionIntradayReplayRequest } from "../../../src/runtime/data/tsp-extension-intraday.ts";
 import type { TspExtensionRowsRequest } from "../../../src/types/tsp-extension.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
@@ -190,6 +191,35 @@ function parseExtensionPageRequest(value: unknown): TspExtensionRowsRequest {
     return { datasetId, selection: { mode, date }, columns, offset, limit };
   }
   throw invalid();
+}
+
+function parseExtensionIntradayManifest(input: unknown): TspExtensionIntradayReplayRequest {
+  const { schemaVersion, tradeDate, previousDate, membership, universe, histories: rawHistories } =
+    observationManifestObject(input, ["schemaVersion", "tradeDate", "previousDate", "membership", "universe", "histories"]);
+  const { revision, dimensionField, value, symbolField } =
+    observationManifestObject(membership, ["revision", "dimensionField", "value", "symbolField"]);
+  const { id, revision: universeRevision, symbols: rawSymbols } = observationManifestObject(universe, ["id", "revision", "symbols"]);
+  if (schemaVersion !== 1 || typeof tradeDate !== "string" || !isDailyDate(tradeDate) || tradeDate < "0001-01-01" ||
+    (previousDate !== null && (typeof previousDate !== "string" || !isDailyDate(previousDate) ||
+      previousDate < "0001-01-01" || previousDate >= tradeDate)) ||
+    typeof revision !== "string" || !revisionPattern.test(revision) ||
+    typeof dimensionField !== "string" || !dimensionField.trim() || typeof value !== "string" || !value.trim() ||
+    typeof symbolField !== "string" || !symbolField.trim() ||
+    typeof id !== "string" || !id.trim() || typeof universeRevision !== "string" || !universeRevision.trim() ||
+    !Array.isArray(rawHistories)) throw invalid();
+  const symbols = parseMonitorRoster(rawSymbols);
+  const scope = new Set(symbols), seen = new Set<string>();
+  const histories = rawHistories.map((entry: unknown): TspExtensionIntradayReplayRequest["histories"][number] => {
+    const { symbol, minuteRevision, previousCloseRevision } = observationManifestObject(entry, ["symbol", "minuteRevision", "previousCloseRevision"]);
+    if (typeof symbol !== "string" || !scope.has(symbol) || seen.has(symbol) || typeof minuteRevision !== "string" ||
+      !revisionPattern.test(minuteRevision) || (previousCloseRevision !== undefined && (previousDate === null ||
+        typeof previousCloseRevision !== "string" || !revisionPattern.test(previousCloseRevision)))) throw invalid();
+    seen.add(symbol);
+    return { symbol, minuteRef: { version: 1, revision: minuteRevision },
+      previousCloseRef: previousCloseRevision === undefined ? undefined : { version: 2, revision: previousCloseRevision } };
+  });
+  return { tradeDate, previousDate, histories, universe: { id, revision: universeRevision, symbols },
+    membership: { ref: { version: 1, kind: "tsp-extension-page", revision }, dimensionField, value, symbolField } };
 }
 
 const archivedStockKeys = ["symbol", "dailyRevision", "limitsRevision", "rawRevision"] as const;
@@ -1859,6 +1889,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       signal?.throwIfAborted();
       throw Object.assign(new Error("Could not replay the extension page. Verify the revision and projected fields."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-extension-intraday") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseExtensionIntradayManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspExtensionIntraday(request, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay extension minute curves. Verify the membership and fixed price archive revisions."),
         { code: "observation_archive_unavailable" });
     }
   }
