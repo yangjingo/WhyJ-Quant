@@ -68,6 +68,12 @@
 
 `computeTspBacktestBenchmark` 使用配置区间内的上证指数 `000001.SH` 收盘点数和策略累计收益。它接受组合净值或全量独立执行的收益口径，输出带 `tsp-backtest-benchmark-v1` 版本的 WhyJ 指标。基准收益等于末个有效点除以首个有效点减一，计算前按 TSP 接口将点数舍入至四位小数。超额收益为策略累计收益减去同期基准收益，两者均用小数比例。配置区间、实际使用的首末日期、原始点数、舍入点数和样本量分别保留。有效收盘少于两条时基准与超额均为 `null`。策略累计收益缺失时可以单独得到基准收益。`curve` 以 `tsp-backtest-benchmark-curve-v1` 返回逐日基准收盘点数，便于与策略净值按日期叠加。它省略缺失和非正的收盘观测，保留正收盘舍入得到的零点；这类零点不参与汇总收益。 [TSP 指数读取](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/strategy.py#L2853) · [TSP 报告计算](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/pages/backtest/StrategyBacktest.tsx#L1328)
 
+## TSP 回测每日交易
+
+`computeTspBacktestDailyTrades` 接收已实现成交的标的、入场和退出交易日，以及由调用方确认口径的人民币入场金额、退出金额和已实现盈亏。入场日计入买入，退出日计入卖出和已实现盈亏。同日进出在两组分别计数，同组保留成交在原始输入中的次序和索引。先按日期累计已实现盈亏，结果再按日期降序给出。
+
+金额缺测使用 `null`。一笔买入或卖出金额缺测只影响当日该项合计。一笔退出的盈亏缺测会使当日已实现盈亏及自该日起的累计盈亏不可用。没有退出的日期仍有零已实现盈亏，逐项保留观测笔数。结果标记为 WHYJ 计算，使用固定已实现成交金额。 [TSP 每日交易投影](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/pages/backtest/StrategyBacktest.tsx#L1471)
+
 ## References
 
 1. AKFamily. [AKQuant](https://github.com/akfamily/akquant). 上游框架；本仓库以已锁定适配版本为准。
