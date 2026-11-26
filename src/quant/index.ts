@@ -11,6 +11,8 @@ export { computeTspBacktestCandidates, TSP_BACKTEST_CANDIDATE_FORMULA_VERSION } 
 export type { TspBacktestCandidateInput } from "./tsp-backtest-candidates.ts";
 export { computeTspBacktestDailyTrades, TSP_BACKTEST_DAILY_TRADES_FORMULA_VERSION } from "./tsp-backtest-daily-trades.ts";
 export type { TspBacktestDailyTradesInput } from "./tsp-backtest-daily-trades.ts";
+export { computeTspBacktestFactorAttribution, TSP_BACKTEST_FACTOR_ATTRIBUTION_FORMULA_VERSION } from "./tsp-backtest-factor-attribution.ts";
+export type { TspBacktestFactorAttributionInput } from "./tsp-backtest-factor-attribution.ts";
 export { computeTspBacktestBenchmark, TSP_BACKTEST_BENCHMARK_FORMULA_VERSION, TSP_BACKTEST_BENCHMARK_SYMBOL } from "./tsp-backtest-benchmark.ts";
 export type { TspBacktestBenchmarkInput } from "./tsp-backtest-benchmark.ts";
 export { planTspWalkForward, computeTspWalkForward, TSP_WALK_FORWARD_FORMULA_VERSION } from "./tsp-walk-forward.ts";

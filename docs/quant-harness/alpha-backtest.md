@@ -74,6 +74,12 @@
 
 金额缺测使用 `null`。一笔买入或卖出金额缺测只影响当日该项合计。一笔退出的盈亏缺测会使当日已实现盈亏及自该日起的累计盈亏不可用。没有退出的日期仍有零已实现盈亏，逐项保留观测笔数。结果标记为 WHYJ 计算，使用固定已实现成交金额。 [TSP 每日交易投影](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/pages/backtest/StrategyBacktest.tsx#L1471)
 
+## TSP 回测入场因子统计
+
+`computeTspBacktestFactorAttribution` 使用明确的因子键、逐标的交易日因子快照和逐笔已实现收益。以标的和入场信号日匹配快照，只有缺少信号日时才使用实际入场日。缺少两个日期的交易单独计数。重复的标的和交易日快照会使输入失败，同一快照可为多笔交易提供证据。
+
+有日期的交易按收益分组。正收益进入盈利组，零和负收益进入非盈利组。因子均值按各组实际观测样本计算，舍入至六位小数。原始零值参与统计，空值保留为缺测。报告给出两组交易总数、匹配交易数和每个因子的分组样本数，并从两个已报告均值计算差值。全部因子缺测时报告不可用。该输出是 WhyJ 计算的分组描述统计。 [TSP 计算定义](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/strategy.py#L776)
+
 ## References
 
 1. AKFamily. [AKQuant](https://github.com/akfamily/akquant). 上游框架；本仓库以已锁定适配版本为准。
