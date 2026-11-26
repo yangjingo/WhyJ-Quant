@@ -86,6 +86,10 @@ The report's metric eligibility requires at least two valid folds, a positive-re
 
 `summarizeTspMiningRegimes` consumes fixed out-of-sample fold outcomes for `overall`, `strong`, `range`, and `weak`. A supplied candidate ID limits the comparison to its rows. An omitted ID includes all candidates. For each state, WHYJ sums the session counts of successful rows even when folds overlap, averages available per-fold returns and Sharpe equally across folds, and takes the minimum signed drawdown. Skipped rows contribute only to the skipped count. Coverage preserves zero-valued observations and missing metrics separately. The saved folds provide the state, session count and measured outcomes. [TSP workbench projection](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/mining.py#L823)
 
+## Mining workbench run summary
+
+`summarizeTspMiningRun` returns WHYJ factor and selected factor counts, candidate count, profile confidence, and valid or skipped outer fold counts from fixed artifacts. The run-level counts include selected overall rows and overall rows without a candidate signature. The search budget is exhausted at either saved trial limit or when the outer search recorded a budget exhaustion error. The reported real trial count is the larger of the search trial count and evaluator backtest count. Recorded duration and memory belong to the worker that measured them. [TSP mining run summary](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/mining_runtime.py#L667)
+
 ## Strategy Guardian
 
 `planTspStrategyGuardianCheck` uses a fixed exchange-session sequence and counts sessions strictly after the strategy baseline date. The defaults require 30 new sessions and split the fresh span into as many as four equal calendar segments with at least 14 days each. The planner reports insufficient new sessions and short calendar spans separately.
