@@ -3,13 +3,15 @@ import { archiveMarketRegimeManifest, loadMarketRegimeManifest, MARKET_REGIME_MA
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from "../../../src/market/symbols.ts";
 import {
-  computeTspBacktestCandidates, computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspExtensionGroups, computeTspMiningCandidateReport,
+  computeTspBacktestCandidates, computeTspBacktestDailyTrades, computeTspBacktestPortfolio, computeTspBacktestRobustness,
+  computeTspExtensionGroups, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
   parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
   summarizeTspStrategyGuardianHistory, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_MONITOR_EVENT_TYPES, type TspScreenerScoreInput,
-  type TspBacktestCandidateInput, type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
+  type TspBacktestCandidateInput, type TspBacktestDailyTradesInput, type TspBacktestPortfolioInput, type TspBacktestRobustnessInput,
+  type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
   type TspStrategyGuardianThresholds, type TspStrategyMonitorCapture, type TspStrategyMonitorInput, type TspStrategyMonitorSignal,
@@ -629,6 +631,20 @@ async function replayBacktestBenchmarkSupplement(
     signal?.throwIfAborted();
     throw Object.assign(new Error("Could not replay the requested backtest benchmark archives."), { code: "observation_archive_unavailable" });
   }
+}
+
+function parseBacktestDailyTradesManifest(value: unknown): TspBacktestDailyTradesInput {
+  const { schemaVersion, currency, trades: rawTrades } = observationManifestObject(value, ["schemaVersion", "currency", "trades"]);
+  if (schemaVersion !== 1 || currency !== "CNY" || !Array.isArray(rawTrades)) throw invalid();
+  const trades = rawTrades.map((entry: unknown) => {
+    const { symbol, entryDate, exitDate, entryValue, exitValue, pnlAmount } =
+      observationManifestObject(entry, ["symbol", "entryDate", "exitDate", "entryValue", "exitValue", "pnlAmount"]);
+    if (typeof symbol !== "string" || typeof entryDate !== "string" || typeof exitDate !== "string" ||
+      (entryValue !== null && typeof entryValue !== "number") || (exitValue !== null && typeof exitValue !== "number") ||
+      (pnlAmount !== null && typeof pnlAmount !== "number")) throw invalid();
+    return { symbol, entryDate, exitDate, entryValue, exitValue, pnlAmount };
+  });
+  return { currency, trades };
 }
 
 function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInput & { benchmark?: BacktestBenchmarkSupplement } {
@@ -1864,6 +1880,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     const dates = report.status === "available" ? { start: report.curve[0]!.exitDate, end: report.curve.at(-1)!.exitDate } : null;
     const benchmark = await replayBacktestBenchmarkSupplement(input.benchmark, { basis: "independent-exits", totalReturn }, dates, signal);
     return { ...report, benchmark };
+  }
+  if (action === "replay-backtest-daily-trades") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseBacktestDailyTradesManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return computeTspBacktestDailyTrades(input); }
+    catch { throw invalid(); }
   }
   if (action === "replay-paper-ledger") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");

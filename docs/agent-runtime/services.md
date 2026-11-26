@@ -669,6 +669,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 使用 `whyj --json observation replay-backtest-candidates --manifest candidates.json` 重放 [TSP 全量独立执行](../quant-harness/alpha-backtest.md#固定证据的-tsp-全量独立执行)。清单使用 `schemaVersion: 1`，包含扫描的 `candidateCount`、`execution` 计数对象和已实现样本 `trades`。每行提供 `symbol`、`exitDate`、小数收益 `pnlFraction` 和非负整数 `holdingDays`。JSON 返回逐退出日曲线、分标的绩效、20 档收益分布及公式版本。空交易数组返回 `status: "unavailable"` 并保留候选数和执行计数。可选 `includeMonteCarlo: false` 跳过重抽样。此命令可离线执行，无效清单返回 `invalid_arguments`。
 
+使用 `whyj --json observation replay-backtest-daily-trades --manifest daily-trades.json` 重放 [TSP 回测每日交易](../quant-harness/alpha-backtest.md#tsp-回测每日交易)。清单包含 `schemaVersion: 1`、`currency: "CNY"` 与 `trades: [{ symbol, entryDate, exitDate, entryValue, exitValue, pnlAmount }]`。金额缺测使用 `null`，实际零值用 `0`。返回按交易日降序排列的成交索引、买卖计数、金额、已实现及累计盈亏和各项观测笔数。命令只读取本地清单，无效清单返回 `invalid_arguments`。
+
 `replayTspBacktestBenchmark` 用一个或多个 `benchmark-index` 固定归档回放 [同期上证和超额收益](../quant-harness/alpha-backtest.md#tsp-回测基准与超额收益)。一次回放使用同一供应商的 `000001.SH`，TickFlow 和 Tushare 均支持。归档请求区间须连续覆盖配置区间，实际观测日期可能稀疏。超过单次请求上限的区间可组合多个归档，重叠日期的原始收盘点数须一致。结果保留每个归档的来源、端点、修订、观测时间和请求区间。
 
 两个回测清单都可提供 `benchmark: { start, end, benchmarkRevisions }`。用 `whyj --json observation collect-benchmark --symbol 000001.SH --start YYYY-MM-DD --end YYYY-MM-DD` 取得归档，把互异的 `data.ref.revision` 填入 `benchmarkRevisions`。配置区间须包含策略报告的净值日或退出日。输出的 `benchmark.input` 保留归档证据，`benchmark.metrics` 给出基准收益、超额收益和采用的策略口径。清单或策略日期无效时返回 `invalid_arguments`，归档缺失、损坏或不匹配时返回 `observation_archive_unavailable`。省略 `benchmark` 时保留原有 JSON。
