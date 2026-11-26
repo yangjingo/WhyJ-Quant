@@ -1,5 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
-import { fetchTspExtensionPage, type TspExtensionRowsRequest } from "../index.ts";
+import { fetchTspExtensionIntradaySeries, fetchTspExtensionPage, type TspExtensionRowsRequest } from "../index.ts";
 
 const date = "2025-06-18";
 const request = { datasetId: "flow_demo", selection: { mode: "timeseries", date },
@@ -106,6 +106,67 @@ test("rejects mismatched scopes, malformed cells and reflected secrets without l
     await expect(fetchTspExtensionPage(request, connection, { signal: AbortSignal.abort() })).rejects.toMatchObject({ name: "AbortError" });
     expect(provider).not.toHaveBeenCalled();
   } finally { provider.mockRestore(); }
+});
+
+test("reads an exact intraday extension series and preserves native wall times, zero and signed values", async () => {
+  const observed = "600001.SH", missing = "600002.SH", empty = "000001.SZ";
+  const request = { datasetId: "auction_demo", field: "竞价未匹配量", date, symbols: [missing, observed, empty] };
+  const requests: URL[] = [];
+  let redirect = false;
+  const provider = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch(req) {
+    const url = new URL(req.url);
+    requests.push(url);
+    if (req.headers.get("authorization") !== "Bearer " + token) return new Response(null, { status: 403 });
+    if (redirect) return new Response(null, { status: 302, headers: { location: "/unexpected-target" } });
+    return Response.json({ config_id: request.datasetId, field: request.field, date, granularity: "intraday",
+      items: { [observed]: [["09:15", 0], ["09:16:00", -7], ["09:16:00", 18]], [empty]: [] } });
+  } });
+  try {
+    const connection = { baseUrl: provider.url.origin, apiKey: token };
+    const result = await fetchTspExtensionIntradaySeries(request, connection);
+    expect(requests[0]!.pathname).toBe("/api/ext-data/auction_demo/series");
+    expect(Object.fromEntries(requests[0]!.searchParams)).toEqual({
+      date, field: request.field, symbols: request.symbols.join(","), granularity: "intraday",
+    });
+    expect(result).toMatchObject({ source: "tsp", originalPublisher: "unknown", sourceAsOf: null, request,
+      timeBasis: "provider-wall-clock", valueUnit: "unknown", series: [
+        { symbol: missing, points: null },
+        { symbol: observed, points: [{ time: "09:15", value: 0 }, { time: "09:16:00", value: -7 }, { time: "09:16:00", value: 18 }] },
+        { symbol: empty, points: [] },
+      ] });
+    expect(result.revision).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(result)).not.toContain(token);
+    expect((await fetchTspExtensionIntradaySeries(request, connection)).revision).toBe(result.revision);
+    redirect = true;
+    await expect(fetchTspExtensionIntradaySeries(request, connection)).rejects.toThrow("TSP extension series request failed");
+    expect(requests).toHaveLength(3);
+    expect(requests.every(url => url.pathname === "/api/ext-data/auction_demo/series")).toBe(true);
+  } finally { await provider.stop(true); }
+});
+
+test("rejects mismatched extension series scope, invalid labels and nonnumeric observations", async () => {
+  const request = { datasetId: "auction_demo", field: "qty", date, symbols: ["600000.SH"] };
+  const payload = { config_id: request.datasetId, field: request.field, date, granularity: "intraday", items: {} };
+  const fetcher = spyOn(globalThis, "fetch");
+  try {
+    for (const invalid of [
+      { ...request, datasetId: "../escape" }, { ...request, date: "2025-02-30" }, { ...request, field: "a,b" },
+      { ...request, date: "0000-01-01" }, { ...request, symbols: new Array<string>(1) },
+      { ...request, symbols: [] }, { ...request, symbols: ["600001.SH", "600001.SH"] }, { ...request, symbols: ["x,y"] },
+    ]) await expect(fetchTspExtensionIntradaySeries(invalid, connection)).rejects.toThrow("Invalid TSP extension intraday series request");
+    expect(fetcher).not.toHaveBeenCalled();
+    for (const body of [
+      { ...payload, config_id: "stale_id" }, { ...payload, date: "2025-06-17" }, { ...payload, field: "other" },
+      { ...payload, granularity: "daily" }, { ...payload, items: { "600001.SH": [["09:30", 0]] } },
+      { ...payload, items: { "600000.SH": [["25:00", 0]] } }, { ...payload, items: { "600000.SH": [["09:30", null]] } },
+      { ...payload, items: { "600000.SH": [["09:30", token]] } },
+    ]) {
+      fetcher.mockResolvedValueOnce(Response.json(body));
+      await expect(fetchTspExtensionIntradaySeries(request, connection)).rejects.toMatchObject({ code: "provider-failure" });
+    }
+    fetcher.mockResolvedValueOnce(Response.json(payload));
+    expect((await fetchTspExtensionIntradaySeries(request, connection)).series).toEqual([{ symbol: "600000.SH", points: null }]);
+  } finally { fetcher.mockRestore(); }
 });
 
 test("distinguishes a source timeout from an explicit cancellation", async () => {

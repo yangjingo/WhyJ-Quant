@@ -43,6 +43,7 @@ The selected HTTP or Python adapter is chosen by `createMarketDataSource`. `getM
 | `fetchDatedDragonTigerBoard` | Read one explicit Fuyao all, institution or hot-money board. Preserve provider counts, CNY amounts, fractional ratios, ordered one- and three-day stock records, and nested seat positions. |
 | `fetchDatedPopularityList` | Read the Fuyao historical top stock list for one Shanghai calendar date. Preserve native ranks and order, Shanghai midnight and capture time. |
 | `fetchTspExtensionPage` | Read one explicit projected page from a configured TSP extension table. Preserve field declarations, returned partition or snapshot sync time, receipt time, content identity and page coverage. |
+| `fetchTspExtensionIntradaySeries` | Read one numeric field for named symbols in an explicit TSP extension partition. Preserve returned time labels, signed values, and omitted symbols. |
 | `fetchHistoricalStockUniverse` | Tushare `bak_basic` returns a provider-defined historical A-share list for one date. Preserves source and optional listing date and industry. Coverage is unknown; a saturated response fails. |
 | `fetchDatedRiskWarnings` | Tushare `stock_st` reads the risk-warning observations for one A-share trading date. Retains provider name and type, capture time, and unknown coverage. |
 | `fetchDatedMoneyFlow` | Tushare `moneyflow` reads one date of Shanghai and Shenzhen equity flows. Preserves the four order-size groups, signed net figures, lots and amounts in ten thousand yuan. |
@@ -155,6 +156,9 @@ Provider-specific Financial Datasets operations; facade mapping unresolved.
 | `fetchTspExtensionPage` | value | Read one TSP `read:ext` projection with explicit mode, date, offset and limit | Supplemental observation |
 | `TspExtensionPage` | type | Projected values, schema and page content identity, origin, coverage and receipt | Units and original publisher remain unknown |
 | `TspExtensionRowsRequest` | type | Configured dataset ID, snapshot or dated partition, projection and page range | Caller-selected scope |
+| `fetchTspExtensionIntradaySeries` | value | Read one dated intraday numeric series column for an explicit symbol set through TSP `read:ext` | Supplemental observation |
+| `TspExtensionIntradaySeries` | type | Per-symbol raw time labels and values, content revision and source receipt | Units and original publisher remain unknown |
+| `TspExtensionIntradaySeriesRequest` | type | Configured dataset ID, numeric field, partition date and exact symbols | Caller-selected scope |
 
 ## `./src/fuyao-popularity.ts`
 
