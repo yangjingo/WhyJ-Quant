@@ -46,6 +46,34 @@ test("replays the pinned TSP portfolio calculator on separate NAV and trade samp
   expect(computeTspBacktestPortfolio({ ...input, includeMonteCarlo: false })).not.toHaveProperty("monteCarlo");
 });
 
+test("replays TSP per-symbol trades independently of NAV coverage", () => {
+  const trades = [
+    { pnlFraction: 0.16, holdingDays: 3, symbol: "600000.SH" },
+    { pnlFraction: -0.08, holdingDays: 2, symbol: "600000.SH" },
+    { pnlFraction: 0, holdingDays: 1, symbol: "000001.SZ" },
+    { pnlFraction: 0, holdingDays: 1, symbol: "600001.SH" },
+  ];
+  const expected = { formulaVersion: "tsp-backtest-per-symbol-v1" as const, groupedTrades: 4, totalTrades: 4, rows: [
+    { symbol: "600000.SH", tradeCount: 2, totalReturn: 0.0672, winRate: 0.5, best: 0.16, worst: -0.08 },
+    { symbol: "000001.SZ", tradeCount: 1, totalReturn: 0, winRate: 0, best: 0, worst: 0 },
+    { symbol: "600001.SH", tradeCount: 1, totalReturn: 0, winRate: 0, best: 0, worst: 0 },
+  ] };
+  for (const equityCurve of [input.equityCurve, []]) {
+    const result = computeTspBacktestPortfolio({ ...input, trades, equityCurve, includeMonteCarlo: false });
+    expect(result.perSymbol).toEqual(expected);
+    expect(result.status).toBe(equityCurve.length ? "available" : "unavailable");
+  }
+
+  const partialTrades = [{ ...input.trades[0]!, symbol: "600000.SH" }, ...input.trades.slice(1)];
+  const { perSymbol, ...report } = computeTspBacktestPortfolio({ ...input, trades: partialTrades, includeMonteCarlo: false });
+  expect(report).toEqual(computeTspBacktestPortfolio({ ...input, includeMonteCarlo: false }));
+  expect(perSymbol).toMatchObject({ groupedTrades: 1, totalTrades: 3,
+    rows: [{ symbol: "600000.SH", tradeCount: 1, winRate: 1 }] });
+  expect(report).not.toHaveProperty("perSymbol");
+  expect(() => computeTspBacktestPortfolio({ ...input, trades: [{ ...input.trades[0]!, symbol: "600000" }] }))
+    .toThrow("Invalid realized trade symbol");
+});
+
 test("retains initial capital, empty evidence and no-loss states separately", () => {
   expect(computeTspBacktestPortfolio({ ...input, equityCurve: [] })).toMatchObject({
     status: "unavailable", reason: "empty-equity-curve", equitySamples: 0, tradeSamples: 3,

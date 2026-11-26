@@ -2,6 +2,7 @@ import { isDailyDate } from "../market/bars.ts";
 import { normalizeSymbol } from "../market/symbols.ts";
 import { finiteStatistic, mean, roundDecimalTiesToEven as round, sampleDeviation } from "./statistics.ts";
 import { computeTspBacktestRobustness } from "./tsp-backtest-robustness.ts";
+import { summarizeTspBacktestSymbols } from "./tsp-backtest-symbols.ts";
 import { TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
 
 export const TSP_BACKTEST_CANDIDATE_FORMULA_VERSION = "tsp-backtest-candidate-execution-v1";
@@ -93,17 +94,6 @@ export function computeTspBacktestCandidates(input: TspBacktestCandidateInput) {
   const deviation = sampleDeviation(dailyReturns);
   const { sortino, perTrade, monteCarlo } = computeTspBacktestRobustness({ trades, periodicReturns: dailyReturns, includeMonteCarlo });
   const averageLoss = nonWins.length ? Math.abs(mean(nonWins)) : 0;
-  const perSymbol = [...bySymbol].map(([symbol, observations]) => {
-    let value = 1, winCount = 0, best = -1, worst = Infinity;
-    for (const pnl of observations) {
-      value = finiteStatistic(value * (1 + pnl));
-      winCount += Number(pnl > 0);
-      best = Math.max(best, pnl);
-      worst = Math.min(worst, pnl);
-    }
-    return { symbol, tradeCount: observations.length, totalReturn: round(value - 1),
-      winRate: round(winCount / observations.length), best: round(best), worst: round(worst) };
-  }).sort((left, right) => right.totalReturn - left.totalReturn);
   return {
     ...evidence,
     status: "available" as const,
@@ -121,7 +111,7 @@ export function computeTspBacktestCandidates(input: TspBacktestCandidateInput) {
     sharpe: deviation > 0 ? round(mean(dailyReturns) / deviation * Math.sqrt(252), 2) : 0,
     sortino,
     curve,
-    perSymbol,
+    perSymbol: summarizeTspBacktestSymbols(bySymbol),
     returnDistribution: returnDistribution(returns),
     ...(monteCarlo && { monteCarlo }),
   };

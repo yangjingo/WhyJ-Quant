@@ -54,6 +54,8 @@
 
 总收益以初始本金为基准，年化使用 252 除以净值点数，回撤以已提供的净值峰值为基准。Sharpe 和 Sortino 取相邻净值的收益。胜率、平均盈亏和可选 Bootstrap 使用已实现交易。其中 TSP 的 `profit_factor` 采用平均盈利除以平均非盈利交易的亏损绝对值，零收益交易计入后者。无有效亏损时该值为 `null`。在正净值之后，末点为零表示组合亏损全部本金。首次净值或计算下一期收益所需的净值必须为正。空净值曲线返回不可用。WhyJ Alpha 引擎继续使用自身的账本报告和按日历时间年化的约定。 [TSP 组合绩效实现](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/engine.py#L3549)
 
+组合成交可携带规范化的 `symbol`。至少一笔成交具有标的时，`perSymbol` 按标的输出成交数、复合收益、胜率、最好和最差单笔收益，额外记录统计纳入的成交数与总成交数。各标的按四位小数的复合收益降序排列，同收益保留标的首次出现顺序。该统计仅依赖已实现成交，组合净值为空时仍可用。 [TSP 分标的计算](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/engine.py#L3373)
+
 ## 固定证据的 TSP 全量独立执行
 
 `computeTspBacktestCandidates` 接收一次扫描的候选数、执行计数和逐笔已实现样本。每笔样本携带规范化标的、已完成的退出交易日、持有天数和小数收益率。结果由 WhyJ 计算，记录 `tsp-backtest-candidate-execution-v1` 和参考修订。原始候选数、执行计数和已实现样本数各自保留。

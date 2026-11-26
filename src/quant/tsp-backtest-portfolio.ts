@@ -1,6 +1,8 @@
 import { isDailyDate } from "../market/bars.ts";
+import { normalizeSymbol } from "../market/symbols.ts";
 import { finiteStatistic, mean, roundDecimalTiesToEven as round, sampleDeviation } from "./statistics.ts";
 import { computeTspBacktestRobustness, type TspBacktestRobustnessInput } from "./tsp-backtest-robustness.ts";
+import { summarizeTspBacktestSymbols } from "./tsp-backtest-symbols.ts";
 import { TSP_INDICATOR_REVISION } from "./tsp-indicators.ts";
 
 export const TSP_BACKTEST_PORTFOLIO_FORMULA_VERSION = "tsp-backtest-portfolio-v1";
@@ -10,7 +12,7 @@ export interface TspBacktestPortfolioInput {
   initialCapital: number;
   /** One marked portfolio value and observed exposure per included trading date. */
   equityCurve: readonly { date: string; equity: number; exposureFraction: number }[];
-  trades: TspBacktestRobustnessInput["trades"];
+  trades: readonly (TspBacktestRobustnessInput["trades"][number] & { symbol?: string })[];
   includeMonteCarlo?: boolean;
 }
 
@@ -20,9 +22,20 @@ export function computeTspBacktestPortfolio(input: TspBacktestPortfolioInput) {
     !Array.isArray(trades) || typeof includeMonteCarlo !== "boolean") {
     throw new Error("Invalid portfolio backtest evidence");
   }
-  if (trades.some(trade => !trade || !Number.isFinite(trade.pnlFraction) ||
-    (trade.holdingDays !== null && (!Number.isSafeInteger(trade.holdingDays) || trade.holdingDays < 0)))) {
-    throw new Error("Invalid realized trade observation");
+  const bySymbol = new Map<string, number[]>();
+  let groupedTrades = 0;
+  for (const trade of trades) {
+    if (!trade || !Number.isFinite(trade.pnlFraction) ||
+      (trade.holdingDays !== null && (!Number.isSafeInteger(trade.holdingDays) || trade.holdingDays < 0))) {
+      throw new Error("Invalid realized trade observation");
+    }
+    const { symbol, pnlFraction } = trade;
+    if (symbol === undefined) continue;
+    if (typeof symbol !== "string" || normalizeSymbol(symbol) !== symbol) throw new Error("Invalid realized trade symbol");
+    const observations = bySymbol.get(symbol) ?? [];
+    observations.push(pnlFraction);
+    bySymbol.set(symbol, observations);
+    groupedTrades++;
   }
 
   const evidence = {
@@ -32,6 +45,12 @@ export function computeTspBacktestPortfolio(input: TspBacktestPortfolioInput) {
     periodsPerYear,
     equitySamples: equityCurve.length,
     tradeSamples: trades.length,
+    ...(groupedTrades > 0 && { perSymbol: {
+      formulaVersion: "tsp-backtest-per-symbol-v1" as const,
+      groupedTrades,
+      totalTrades: trades.length,
+      rows: summarizeTspBacktestSymbols(bySymbol),
+    } }),
   };
   if (!equityCurve.length) return { ...evidence, status: "unavailable" as const, reason: "empty-equity-curve" as const };
 
