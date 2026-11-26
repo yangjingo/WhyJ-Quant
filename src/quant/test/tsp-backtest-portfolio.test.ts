@@ -46,6 +46,25 @@ test("replays the pinned TSP portfolio calculator on separate NAV and trade samp
   expect(computeTspBacktestPortfolio({ ...input, includeMonteCarlo: false })).not.toHaveProperty("monteCarlo");
 });
 
+test("uses initial capital as the chart peak and reports optional position evidence", () => {
+  const report = computeTspBacktestPortfolio({ ...input, equityCurve: [
+    { date: "2026-05-27", equity: 90, exposureFraction: 0, cash: 0, positionCount: 0 },
+    { date: "2026-05-28", equity: 85, exposureFraction: 0.43219 },
+    { date: "2026-05-29", equity: 110, exposureFraction: 0.6, cash: 44.126, positionCount: 3 },
+    { date: "2026-06-01", equity: 105, exposureFraction: 0.5, cash: null },
+  ], includeMonteCarlo: false });
+  expect(report).toMatchObject({
+    status: "available",
+    portfolio: { maxDrawdown: -0.0556 },
+    curve: { formulaVersion: "tsp-backtest-portfolio-curve-v1", rows: [
+      { date: "2026-05-27", equity: 90, exposureFraction: 0, cash: 0, positionCount: 0, drawdownFraction: -0.1 },
+      { date: "2026-05-28", equity: 85, exposureFraction: 0.4322, cash: null, positionCount: null, drawdownFraction: -0.15 },
+      { date: "2026-05-29", equity: 110, exposureFraction: 0.6, cash: 44.13, positionCount: 3, drawdownFraction: 0 },
+      { date: "2026-06-01", equity: 105, exposureFraction: 0.5, cash: null, positionCount: null, drawdownFraction: -0.0455 },
+    ] },
+  });
+});
+
 test("replays TSP per-symbol trades independently of NAV coverage", () => {
   const trades = [
     { pnlFraction: 0.16, holdingDays: 3, symbol: "600000.SH" },
@@ -102,6 +121,7 @@ test("preserves a terminal zero NAV after a positive sample", () => {
   expect(computeTspBacktestPortfolio({ ...input, equityCurve: [first, last] })).toMatchObject({
     status: "available",
     portfolio: { finalEquity: 0, totalReturn: -1, annualReturn: -1, maxDrawdown: -1, calmar: -1, avgExposure: 0 },
+    curve: { rows: [{ date: first.date, drawdownFraction: 0 }, { date: last.date, drawdownFraction: -1 }] },
   });
   expect(() => computeTspBacktestPortfolio({
     ...input, equityCurve: [first, last, input.equityCurve[2]!],
@@ -114,6 +134,9 @@ test("rejects malformed inputs rather than shrinking the reference sample", () =
     { ...sample, date: "2026-02-30" },
     { ...sample, equity: 0 },
     { ...sample, exposureFraction: Infinity },
+    { ...sample, cash: Infinity },
+    { ...sample, positionCount: 0.5 },
+    { ...sample, positionCount: -1 },
   ]) {
     expect(() => computeTspBacktestPortfolio({ ...input, equityCurve: [bad] })).toThrow("equity observation");
   }

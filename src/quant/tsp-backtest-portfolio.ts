@@ -11,7 +11,13 @@ const periodsPerYear = 252;
 export interface TspBacktestPortfolioInput {
   initialCapital: number;
   /** One marked portfolio value and observed exposure per included trading date. */
-  equityCurve: readonly { date: string; equity: number; exposureFraction: number }[];
+  equityCurve: readonly {
+    date: string;
+    equity: number;
+    exposureFraction: number;
+    cash?: number | null;
+    positionCount?: number | null;
+  }[];
   trades: readonly (TspBacktestRobustnessInput["trades"][number] & { symbol?: string })[];
   includeMonteCarlo?: boolean;
 }
@@ -56,6 +62,7 @@ export function computeTspBacktestPortfolio(input: TspBacktestPortfolioInput) {
 
   const returns: number[] = [];
   const exposures: number[] = [];
+  const chartRows = [];
   let previousDate = "";
   let previousEquity = 0;
   let peak = 0;
@@ -65,7 +72,9 @@ export function computeTspBacktestPortfolio(input: TspBacktestPortfolioInput) {
     if (!sample || typeof sample.date !== "string" || !isDailyDate(sample.date) || sample.date <= previousDate ||
       !Number.isFinite(sample.equity) || sample.equity < 0 ||
       (sample.equity === 0 && (index === 0 || index < equityCurve.length - 1)) ||
-      !Number.isFinite(sample.exposureFraction) || sample.exposureFraction < 0) {
+      !Number.isFinite(sample.exposureFraction) || sample.exposureFraction < 0 ||
+      (sample.cash != null && !Number.isFinite(sample.cash)) ||
+      (sample.positionCount != null && (!Number.isSafeInteger(sample.positionCount) || sample.positionCount < 0))) {
       throw new Error("Invalid or unordered portfolio equity observation");
     }
     if (previousDate) returns.push(finiteStatistic(sample.equity / previousEquity - 1));
@@ -75,6 +84,15 @@ export function computeTspBacktestPortfolio(input: TspBacktestPortfolioInput) {
     maxDrawdown = Math.min(maxDrawdown, sample.equity / peak - 1);
     exposures.push(sample.exposureFraction);
     maxExposure = Math.max(maxExposure, sample.exposureFraction);
+    const chartPeak = Math.max(initialCapital, peak);
+    chartRows.push({
+      date: sample.date,
+      equity: round(sample.equity, 2),
+      exposureFraction: round(sample.exposureFraction),
+      cash: sample.cash == null ? null : round(sample.cash, 2),
+      positionCount: sample.positionCount ?? null,
+      drawdownFraction: round((sample.equity - chartPeak) / chartPeak),
+    });
   }
 
   const totalReturn = finiteStatistic(previousEquity / initialCapital - 1);
@@ -95,6 +113,7 @@ export function computeTspBacktestPortfolio(input: TspBacktestPortfolioInput) {
     status: "available" as const,
     firstDate: equityCurve[0]!.date,
     lastDate: previousDate,
+    curve: { formulaVersion: "tsp-backtest-portfolio-curve-v1" as const, rows: chartRows },
     portfolio: {
       initialCapital: round(initialCapital, 2),
       finalEquity: round(previousEquity, 2),
