@@ -3,10 +3,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { computeTspBacktestPortfolio } from "../../../src/quant/index.ts";
 import { archiveQuotePollCapture, archiveTradingDateObservations } from "../../../src/storage/index.ts";
 
+const entry = process.env.WHYJ_TEST_BUNDLED_CLI === "1"
+  ? ["node", fileURLToPath(new URL("../../../dist/index.js", import.meta.url))]
+  : [process.execPath, "run", "src/index.ts"];
+
 async function runCli(root: string, ...args: string[]) {
-  const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
+  const child = Bun.spawn([...entry, "--json", ...args], {
     cwd: fileURLToPath(new URL("..", import.meta.url)),
     stdout: "pipe",
     stderr: "pipe",
@@ -56,7 +61,24 @@ test("actual CLI replays a versioned portfolio and keeps bad evidence distinct",
       realizedTrades: { winRate: 0.3333, profitFactor: 4, avgHoldingDays: 2 },
     } } });
     expect(result.output.data).not.toHaveProperty("monteCarlo");
+    expect(result.output.data).not.toHaveProperty("perSymbol");
     expect(await replay(manifest)).toEqual(result);
+    const labelled = { ...manifest, trades: [
+      { ...manifest.trades[0], symbol: "600000.SH" },
+      { ...manifest.trades[1], symbol: "600000.SH" },
+      manifest.trades[2]!,
+    ] };
+    const grouped = await replay(labelled);
+    expect(grouped).toMatchObject({ code: 0, output: { ok: true } });
+    expect(grouped.output.data).toEqual(computeTspBacktestPortfolio(labelled));
+    const { perSymbol, ...original } = grouped.output.data;
+    expect(original).toEqual(result.output.data);
+    expect(perSymbol).toEqual({ formulaVersion: "tsp-backtest-per-symbol-v1", groupedTrades: 2, totalTrades: 3, rows: [
+      { symbol: "600000.SH", tradeCount: 2, totalReturn: 0.0672, winRate: 0.5, best: 0.16, worst: -0.08 },
+    ] });
+    expect(await replay({ ...labelled, equityCurve: [] })).toMatchObject({ code: 0, output: { data: {
+      status: "unavailable", reason: "empty-equity-curve", perSymbol,
+    } } });
     expect(await replay({ ...manifest, equityCurve: [] })).toMatchObject({ code: 0, output: { ok: true, data: {
       status: "unavailable", reason: "empty-equity-curve",
     } } });
@@ -64,6 +86,11 @@ test("actual CLI replays a versioned portfolio and keeps bad evidence distinct",
     expect(await replay({ ...manifest, schemaVersion: 2 })).toMatchObject(invalid);
     expect(await replay({ ...manifest, equityCurve: manifest.equityCurve.toReversed() })).toMatchObject(invalid);
     expect(await replay({ ...manifest, trades: [{ pnlFraction: 0 }] })).toMatchObject(invalid);
+    for (const symbol of [null, 600000, "600000", "600000.sh"]) {
+      expect(await replay({ ...manifest, trades: [{ ...manifest.trades[0], symbol }] })).toMatchObject(invalid);
+    }
+    writeFileSync(path, JSON.stringify({ trades: labelled.trades }));
+    expect(await runCli(root, "observation", "backtest-robustness", "--manifest", path)).toMatchObject(invalid);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

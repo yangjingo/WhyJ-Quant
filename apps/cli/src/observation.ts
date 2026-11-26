@@ -586,13 +586,15 @@ function parseListRowsManifest(value: unknown): TspListRowsRequest {
     ...(screener !== undefined && { screener }) };
 }
 
-function parseRealizedTrades(value: unknown): TspBacktestRobustnessInput["trades"] {
+function parseRealizedTrades(value: unknown, { allowSymbol = false } = {}): TspBacktestPortfolioInput["trades"] {
   if (!Array.isArray(value)) throw invalid();
+  const keys = allowSymbol ? ["pnlFraction", "holdingDays", "symbol"] : ["pnlFraction", "holdingDays"];
   return value.map((entry: unknown) => {
-    const { pnlFraction, holdingDays } = observationManifestObject(entry, ["pnlFraction", "holdingDays"]);
+    const { pnlFraction, holdingDays, symbol } = observationManifestObject(entry, keys);
     if (typeof pnlFraction !== "number" || !Number.isFinite(pnlFraction) ||
-      (holdingDays !== null && (typeof holdingDays !== "number" || !Number.isSafeInteger(holdingDays) || holdingDays < 0))) throw invalid();
-    return { pnlFraction, holdingDays };
+      (holdingDays !== null && (typeof holdingDays !== "number" || !Number.isSafeInteger(holdingDays) || holdingDays < 0)) ||
+      (symbol !== undefined && typeof symbol !== "string")) throw invalid();
+    return { pnlFraction, holdingDays, ...(symbol !== undefined && { symbol }) };
   });
 }
 
@@ -639,7 +641,7 @@ function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInp
     if (typeof date !== "string" || typeof equity !== "number" || typeof exposureFraction !== "number") throw invalid();
     return { date, equity, exposureFraction };
   });
-  return { initialCapital, equityCurve: samples, trades: parseRealizedTrades(trades), includeMonteCarlo,
+  return { initialCapital, equityCurve: samples, trades: parseRealizedTrades(trades, { allowSymbol: true }), includeMonteCarlo,
     benchmark: parseBacktestBenchmarkSupplement(benchmark) };
 }
 
