@@ -3,7 +3,7 @@ import { archiveMarketRegimeManifest, loadMarketRegimeManifest, MARKET_REGIME_MA
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from "../../../src/market/symbols.ts";
 import {
-  computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspMiningCandidateReport,
+  computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspExtensionGroups, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
   parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
   summarizeTspStrategyGuardianHistory, tspMinuteIndex,
@@ -13,7 +13,7 @@ import {
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
   type TspStrategyGuardianThresholds, type TspStrategyMonitorCapture, type TspStrategyMonitorInput, type TspStrategyMonitorSignal,
-  type TspMonitorCondition, type TspPaperLedgerEntry, type TspPaperLedgerInput, type TspPaperStatisticsInput,
+  type TspExtensionGroupsInput, type TspMonitorCondition, type TspPaperLedgerEntry, type TspPaperLedgerInput, type TspPaperStatisticsInput,
 } from "../../../src/quant/index.ts";
 import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-analytics.ts";
 import { replayTspAbnormalSnapshot, type AbnormalSnapshotReplayRequest } from "../../../src/runtime/data/abnormal-snapshot-replay.ts";
@@ -1778,6 +1778,22 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       throw Object.assign(new Error("Could not replay paper comparison. Verify accounts and fixed market archive revisions."),
         { code: "observation_archive_unavailable" });
     }
+  }
+  if (action === "replay-extension-groups") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const { schemaVersion, dataset: rawDataset, fields: rawFields, dimensionField, metrics: rawMetrics, rows } =
+      observationManifestObject(await readObservationJsonFile(path, maxObservationManifestBytes, signal),
+        ["schemaVersion", "dataset", "fields", "dimensionField", "metrics", "rows"]);
+    if (schemaVersion !== 1 || typeof dimensionField !== "string" ||
+      !Array.isArray(rawFields) || !Array.isArray(rawMetrics) || !Array.isArray(rows)) throw invalid();
+    const dataset = observationManifestObject(rawDataset, ["id", "schemaRevision", "revision", "source", "frequency",
+      "effectiveDate", "sourceAsOf", "observedAt", "coverage", "totalRows"]);
+    const fields = rawFields.map(field => observationManifestObject(field, ["name", "type", "unit"]));
+    const metrics = rawMetrics.map(metric => observationManifestObject(metric, ["field", "aggregate"]));
+    // The calculator checks metadata, field types and row values against the same schema used for direct callers.
+    try { return computeTspExtensionGroups({ dataset, fields, dimensionField, metrics, rows } as unknown as TspExtensionGroupsInput); }
+    catch { throw invalid(); }
   }
   if (action === "replay-parameter-robustness") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");

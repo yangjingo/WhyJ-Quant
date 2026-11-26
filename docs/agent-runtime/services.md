@@ -770,6 +770,15 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 无法得到目标值时填 `null`。失败的候选可设 `failed: true`，并保留失败前已完成的区间。可选 `fullWindow` 使用同样的观测字段，日期须覆盖完整请求区间。输出包括各段原值、排名、冠军收敛与网格邻域诊断。命令对调用方提供的证据做本地计算。详见 [TSP 指标目录](../quant-harness/tsp-list-catalog.md#parameter-robustness)。
 
+### 扩展数据分组指标
+
+使用 `whyj --json observation replay-extension-groups --manifest extension.json` 从本地固定行离线复算分组统计。清单提供 `schemaVersion: 1`、`dataset`、`fields`、`dimensionField`、`metrics` 与 `rows`。
+
+- `dataset` 包含 `id`、`schemaRevision`、`revision`、`source`、`frequency`、`effectiveDate`、`sourceAsOf`、`observedAt`、`coverage` 和 `totalRows`。未知的生效日、源时间和总行数用 `null`。时间使用 UTC，完整输入的总行数与 `rows` 长度一致。
+- `fields` 中的 `type` 为 `number`、`text`、`date` 或 `boolean`。数值字段必须声明 `unit`。`metrics` 中的项包含 `field` 和 `aggregate`，可选 `avg`、`sum`、`min` 或 `max`。行可省略缺失字段或填写 `null`。
+
+结果保留源数据覆盖状态、组成员计数、各项实际数值分母和原生单位。清单或字段冲突返回 `invalid_arguments`。 [分组指标定义](../quant-harness/tsp-panel-coverage.md#extension-schema)
+
 ### 指数分钟行情回放
 
 `collectDatedIndexMinutes` 使用当前 Source 捕获指定指数和历史上海日期，返回固定归档引用。空响应也有可回放的引用。`replayDatedIndexMinutes` 按引用读取原始分钟和 WhyJ 派生指标。若提供昨收输入，还须提供日线归档及调用方确认的相邻交易日对与日历版本。仅使用同 TickFlow 指数在该上一交易日的收盘点位。查询范围内缺少该观察时，分时涨跌为空。本地回放无需供应商访问。时间戳和量额单位保留供应商标记。 [指标口径](../quant-harness/tsp-dashboard-audit.md#index-minute-chart-returns)
