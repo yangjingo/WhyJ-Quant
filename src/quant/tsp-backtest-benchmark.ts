@@ -26,6 +26,7 @@ export function computeTspBacktestBenchmark({ range, strategy, index }: TspBackt
     throw new Error("Invalid TSP backtest benchmark evidence");
   }
   type Endpoint = { tradeDate: string; closePoints: number; reportClosePoints: number };
+  const rows: { date: string; closePoints: number }[] = [];
   let previous = "", eligibleCount = 0;
   let first: Endpoint | null = null, last: Endpoint | null = null;
   for (const row of index.closes) {
@@ -38,6 +39,7 @@ export function computeTspBacktestBenchmark({ range, strategy, index }: TspBackt
     previous = tradeDate;
     if (closePoints === null || closePoints <= 0) continue;
     const reportClosePoints = roundDecimalTiesToEven(closePoints);
+    rows.push({ date: tradeDate, closePoints: reportClosePoints });
     if (reportClosePoints <= 0) continue;
     const endpoint = { tradeDate, closePoints, reportClosePoints };
     first ??= endpoint;
@@ -51,6 +53,7 @@ export function computeTspBacktestBenchmark({ range, strategy, index }: TspBackt
     referenceRevision: TSP_INDICATOR_REVISION,
     range: { start, end },
     strategy: { basis, totalReturn },
+    curve: { formulaVersion: "tsp-backtest-benchmark-curve-v1" as const, rows },
     observation: { symbol: index.symbol, rowCount: index.closes.length, eligibleCount, first, last },
   };
   if (eligibleCount < 2 || !first || !last) return {

@@ -66,7 +66,7 @@
 
 ## TSP 回测基准与超额收益
 
-`computeTspBacktestBenchmark` 使用配置区间内的上证指数 `000001.SH` 收盘点数和策略累计收益。它接受组合净值或全量独立执行的收益口径，输出带 `tsp-backtest-benchmark-v1` 版本的 WhyJ 指标。基准收益等于末个有效点除以首个有效点减一，计算前按 TSP 接口将点数舍入至四位小数。超额收益为策略累计收益减去同期基准收益，两者均用小数比例。配置区间、实际使用的首末日期、原始点数、舍入点数和样本量分别保留。有效收盘少于两条时基准与超额均为 `null`。策略累计收益缺失时可以单独得到基准收益。 [TSP 指数读取](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/strategy.py#L2853) · [TSP 报告计算](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/pages/backtest/StrategyBacktest.tsx#L1328)
+`computeTspBacktestBenchmark` 使用配置区间内的上证指数 `000001.SH` 收盘点数和策略累计收益。它接受组合净值或全量独立执行的收益口径，输出带 `tsp-backtest-benchmark-v1` 版本的 WhyJ 指标。基准收益等于末个有效点除以首个有效点减一，计算前按 TSP 接口将点数舍入至四位小数。超额收益为策略累计收益减去同期基准收益，两者均用小数比例。配置区间、实际使用的首末日期、原始点数、舍入点数和样本量分别保留。有效收盘少于两条时基准与超额均为 `null`。策略累计收益缺失时可以单独得到基准收益。`curve` 以 `tsp-backtest-benchmark-curve-v1` 返回逐日基准收盘点数，便于与策略净值按日期叠加。它省略缺失和非正的收盘观测，保留正收盘舍入得到的零点；这类零点不参与汇总收益。 [TSP 指数读取](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/strategy.py#L2853) · [TSP 报告计算](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/pages/backtest/StrategyBacktest.tsx#L1328)
 
 ## References
 
