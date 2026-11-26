@@ -58,6 +58,8 @@ export { computeTspPaperComparison, TSP_PAPER_COMPARISON_FORMULA_VERSION } from 
 export type { TspPaperComparisonAccount, TspPaperComparisonInput } from "./tsp-paper-comparison.ts";
 export { computeTspExtensionGroups, TSP_EXTENSION_GROUPS_FORMULA_VERSION } from "./tsp-extension-groups.ts";
 export type { TspExtensionDataset, TspExtensionField, TspExtensionGroupsInput, TspExtensionMetric } from "./tsp-extension-groups.ts";
+export { computeTspExtensionIntraday, TSP_EXTENSION_INTRADAY_FORMULA_VERSION } from "./tsp-extension-intraday.ts";
+export type { TspExtensionIntradayInput, TspExtensionIntradaySeries } from "./tsp-extension-intraday.ts";
 export { computeTspResearchFactors, TSP_RESEARCH_FACTOR_FORMULA_VERSION } from "./tsp-research-factors.ts";
 export type { TspResearchFactorBar, TspResearchFactorInputs, TspResearchFactorId, TspResearchFinancialReport } from "./tsp-research-factors.ts";
 export { computeTspPriceLevels, TSP_PRICE_LEVEL_FORMULA_VERSION } from "./tsp-price-levels.ts";

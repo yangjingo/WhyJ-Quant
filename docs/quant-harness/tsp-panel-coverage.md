@@ -110,6 +110,10 @@ User state owns the menu and column choices. The configured publisher owns sourc
 
 The result is WhyJ-derived and reports the fixed projection's own coverage. A group count counts memberships, including multiple references to a row. This entry receives rows supplied by the caller. Provider discovery, pagination and archive capture have their own contracts. [TSP extension rows](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/ext_data.py#L625)
 
+`computeTspExtensionIntraday` accepts the fixed group member list, an explicit comparison universe and unadjusted minute closes for one Shanghai date. A valid close from the declared prior date supplies a stock's baseline. Without one, the first positive finite minute close supplies the baseline. Returns beyond the reference 30% band plus floating-point tolerance are discarded. The output reports mixed baselines and their revisions.
+
+The comparison line equally weights the observed returns at each timestamp. The group line carries each member's latest eligible return after its first observation through the observed market timeline. Above 2,000 members with valid minutes it uses observed members only. Both lines report their own denominators and four-decimal fractional returns. Missing measurements and an empty group remain distinguishable. [TSP dimension minute curves](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/ext_data.py#L846)
+
 ## Fixed evidence paths
 
 | Dataset | Producer through consumer | Failure and synchronization boundary |
