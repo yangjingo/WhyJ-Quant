@@ -60,6 +60,7 @@ import { collectSectorObservations, type SectorCollectionRequest } from "../../.
 import { replayTspSectorMonitor, type SectorMonitorReplayRequest } from "../../../src/runtime/data/sector-monitor-replay.ts";
 import { replayTspSectorRanking, type SectorRankReplayRequest } from "../../../src/runtime/data/sector-rank-replay.ts";
 import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotation.ts";
+import { readTspListAuctionOverlay, type TspListAuctionOverlayRequest } from "../../../src/runtime/data/tsp-list-auction-overlay.ts";
 import { collectDatedTickFlowStockMinutes, previewCurrentTspEtfIntraday, previewCurrentTspListIntraday, replayTspTickFlowStockMinutes,
   type CurrentTspEtfIntradayRequest, type CurrentTspListIntradayRequest, type TickFlowStockMinuteReplayRequest } from "../../../src/runtime/data/tickflow-stock-minute-replay.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
@@ -147,6 +148,25 @@ function observationManifestObject(value: unknown, keys: readonly string[]): Rec
   if (!value || typeof value !== "object" || Array.isArray(value) ||
     Object.keys(value).some(key => !keys.includes(key))) throw invalid();
   return value as Record<string, unknown>;
+}
+
+function parseListAuctionOverlayManifest(value: unknown): TspListAuctionOverlayRequest {
+  const { version, datasetId, date, symbols, fields, timeBasis } =
+    observationManifestObject(value, ["version", "datasetId", "date", "symbols", "fields", "timeBasis"]);
+  if (version !== 1 || typeof datasetId !== "string" || !/^[A-Za-z0-9_]{1,128}$/.test(datasetId) ||
+    typeof date !== "string" || !isDailyDate(date) || date < "0001-01-01" || timeBasis !== "caller-confirmed-shanghai-wall-clock" ||
+    !Array.isArray(symbols) || !symbols.length || symbols.length > 100 || new Set(symbols).size !== symbols.length ||
+    symbols.some(symbol => typeof symbol !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(symbol))) throw invalid();
+  const { price, matchedQuantity, unmatchedQuantity } = observationManifestObject(fields, ["price", "matchedQuantity", "unmatchedQuantity"]);
+  const field = (name: unknown) => {
+    if (typeof name !== "string" || !name.length || name.length > 256 || name.trim() !== name || /[,\u0000-\u001f]/.test(name)) throw invalid();
+    return name;
+  };
+  const mapping = { price: field(price), matchedQuantity: matchedQuantity === undefined ? undefined : field(matchedQuantity),
+    unmatchedQuantity: unmatchedQuantity === undefined ? undefined : field(unmatchedQuantity) };
+  const names = Object.values(mapping).filter(name => name !== undefined);
+  if (new Set(names).size !== names.length) throw invalid();
+  return { datasetId, date, symbols, fields: mapping, timeBasis };
 }
 
 const archivedStockKeys = ["symbol", "dailyRevision", "limitsRevision", "rawRevision"] as const;
@@ -1355,6 +1375,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       throw Object.assign(new Error("Could not collect the dated index minutes. Check the configured Source and provider access."),
         { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "read-list-auction-overlay") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseListAuctionOverlayManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try {
+      return await readTspListAuctionOverlay(request, { signal, timeoutMs: 10_000 });
+    } catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not read the requested TSP auction overlay."), { code: "observation_collection_failed" });
     }
   }
   if (action === "read-current-etf-minutes") {
