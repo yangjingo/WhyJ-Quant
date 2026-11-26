@@ -633,6 +633,8 @@ whyj --json observation replay-analytics --revision DAILY_SHA --financial-report
 
 JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` 和 `grouping` 分别提供 Rank IC 和分组结果。财务因子需要足够的同期证据，示例中缺少相应报告的股票保留空值。输入格式错误会返回 `invalid_arguments`。无法重放的因子或归档会返回 `observation_archive_unavailable`。
 
+使用 `whyj --json observation replay-composite-factor --manifest composite.json` 回放[复合因子](../quant-harness/tsp-list-catalog.md#composite-factor-values)。清单包含 `schemaVersion: 1`、`members: [{ factorId, weight }]` 和 `rows: [{ tradeDate, symbol, values }]`。每行按成员 ID 提供所有已计算的因子值，缺测填 `null`。返回 WhyJ 公式版本、原始权重与逐标的分数。命令只读取本地清单，无效输入返回 `invalid_arguments`。
+
 使用 `whyj --json observation replay-factor-significance --manifest factors.json` 可批量复算因子显著性。沿用示例中的 `sessions`、`evaluationStart`、`symbols` 和 `turnoverRevisions`，将 `factorId` 改为 `factorIds` 数组，增加 `"schemaVersion": 1`，并省略 `rebalance`、`groups` 和 `marketEnvironment`。日频检验、单日向前收益和滞后一阶由报告口径确定。JSON 的 `series` 提供每个因子的 IC，`significance` 提供 t、p、q 值和样本计数，`input` 保留精确归档来源。无效清单返回 `invalid_arguments`，无法重放的归档或因子返回 `observation_archive_unavailable`。
 
 因子检验可以传入固定的市场环境归档。服务以因果模式复算环境，核对正式检验日历和已知的预热前驱，再将前一交易日的状态与分数传给 IC 分层计算。响应保留复算清单、前驱日期以及实际使用的市场状态。缺少内部前驱状态或日期顺序不同会使该次回放失败。

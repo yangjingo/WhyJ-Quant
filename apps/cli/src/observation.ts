@@ -4,14 +4,14 @@ import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from "../../../src/market/symbols.ts";
 import {
   computeTspBacktestCandidates, computeTspBacktestDailyTrades, computeTspBacktestFactorAttribution, computeTspBacktestPortfolio,
-  computeTspBacktestRobustness, computeTspExtensionGroups, computeTspMiningCandidateReport,
+  computeTspBacktestRobustness, computeTspCompositeFactor, computeTspExtensionGroups, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
   parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
   summarizeTspStrategyGuardianHistory, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_MONITOR_EVENT_TYPES, type TspScreenerScoreInput,
   type TspBacktestCandidateInput, type TspBacktestDailyTradesInput, type TspBacktestFactorAttributionInput, type TspBacktestPortfolioInput,
-  type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
+  type TspBacktestRobustnessInput, type TspCompositeFactorInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
   type TspStrategyGuardianThresholds, type TspStrategyMonitorCapture, type TspStrategyMonitorInput, type TspStrategyMonitorSignal,
@@ -647,6 +647,29 @@ function parseBacktestDailyTradesManifest(value: unknown): TspBacktestDailyTrade
   return { currency, trades };
 }
 
+function parseFactorValueRow(entry: unknown) {
+  const { symbol, tradeDate, values } = observationManifestObject(entry, ["symbol", "tradeDate", "values"]);
+  if (typeof symbol !== "string" || typeof tradeDate !== "string" || !values || typeof values !== "object" || Array.isArray(values)) {
+    throw invalid();
+  }
+  return { symbol, tradeDate, values: Object.fromEntries(Object.entries(values).map(([name, observed]: [string, unknown]) => {
+    if (observed !== null && typeof observed !== "number") throw invalid();
+    return [name, observed] as const;
+  })) };
+}
+
+function parseCompositeFactorManifest(value: unknown): TspCompositeFactorInput {
+  const { schemaVersion, members: rawMembers, rows: rawRows } =
+    observationManifestObject(value, ["schemaVersion", "members", "rows"]);
+  if (schemaVersion !== 1 || !Array.isArray(rawMembers) || !Array.isArray(rawRows)) throw invalid();
+  const members = rawMembers.map((entry: unknown) => {
+    const { factorId, weight } = observationManifestObject(entry, ["factorId", "weight"]);
+    if (typeof factorId !== "string" || typeof weight !== "number") throw invalid();
+    return { factorId, weight };
+  });
+  return { members, rows: rawRows.map(parseFactorValueRow) };
+}
+
 function parseBacktestFactorAttributionManifest(value: unknown): TspBacktestFactorAttributionInput {
   const { schemaVersion, factors: rawFactors, snapshots: rawSnapshots, trades: rawTrades } =
     observationManifestObject(value, ["schemaVersion", "factors", "snapshots", "trades"]);
@@ -655,16 +678,7 @@ function parseBacktestFactorAttributionManifest(value: unknown): TspBacktestFact
     if (typeof factor !== "string") throw invalid();
     return factor;
   });
-  const snapshots = rawSnapshots.map((entry: unknown) => {
-    const { symbol, tradeDate, values } = observationManifestObject(entry, ["symbol", "tradeDate", "values"]);
-    if (typeof symbol !== "string" || typeof tradeDate !== "string" || !values || typeof values !== "object" || Array.isArray(values)) {
-      throw invalid();
-    }
-    return { symbol, tradeDate, values: Object.fromEntries(Object.entries(values).map(([name, observed]: [string, unknown]) => {
-      if (observed !== null && typeof observed !== "number") throw invalid();
-      return [name, observed] as const;
-    })) };
-  });
+  const snapshots = rawSnapshots.map(parseFactorValueRow);
   const trades = rawTrades.map((entry: unknown) => {
     const { symbol, entryDate, entrySignalDate, pnlFraction } =
       observationManifestObject(entry, ["symbol", "entryDate", "entrySignalDate", "pnlFraction"]);
@@ -2042,6 +2056,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const input = parseWalkForwardManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspWalkForward(input); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-composite-factor") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseCompositeFactorManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return computeTspCompositeFactor(input); }
     catch { throw invalid(); }
   }
   if (action === "replay-factor-evaluation") {
