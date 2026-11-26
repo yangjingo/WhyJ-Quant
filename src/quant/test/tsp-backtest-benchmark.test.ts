@@ -23,6 +23,14 @@ test("reproduces the pinned Shanghai comparison with dated rounded endpoints", (
       first: { tradeDate: "2025-01-03", closePoints: 3200.33334, reportClosePoints: 3200.3333 },
       last: { tradeDate: "2025-01-08", closePoints: 3344.38886, reportClosePoints: 3344.3889 } },
   });
+  expect(result.curve).toEqual({
+    formulaVersion: "tsp-backtest-benchmark-curve-v1",
+    rows: [
+      { date: "2025-01-03", closePoints: 3200.3333 },
+      { date: "2025-01-07", closePoints: 0 },
+      { date: "2025-01-08", closePoints: 3344.3889 },
+    ],
+  });
   expect(result.benchmarkReturn).toBeCloseTo(0.04501268664735636, 14);
   expect(result.excessReturn).toBeCloseTo(0.04498731335264364, 14);
 });
@@ -37,7 +45,10 @@ test("keeps true zero, absent strategy return, and sparse index coverage distinc
     .toMatchObject({ status: "available", benchmarkReturn: 0, excessReturn: null });
   expect(computeTspBacktestBenchmark({ ...zero, index: { ...zero.index, closes: zero.index.closes.slice(0, 1) } }))
     .toMatchObject({ status: "unavailable", reason: "insufficient-index-closes", benchmarkReturn: null, excessReturn: null,
-      observation: { eligibleCount: 1 } });
+      observation: { eligibleCount: 1 },
+      curve: { rows: [{ date: "2025-01-02", closePoints: 3100 }] } });
+  expect(computeTspBacktestBenchmark({ ...zero, index: { ...zero.index, closes: [] } }))
+    .toMatchObject({ status: "unavailable", curve: { rows: [] } });
 });
 
 test("rejects dates, scopes or values that cannot represent fixed benchmark evidence", () => {
