@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { DatedDragonTigerBoard, DragonTigerArchiveRef } from "../../types/dragon-tiger.ts";
 import type { MoneyFlowArchiveRef, StoredMoneyFlowBatch } from "../../types/money-flow.ts";
 import type { DatedPopularityList, PopularityArchiveRef } from "../../types/popularity.ts";
+import type { TspExtensionPage, TspExtensionPageArchiveRef, TspExtensionSourceField } from "../../types/tsp-extension.ts";
 import type { AuctionBenchmarkArchiveRef, BenchmarkIndexArchiveRef, DatedEtfDailyArchiveRef, DatedIndexDailyArchiveRef, DatedIndexMinuteArchiveRef, DatedStockMinuteArchiveRef, DepthSnapshotArchiveRef, FinancialObservationArchiveRef,
   HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, MarketRegimeManifestRef, ObservationArchiveRef, QuotePollArchiveRef, RiskWarningArchiveRef, SectorObservationArchiveRef,
   StoredAuctionBenchmark, StoredBenchmarkIndexBatch, StoredDailyTradingLimitBatch, StoredDatedEtfDailyBatch, StoredDatedIndexDailyBatch, StoredDatedIndexMinuteBatch, StoredDatedStockMinuteBatch, StoredDepthSnapshot,
@@ -1169,4 +1170,93 @@ export async function loadMarketRegimeManifest(ref: MarketRegimeManifestRef, sig
   if (!object(data) || !exactKeys(data, ["version", "kind", "manifest"]) || data.version !== 1 ||
     data.kind !== marketRegimeManifestKind || !object(data.manifest) || Object.keys(data.manifest).length === 0) throw fail();
   return data.manifest;
+}
+
+const tspExtensionPageKind = "tsp-extension-page";
+const tspExtensionPageDir = () => join(resolveDataDir(), "tsp-extension-page-archives-v1");
+const tspExtensionPageLimit = 5 * 1024 * 1024;
+const tspExtensionPageKeys = ["source", "origin", "endpoint", "originalPublisher", "observedAt", "sourceAsOf", "request",
+  "datasetLabel", "partitionDate", "snapshotSyncLocal", "schemaRevision", "revision", "coverage", "totalRows", "fields", "rows", "omittedFields"];
+const extensionRevision = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+
+function tspExtensionPagePath(ref: TspExtensionPageArchiveRef) {
+  if (!object(ref) || !exactKeys(ref, ["version", "kind", "revision"]) || ref.version !== 1 || ref.kind !== tspExtensionPageKind ||
+    !extensionRevision(ref.revision)) throw fail();
+  return join(tspExtensionPageDir(), `${ref.revision}.json`);
+}
+
+function validExtensionOrigin(value: unknown) {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return value === url.origin && (url.protocol === "https:" || (url.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)));
+  } catch { return false; }
+}
+
+function validateTspExtensionPage(page: unknown): asserts page is TspExtensionPage {
+  if (!object(page) || !exactKeys(page, tspExtensionPageKeys) || page.source !== "tsp" || !validExtensionOrigin(page.origin) ||
+    page.originalPublisher !== "unknown" || page.sourceAsOf !== null || typeof page.observedAt !== "string" ||
+    !page.observedAt.endsWith("Z") || !instant(page.observedAt) || typeof page.datasetLabel !== "string" ||
+    !extensionRevision(page.schemaRevision) || !extensionRevision(page.revision) || !Array.isArray(page.rows) ||
+    !Array.isArray(page.fields) || !Array.isArray(page.omittedFields) || typeof page.totalRows !== "number" ||
+    !Number.isSafeInteger(page.totalRows) || page.totalRows < 0 || !object(page.request) ||
+    !exactKeys(page.request, ["datasetId", "selection", "columns", "offset", "limit"])) throw fail();
+  const { datasetId, selection, columns, offset, limit } = page.request;
+  if (typeof datasetId !== "string" || !/^[a-zA-Z0-9_]{1,128}$/.test(datasetId) || page.endpoint !== `/api/ext-data/${datasetId}/rows` ||
+    !Array.isArray(columns) || columns.length < 1 || columns.length > 128 || new Set(columns).size !== columns.length ||
+    page.fields.length !== columns.length || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000 ||
+    typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 5_000 || !object(selection) ||
+    page.rows.length !== Math.max(0, Math.min(limit, page.totalRows - offset))) throw fail();
+  if (selection.mode === "timeseries") {
+    if (!exactKeys(selection, ["mode", "date"]) || !dailyDate(selection.date) ||
+      (page.partitionDate !== selection.date && !(page.partitionDate === null && page.totalRows === 0)) ||
+      page.snapshotSyncLocal !== null) throw fail();
+  } else if (selection.mode !== "snapshot" || !exactKeys(selection, ["mode"]) || page.partitionDate !== null ||
+    (page.snapshotSyncLocal !== null && (typeof page.snapshotSyncLocal !== "string" ||
+      !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(page.snapshotSyncLocal) ||
+      !instant(page.snapshotSyncLocal.replace(" ", "T") + "+08:00")))) throw fail();
+
+  const types = new Map<string, TspExtensionSourceField["dtype"]>();
+  for (const [i, field] of page.fields.entries()) {
+    if (!object(field) || !exactKeys(field, ["name", "dtype", "label"]) || typeof field.name !== "string" ||
+      field.name !== columns[i] || !field.name.length || field.name.length > 256 || field.name.trim() !== field.name ||
+      /[,\u0000-\u001f]/.test(field.name) || typeof field.label !== "string" ||
+      (field.dtype !== "string" && field.dtype !== "bool" && field.dtype !== "float" && field.dtype !== "int")) throw fail();
+    types.set(field.name, field.dtype);
+  }
+  const omitted = new Set<string>();
+  for (const row of page.rows) {
+    if (!object(row) || Object.keys(row).some(key => !types.has(key))) throw fail();
+    for (const [name, dtype] of types) {
+      if (!Object.hasOwn(row, name)) { omitted.add(name); continue; }
+      const value = row[name];
+      if (value === null) continue;
+      const valid = dtype === "string" ? typeof value === "string" : dtype === "bool" ? typeof value === "boolean"
+        : typeof value === "number" && (dtype === "int" ? Number.isSafeInteger(value) : Number.isFinite(value));
+      if (!valid) throw fail();
+    }
+  }
+  const omittedFields = columns.filter(key => omitted.has(key));
+  const reportedOmissions = page.omittedFields;
+  const coverage = offset === 0 && page.rows.length === page.totalRows && !omittedFields.length ? "complete" : "partial";
+  if (page.coverage !== coverage || reportedOmissions.length !== omittedFields.length ||
+    omittedFields.some((name, index) => reportedOmissions[index] !== name)) throw fail();
+}
+
+export async function archiveTspExtensionPage(page: TspExtensionPage, signal?: AbortSignal): Promise<TspExtensionPageArchiveRef> {
+  signal?.throwIfAborted();
+  validateTspExtensionPage(page);
+  const content = canonical({ version: 1, kind: tspExtensionPageKind, page });
+  if (Buffer.byteLength(content) > tspExtensionPageLimit) throw fail();
+  const ref: TspExtensionPageArchiveRef = { version: 1, kind: tspExtensionPageKind, revision: digest(content) };
+  await writeFixedArchive(tspExtensionPageDir(), tspExtensionPagePath(ref), content, signal);
+  return ref;
+}
+
+export async function loadTspExtensionPageArchive(ref: TspExtensionPageArchiveRef, signal?: AbortSignal): Promise<TspExtensionPage> {
+  const data = await readFixedArchive(tspExtensionPagePath(ref), ref.revision, signal, tspExtensionPageLimit);
+  if (!object(data) || !exactKeys(data, ["version", "kind", "page"]) || data.version !== 1 || data.kind !== tspExtensionPageKind) throw fail();
+  validateTspExtensionPage(data.page);
+  return data.page;
 }
