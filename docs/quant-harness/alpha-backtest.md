@@ -60,6 +60,10 @@
 
 曲线按退出日平均各样本收益，从 1 开始复利，回撤曲线也以 1 为初始峰值。汇总最大回撤以首个四位小数曲线点开始计算，曲线起点为零时汇总回撤不可用。Sharpe 和 Sortino 使用退出日平均收益，Bootstrap 使用逐笔收益。收益分布含 20 档，内部区间左闭右开，首尾档包含超出边界的收益。分标的统计按四位小数累计收益排序。空交易结果保留扫描及执行计数并显式返回不可用。该样本曲线和前文的组合账户净值拥有独立口径。 [TSP 全量独立执行](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/engine.py#L3404)
 
+## TSP 回测基准与超额收益
+
+`computeTspBacktestBenchmark` 使用配置区间内的上证指数 `000001.SH` 收盘点数和策略累计收益。它接受组合净值或全量独立执行的收益口径，输出带 `tsp-backtest-benchmark-v1` 版本的 WhyJ 指标。基准收益等于末个有效点除以首个有效点减一，计算前按 TSP 接口将点数舍入至四位小数。超额收益为策略累计收益减去同期基准收益，两者均用小数比例。配置区间、实际使用的首末日期、原始点数、舍入点数和样本量分别保留。有效收盘少于两条时基准与超额均为 `null`。策略累计收益缺失时可以单独得到基准收益。 [TSP 指数读取](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/strategy.py#L2853) · [TSP 报告计算](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/pages/backtest/StrategyBacktest.tsx#L1328)
+
 ## References
 
 1. AKFamily. [AKQuant](https://github.com/akfamily/akquant). 上游框架；本仓库以已锁定适配版本为准。
