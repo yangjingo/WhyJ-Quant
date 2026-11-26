@@ -68,6 +68,12 @@ The mining workbench presents factor scores, rank IC, coverage, turnover and a d
 
 The correlation matrix averages valid daily Spearman correlations after ranking each pair's comparable stocks. Missing or constant pairs remain unavailable, with zero observed dates. The diagonal counts dates with at least two factor observations. Pruning walks candidates in descending score, IR and coverage, then ascending turnover and factor ID. A pair at or beyond the absolute correlation threshold is represented by the already selected factor with the strongest relationship. This defines the training screen. Candidate search, held-out evaluation and publication have separate input and result contracts. [TSP correlation and pruning](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/mining.py#L460)
 
+## Mining date availability and nested folds
+
+`planTspMiningValidation` uses the caller's ordered enriched trading dates for stocks or ETFs and an optional inclusive range. Exploratory requires 219 available bars for one outer fold. Balanced requires 786 for three folds and strict requires 1,164 for three. The output records the available and effective bounds and suggests the earliest date needed for the required window through the requested end. Date gaps remain gaps. A short sample can contain complete folds while still falling below the profile requirement. [TSP availability](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/services/mining_preflight.py#L56)
+
+Each fold preserves the exact train, purge, test and embargo labels. The outer embargo cannot extend past the last supplied date. Inner folds remain within the outer training labels, including their embargo. The report is a WhyJ plan from fixed dates. [TSP nested fold generator](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/mining.py#L766)
+
 ## Mining candidate out-of-sample report
 
 `computeTspMiningCandidateReport` summarizes one candidate's fixed overall outer folds. Every fold identifies its training and test dates, test session count, evaluation kind and either measured values or a skip reason. The calculator rejects duplicate fold IDs and training windows that overlap their own test windows. Valid and skipped counts refer to the supplied folds.

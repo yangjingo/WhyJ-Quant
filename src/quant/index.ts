@@ -50,6 +50,8 @@ export { computeTspFactorMiningScreen, TSP_FACTOR_MINING_SCREEN_FORMULA_VERSION,
 export type { TspFactorMiningRow, TspFactorMiningScreenInput } from "./tsp-factor-mining-screen.ts";
 export { computeTspMiningCandidateReport, TSP_MINING_CANDIDATE_REPORT_FORMULA_VERSION } from "./tsp-mining-candidate-report.ts";
 export type { TspMiningCandidateReportInput, TspMiningCandidateFoldEvidence, TspMiningCandidateFoldMetrics } from "./tsp-mining-candidate-report.ts";
+export { planTspMiningValidation, TSP_MINING_VALIDATION_FORMULA_VERSION } from "./tsp-mining-validation.ts";
+export type { TspMiningValidationInput } from "./tsp-mining-validation.ts";
 export {
   evaluateTspStrategyGuardian, planTspStrategyGuardianCheck, summarizeTspStrategyGuardianHistory,
   TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_GUARDIAN_HISTORY_FORMULA_VERSION,
