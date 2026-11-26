@@ -51,7 +51,10 @@ async function archiveMarketEnvironment() {
 }
 
 async function runCli(root: string, ...args: string[]) {
-  const child = Bun.spawn([process.execPath, "run", "src/index.ts", "--json", ...args], {
+  const entry = process.env.WHYJ_TEST_BUNDLED_CLI === "1"
+    ? ["node", fileURLToPath(new URL("../../../dist/index.js", import.meta.url))]
+    : [process.execPath, "run", "src/index.ts"];
+  const child = Bun.spawn([...entry, "--json", ...args], {
     cwd: fileURLToPath(new URL("..", import.meta.url)), stdout: "pipe", stderr: "pipe",
     env: { ...process.env, OHQUANT_DIR: root, WHYJ_QUANT_TUSHARE_TOKEN: "", WHYJ_QUANT_TICKFLOW_API_KEY: "" },
   });
@@ -193,6 +196,48 @@ test("actual CLI replays the fixed mining screen and exposes the target calendar
     expect(await replay({ ...manifest, symbols: [{ ...manifest.symbols[0], dailyRevisions: ["../outside"] }] })).toMatchObject(invalid);
     expect(await replay({ ...manifest, symbols: [{ ...manifest.symbols[0], dailyRevisions: ["0".repeat(64)] }] }))
       .toMatchObject({ code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } } });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("actual CLI plans TSP mining availability and exact nested dates from a manifest", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-mining-validation-cli-"));
+  const path = join(root, "manifest.json");
+  const availableDates = Array.from({ length: 219 }, (_, i) => new Date(Date.UTC(2023, 0, 1 + i * 2)).toISOString().slice(0, 10));
+  const manifest = { schemaVersion: 1, assetType: "etf", profile: "exploratory", availableDates };
+  function plan(value: unknown) {
+    writeFileSync(path, JSON.stringify(value));
+    return runCli(root, "observation", "plan-mining-validation", "--manifest", path);
+  }
+  try {
+    const help = await runCli(root, "--help");
+    expect(help.output.data.commands).toContainEqual({
+      command: "whyj --json observation plan-mining-validation",
+      description: "Plan TSP mining profile availability and nested validation dates",
+    });
+    const result = await plan(manifest);
+    expect(result).toMatchObject({ code: 0, output: { ok: true, data: {
+      producer: "whyj", formulaVersion: "tsp-mining-validation-v1", assetType: "etf",
+      availability: { tradingBars: 219, requiredBars: 219, eligible: true, outerFolds: 1 },
+      folds: [{
+        outer: { outerIndex: 0, train: availableDates.slice(0, 126), purge: availableDates.slice(126, 156),
+          test: availableDates.slice(156), embargo: [] },
+        inner: [{ outerIndex: 0, innerIndex: 0, train: availableDates.slice(0, 63), purge: availableDates.slice(63, 93),
+          test: availableDates.slice(93, 114), embargo: availableDates.slice(114, 119) }],
+      }],
+    } } });
+    expect(await plan(manifest)).toEqual(result);
+    expect(await plan({ ...manifest, start: availableDates[1], end: availableDates.at(-1) }))
+      .toMatchObject({ code: 0, output: { ok: true, data: {
+        availability: { tradingBars: 218, eligible: false, outerFolds: 0, suggestedStart: availableDates[0] }, folds: [],
+      } } });
+    const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
+    for (const change of [
+      { schemaVersion: 2 }, { profile: "other" }, { assetType: "index" }, { unexpected: true }, { start: 1 },
+      { start: availableDates[1], end: availableDates[0] }, { availableDates: ["2026-02-30"] },
+      { availableDates: [availableDates[0], availableDates[0]] }, { availableDates: availableDates.slice(0, 2).toReversed() },
+    ]) expect(await plan({ ...manifest, ...change })).toMatchObject(invalid);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

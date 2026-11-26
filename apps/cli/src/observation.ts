@@ -6,13 +6,14 @@ import {
   computeTspBacktestCandidates, computeTspBacktestDailyTrades, computeTspBacktestFactorAttribution, computeTspBacktestPortfolio,
   computeTspBacktestRobustness, computeTspCompositeFactor, computeTspExtensionGroups, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
-  parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
+  parseTspIntradaySignalRule, planTspMiningValidation, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
   summarizeTspStrategyGuardianHistory, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_MONITOR_EVENT_TYPES, type TspScreenerScoreInput,
   type TspBacktestCandidateInput, type TspBacktestDailyTradesInput, type TspBacktestFactorAttributionInput, type TspBacktestPortfolioInput,
   type TspBacktestRobustnessInput, type TspCompositeFactorInput, type TspParameterRobustnessInput,
-  type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
+  type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspMiningValidationInput,
+  type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
   type TspStrategyGuardianThresholds, type TspStrategyMonitorCapture, type TspStrategyMonitorInput, type TspStrategyMonitorSignal,
   type TspExtensionGroupsInput, type TspMonitorCondition, type TspPaperLedgerEntry, type TspPaperLedgerInput, type TspPaperStatisticsInput,
@@ -1010,6 +1011,16 @@ function parseFactorMiningScreenManifest(value: unknown): FactorMiningScreenRepl
   const ids = parseFactorIds(factorIds);
   if (ids.length > TSP_MINING_MAX_FACTORS) throw invalid();
   return { ...parseFactorReplayScope(scope), factorIds: ids, forwardSessions, correlationThreshold };
+}
+
+function parseMiningValidationManifest(value: unknown): TspMiningValidationInput {
+  const { schemaVersion, assetType, profile, availableDates, start, end } =
+    observationManifestObject(value, ["schemaVersion", "assetType", "profile", "availableDates", "start", "end"]);
+  if (schemaVersion !== 1 || (assetType !== "stock" && assetType !== "etf") ||
+    (profile !== "exploratory" && profile !== "balanced" && profile !== "strict") ||
+    !Array.isArray(availableDates) || availableDates.some(date => typeof date !== "string") ||
+    (start != null && typeof start !== "string") || (end != null && typeof end !== "string")) throw invalid();
+  return { assetType, profile, availableDates, start, end };
 }
 
 function parseMiningCandidateManifest(value: unknown): TspMiningCandidateReportInput {
@@ -2096,6 +2107,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
       throw Object.assign(new Error("Could not replay the mining screen. Verify factor keys, archive revisions and the training calendar."),
         { code: "observation_archive_unavailable" });
     }
+  }
+  if (action === "plan-mining-validation") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseMiningValidationManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return planTspMiningValidation(request); }
+    catch { throw invalid(); }
   }
   if (action === "replay-mining-candidate") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");
