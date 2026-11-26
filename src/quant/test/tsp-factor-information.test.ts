@@ -80,10 +80,30 @@ test("a missing market session cannot move an outcome to a later observed day", 
     ],
   });
   expect(sparse.series).toEqual([]);
+  expect(sparse.icMovingAverage.rows).toEqual([]);
   expect(sparse.summary).toEqual({ icMean: null, icStd: null, ir: null, winRate: null, nDates: 0 });
   expect(sparse.decay).toEqual([{ horizon: 1, icMean: null, nDates: 0 }, { horizon: 3, icMean: -1, nDates: 1 },
     { horizon: 5, icMean: null, nDates: 0 }]);
   expect(computeTspFactorInformation({ ...input, rows: [] }).coverage).toBeNull();
+});
+
+test("the twelve-point IC moving average skips unobserved dates and retains the warm-up", () => {
+  const dates = Array.from({ length: 16 }, (_, i) => new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10));
+  const observations = dates.flatMap((tradeDate, i) => {
+    const ranks = [[2, 4, 1, 3], [1, 2, 4, 3]][i] ?? [1, 2, 3, 4];
+    return ranks.map((factor, j) => ({ symbol: "S" + j, tradeDate, close: 10 + i * j, factor: i === 6 ? null : factor }));
+  });
+  const { series, icMovingAverage } = computeTspFactorInformation({ ...input, sessions: dates, rows: observations });
+  expect(series.map(({ ic }) => ic)).toEqual([0, 0.8, ...Array(12).fill(1)]);
+  expect(icMovingAverage).toEqual({
+    formulaVersion: "tsp-factor-ic-moving-average-v1", periods: 12,
+    rows: [
+      ...dates.slice(0, 12).filter((_date, i) => i !== 6).map(tradeDate => ({ tradeDate, value: null })),
+      { tradeDate: dates[12], value: 10.8 / 12 },
+      { tradeDate: dates[13], value: 11.8 / 12 },
+      { tradeDate: dates[14], value: 1 },
+    ],
+  });
 });
 
 test("rejects ambiguous rows, invalid calendars and nonfinite inputs", () => {
