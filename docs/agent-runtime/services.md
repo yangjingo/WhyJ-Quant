@@ -671,6 +671,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 `replayTspBacktestBenchmark` 用一个或多个 `benchmark-index` 固定归档回放 [同期上证和超额收益](../quant-harness/alpha-backtest.md#tsp-回测基准与超额收益)。一次回放使用同一供应商的 `000001.SH`，TickFlow 和 Tushare 均支持。归档请求区间须连续覆盖配置区间，实际观测日期可能稀疏。超过单次请求上限的区间可组合多个归档，重叠日期的原始收盘点数须一致。结果保留每个归档的来源、端点、修订、观测时间和请求区间。
 
+两个回测清单都可提供 `benchmark: { start, end, benchmarkRevisions }`。用 `whyj --json observation collect-benchmark --symbol 000001.SH --start YYYY-MM-DD --end YYYY-MM-DD` 取得归档，把互异的 `data.ref.revision` 填入 `benchmarkRevisions`。配置区间须包含策略报告的净值日或退出日。输出的 `benchmark.input` 保留归档证据，`benchmark.metrics` 给出基准收益、超额收益和采用的策略口径。清单或策略日期无效时返回 `invalid_arguments`，归档缺失、损坏或不匹配时返回 `observation_archive_unavailable`。省略 `benchmark` 时保留原有 JSON。
+
 `whyj --json observation replay-paper-ledger --manifest ledger.json` 从固定成交台账还原模拟账户的现金与持仓。清单包含 `schemaVersion: 1`、`accountId`、`currency`、`initialCash`、`asOf` 和按日期、台账顺序排列的 `entries`。成交项提供 `kind: "fill"`、`entryId`、`tradeDate`、`symbol`、`assetType`（`stock` 或 `etf`）、`currency`、`side`、`quantity`、`price`、`fee`。公司行动项提供 `kind: "corp_action"`、`entryId`、`tradeDate`、`symbol`、`factor`。将输出的 `cash`、`initialCash`、`positions` 原样用于同日的 `replay-paper-valuation`。`lots` 保留各批持仓的取得日期，`availableQuantity` 为较早批次的可卖整股数。
 
 使用 `whyj --json observation replay-paper-statistics --manifest account.json` 复算模拟账户统计。清单包含 `schemaVersion: 1`、`accountId`、三字母大写 `currency`、按台账顺序排列的 `fills` 和按日期递增的 `finalizedNav`。成交行包含 `fillId`、`tradeDate`、`symbol`、`side`（`buy` 或 `sell`）、整数股数 `quantity`、成交单价 `price`、手续费 `fee` 和 `currency`。净值行包含 `tradeDate`、`nav` 和同一 `currency`。
