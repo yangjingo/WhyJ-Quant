@@ -54,6 +54,12 @@
 
 总收益以初始本金为基准，年化使用 252 除以净值点数，回撤以已提供的净值峰值为基准。Sharpe 和 Sortino 取相邻净值的收益。胜率、平均盈亏和可选 Bootstrap 使用已实现交易。其中 TSP 的 `profit_factor` 采用平均盈利除以平均非盈利交易的亏损绝对值，零收益交易计入后者。无有效亏损时该值为 `null`。在正净值之后，末点为零表示组合亏损全部本金。首次净值或计算下一期收益所需的净值必须为正。空净值曲线返回不可用。WhyJ Alpha 引擎继续使用自身的账本报告和按日历时间年化的约定。 [TSP 组合绩效实现](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/engine.py#L3549)
 
+## 固定证据的 TSP 全量独立执行
+
+`computeTspBacktestCandidates` 接收一次扫描的候选数、执行计数和逐笔已实现样本。每笔样本携带规范化标的、已完成的退出交易日、持有天数和小数收益率。结果由 WhyJ 计算，记录 `tsp-backtest-candidate-execution-v1` 和参考修订。原始候选数、执行计数和已实现样本数各自保留。
+
+曲线按退出日平均各样本收益，从 1 开始复利，回撤曲线也以 1 为初始峰值。汇总最大回撤以首个四位小数曲线点开始计算，曲线起点为零时汇总回撤不可用。Sharpe 和 Sortino 使用退出日平均收益，Bootstrap 使用逐笔收益。收益分布含 20 档，内部区间左闭右开，首尾档包含超出边界的收益。分标的统计按四位小数累计收益排序。空交易结果保留扫描及执行计数并显式返回不可用。该样本曲线和前文的组合账户净值拥有独立口径。 [TSP 全量独立执行](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/backtest/engine.py#L3404)
+
 ## References
 
 1. AKFamily. [AKQuant](https://github.com/akfamily/akquant). 上游框架；本仓库以已锁定适配版本为准。
