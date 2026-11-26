@@ -243,6 +243,45 @@ test("actual CLI plans TSP mining availability and exact nested dates from a man
   }
 }, 120_000);
 
+test("actual CLI replays fixed mining run counts and trial budget", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-mining-run-cli-"));
+  const path = join(root, "manifest.json");
+  const selected = { foldIndex: 0, state: "overall", candidateId: "winner", evaluationKind: "selected", skipped: false };
+  const skipped = { ...selected, foldIndex: 1, candidateId: null, skipped: true };
+  const trials = { maxProxyTrials: 20, maxTrials: 10, proxyTrialsUsed: 19, searchTrialsUsed: 9, evaluatorBacktestCount: 12 };
+  const manifest = { schemaVersion: 1, profile: "strict", trials, candidateIds: ["winner", "benchmark"],
+    factors: [{ factorId: "rsi", selected: true }, { factorId: "momentum", selected: false }],
+    folds: [selected, skipped, { ...selected, state: "weak" }, { ...selected, evaluationKind: "cross" }],
+  };
+  function replay(value: unknown) {
+    writeFileSync(path, JSON.stringify(value));
+    return runCli(root, "observation", "replay-mining-run", "--manifest", path);
+  }
+  try {
+    const help = await runCli(root, "--help");
+    expect(help.output.data.commands).toContainEqual({
+      command: "whyj --json observation replay-mining-run",
+      description: "Summarize fixed mining run counts and trial budgets",
+    });
+    expect(await replay(manifest)).toMatchObject({ code: 0, output: { ok: true, data: {
+      producer: "whyj", formulaVersion: "tsp-mining-run-summary-v1", status: "succeeded", confidence: "high",
+      factorCount: 2, selectedFactorCount: 1, candidateCount: 2, validFoldCount: 1, skippedFoldCount: 1,
+      budgetExhausted: false, trials: { ...trials, trialsUsed: 12 },
+    } } });
+    expect(await replay({ ...manifest, profile: "exploratory", folds: [selected,
+      { ...skipped, outerSearchError: "budget exhausted in outer search" }] })).toMatchObject({ code: 0, output: {
+      ok: true, data: { status: "succeeded_with_budget_exhausted", confidence: "low", skippedFoldCount: 1, budgetExhausted: true },
+    } });
+    const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
+    for (const change of [
+      { schemaVersion: 2 }, { profile: "unknown" }, { candidateIds: ["winner", "winner"] }, { folds: [selected, selected] },
+      { trials: { ...trials, searchTrialsUsed: -1 } }, { folds: [{ ...selected, outerSearchError: "budget exhausted" }] },
+    ]) expect(await replay({ ...manifest, ...change })).toMatchObject(invalid);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
 test("actual CLI compares fixed mining fold outcomes by market regime", async () => {
   const root = mkdtempSync(join(tmpdir(), "whyj-mining-regimes-cli-"));
   const path = join(root, "manifest.json");
