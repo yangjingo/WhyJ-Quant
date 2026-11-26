@@ -34,6 +34,8 @@ Source 可通过 `getMarketDataCapabilities` 查询当前选定供应商在统�
 
 单页包含全部报告行且没有省略投影字段时标记该投影完整。零值和 null 原样保存，省略字段在回执中单列。不同页的本地修订只标识各自内容，无法证明它们来自同一上游版本。 [TSP 扩展行读取](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/ext_data.py#L625)
 
+扩展序列读取 `fetchTspExtensionIntradaySeries` 用相同的 TSP 连接，以 `GET /api/ext-data/{id}/series` 请求一个明确分区日期、一个数值字段和至多 100 个标的。按请求顺序返回标的，供应商省略的序列使用 `null`，显式空序列保持 `[]`。点保留原始时刻字符串、零值和负值，回执记录本地取得时刻及内容修订。数值单位和原始发布者仍未知，字段的用途由消费方绑定。 [TSP 扩展序列接口](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/ext_data.py#L1313)
+
 原生适配器每次调用均请求供应商，共享取数层当前仍有缓存命中与失败回退策略。[#261](https://github.com/yangjingo/WhyJ-Quant/issues/261) 单独跟踪取消普通日线查询的缓存替代，同时保留报告使用的不可变研究证据；该 issue 不等于策略已经变更。
 
 ## 回退提高可用性，也可能改变问题
