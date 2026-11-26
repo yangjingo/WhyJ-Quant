@@ -641,6 +641,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 使用 `whyj --json observation replay-factor-mining-screen --manifest mining.json` 回放训练期因子筛选。沿用显著性清单的 `schemaVersion`、`factorIds`、`sessions`、`evaluationStart`、`symbols` 和可选的 `turnoverRevisions`。最多 48 个因子。额外提供 `correlationThreshold`，取值大于 0 且不超过 1，以及可选的 `forwardSessions`，取值为 1、3 或 5，默认 5。JSON 返回 `input` 归档来源、`targets` 标签对齐及覆盖数和 `screen` 筛选结果。无效清单返回 `invalid_arguments`，缺档、未知因子或没有训练区间内的目标日样本返回 `observation_archive_unavailable`。
 
+`whyj --json observation plan-mining-validation --manifest mining-dates.json` 按清单中的交易日计算 TSP 挖掘档位的历史要求和内外层验证折。清单包含 `schemaVersion: 1`、`assetType`（`stock` 或 `etf`）、`profile`（`exploratory`、`balanced` 或 `strict`）、严格升序且去重的 `availableDates`（已有 enriched 数据的 `YYYY-MM-DD` 日期），以及可选的 `start`、`end` 闭区间边界。返回 WHYJ 产出的 `availability` 及每折的训练、清除、测试与禁入日期。历史不足时返回 `eligible: false` 和可用的 `suggestedStart`。无效清单返回 `invalid_arguments`。输入证据和档位口径见 [挖掘日期与嵌套验证折](../quant-harness/tsp-panel-coverage.md#mining-date-availability-and-nested-folds)。
+
 `whyj --json observation replay-mining-candidate --manifest candidate.json` 汇总候选的固定样本外折次。清单包含 `schemaVersion: 1`、`candidateId`、`profile`（`exploratory`、`balanced` 或 `strict`）和 `folds`。每折提交 `window`（`index`、`trainStart`、`trainEnd`、`testStart`、`testEnd`）、`testSessionCount`、`evaluationKind`（`selected`、`cross` 或 `benchmark`）和 `outcome`。
 
 有效折使用 `outcome.status: "valid"`，并在 `outcome.metrics` 写入 `totalReturnFraction`、`sharpe`、`maxDrawdownFraction` 和 `tradeCount`。缺测字段填写 `null`，观察到的零填写 `0`。跳过折使用 `outcome.status: "skipped"` 并填写 `outcome.reason`。返回各折、汇总结果、指标覆盖折数和 WhyJ 公式版本。训练和测试日期重叠、重复折号及无效字段返回 `invalid_arguments`。 [样本外指标定义](../quant-harness/tsp-panel-coverage.md#mining-candidate-out-of-sample-report)
