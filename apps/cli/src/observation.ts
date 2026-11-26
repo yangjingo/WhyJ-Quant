@@ -63,6 +63,8 @@ import { replayTspSectorRotation } from "../../../src/runtime/data/sector-rotati
 import { readTspListAuctionOverlay, type TspListAuctionOverlayRequest } from "../../../src/runtime/data/tsp-list-auction-overlay.ts";
 import { collectDatedTickFlowStockMinutes, previewCurrentTspEtfIntraday, previewCurrentTspListIntraday, replayTspTickFlowStockMinutes,
   type CurrentTspEtfIntradayRequest, type CurrentTspListIntradayRequest, type TickFlowStockMinuteReplayRequest } from "../../../src/runtime/data/tickflow-stock-minute-replay.ts";
+import { collectTspExtensionPage, replayTspExtensionPageGroups } from "../../../src/runtime/data/tsp-extension-replay.ts";
+import type { TspExtensionRowsRequest } from "../../../src/types/tsp-extension.ts";
 import { replayTspWatchlistReturn } from "../../../src/runtime/data/watchlist-return.ts";
 import { replayTspListLiquidity } from "../../../src/runtime/data/list-liquidity.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes, type TspListRowsRequest } from "../../../src/runtime/data/list-rows.ts";
@@ -167,6 +169,27 @@ function parseListAuctionOverlayManifest(value: unknown): TspListAuctionOverlayR
   const names = Object.values(mapping).filter(name => name !== undefined);
   if (new Set(names).size !== names.length) throw invalid();
   return { datasetId, date, symbols, fields: mapping, timeBasis };
+}
+
+function validExtensionColumn(field: unknown): field is string {
+  return typeof field === "string" && field.length > 0 && field.length <= 256 &&
+    field.trim() === field && !/[,\u0000-\u001f]/.test(field);
+}
+
+function parseExtensionPageRequest(value: unknown): TspExtensionRowsRequest {
+  const { schemaVersion, datasetId, selection, columns, offset, limit } =
+    observationManifestObject(value, ["schemaVersion", "datasetId", "selection", "columns", "offset", "limit"]);
+  const { mode, date } = observationManifestObject(selection, ["mode", "date"]);
+  if (schemaVersion !== 1 || typeof datasetId !== "string" || !/^[a-zA-Z0-9_]{1,128}$/.test(datasetId) ||
+    !Array.isArray(columns) || columns.length < 1 || columns.length > 128 || new Set(columns).size !== columns.length ||
+    !columns.every(validExtensionColumn) ||
+    typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000 ||
+    typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 5_000) throw invalid();
+  if (mode === "snapshot" && date === undefined) return { datasetId, selection: { mode }, columns, offset, limit };
+  if (mode === "timeseries" && typeof date === "string" && date >= "0001-01-01" && isDailyDate(date)) {
+    return { datasetId, selection: { mode, date }, columns, offset, limit };
+  }
+  throw invalid();
 }
 
 const archivedStockKeys = ["symbol", "dailyRevision", "limitsRevision", "rawRevision"] as const;
@@ -1794,6 +1817,50 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     // The calculator checks metadata, field types and row values against the same schema used for direct callers.
     try { return computeTspExtensionGroups({ dataset, fields, dimensionField, metrics, rows } as unknown as TspExtensionGroupsInput); }
     catch { throw invalid(); }
+  }
+  if (action === "collect-extension-page") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parseExtensionPageRequest(await readObservationJsonFile(path, maxRevisionFileBytes, signal));
+    try { return await collectTspExtensionPage(request, { signal }); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not collect the requested extension page. Check the configured TSP read:ext connection and projection."),
+        { code: "observation_collection_failed" });
+    }
+  }
+  if (action === "replay-extension-page-groups") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const { schemaVersion, revision, dimensionField, metrics: rawMetrics, units: rawUnits } =
+      observationManifestObject(await readObservationJsonFile(path, maxRevisionFileBytes, signal),
+        ["schemaVersion", "revision", "dimensionField", "metrics", "units"]);
+    if (schemaVersion !== 1 || typeof revision !== "string" || !revisionPattern.test(revision) ||
+      !validExtensionColumn(dimensionField) || !Array.isArray(rawMetrics)) throw invalid();
+    const seenMetrics = new Set<string>();
+    const metrics: TspExtensionGroupsInput["metrics"] = rawMetrics.map(metric => {
+      const { field, aggregate } = observationManifestObject(metric, ["field", "aggregate"]);
+      if (!validExtensionColumn(field) ||
+        (aggregate !== "avg" && aggregate !== "sum" && aggregate !== "min" && aggregate !== "max")) throw invalid();
+      const key = JSON.stringify([field, aggregate]);
+      if (seenMetrics.has(key)) throw invalid();
+      seenMetrics.add(key);
+      return { field, aggregate };
+    });
+    let units: Record<string, string> | undefined;
+    if (rawUnits !== undefined) {
+      if (!rawUnits || typeof rawUnits !== "object" || Array.isArray(rawUnits) ||
+        Object.entries(rawUnits).some(([field, unit]) => !validExtensionColumn(field) ||
+          typeof unit !== "string" || !unit || unit !== unit.trim() || unit.toLowerCase() === "unknown")) throw invalid();
+      units = rawUnits as Record<string, string>;
+    }
+    const ref = { version: 1, kind: "tsp-extension-page", revision } as const;
+    try { return await replayTspExtensionPageGroups({ ref, dimensionField, metrics, units }, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay the extension page. Verify the revision and projected fields."),
+        { code: "observation_archive_unavailable" });
+    }
   }
   if (action === "replay-parameter-robustness") {
     const path = parseOptions(options, ["--manifest"]).get("--manifest");
