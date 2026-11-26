@@ -3,13 +3,13 @@ import { archiveMarketRegimeManifest, loadMarketRegimeManifest, MARKET_REGIME_MA
 import { isDailyDate } from "../../../src/market/bars.ts";
 import { isAIndexSymbol, isDatedBenchmarkIndexSymbol, isDatedEtfSymbol } from "../../../src/market/symbols.ts";
 import {
-  computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspExtensionGroups, computeTspMiningCandidateReport,
+  computeTspBacktestCandidates, computeTspBacktestPortfolio, computeTspBacktestRobustness, computeTspExtensionGroups, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
   parseTspIntradaySignalRule, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
   summarizeTspStrategyGuardianHistory, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_MONITOR_EVENT_TYPES, type TspScreenerScoreInput,
-  type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
+  type TspBacktestCandidateInput, type TspBacktestPortfolioInput, type TspBacktestRobustnessInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput, type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
   type TspStrategyGuardianThresholds, type TspStrategyMonitorCapture, type TspStrategyMonitorInput, type TspStrategyMonitorSignal,
@@ -615,6 +615,26 @@ function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInp
     return { date, equity, exposureFraction };
   });
   return { initialCapital, equityCurve: samples, trades: parseRealizedTrades(trades), includeMonteCarlo };
+}
+
+function parseBacktestCandidatesManifest(value: unknown): TspBacktestCandidateInput {
+  const { schemaVersion, candidateCount, trades: rawTrades, execution: rawExecution, includeMonteCarlo } =
+    observationManifestObject(value, ["schemaVersion", "candidateCount", "trades", "execution", "includeMonteCarlo"]);
+  if (schemaVersion !== 1 || typeof candidateCount !== "number" || !Array.isArray(rawTrades) ||
+    !rawExecution || typeof rawExecution !== "object" || Array.isArray(rawExecution) ||
+    (includeMonteCarlo !== undefined && typeof includeMonteCarlo !== "boolean")) throw invalid();
+  const execution: Record<string, number> = Object.create(null);
+  for (const [name, count] of Object.entries(rawExecution)) {
+    if (typeof count !== "number") throw invalid();
+    execution[name] = count;
+  }
+  const trades = rawTrades.map((entry: unknown) => {
+    const { symbol, exitDate, pnlFraction, holdingDays } = observationManifestObject(entry, ["symbol", "exitDate", "pnlFraction", "holdingDays"]);
+    if (typeof symbol !== "string" || typeof exitDate !== "string" || typeof pnlFraction !== "number" ||
+      typeof holdingDays !== "number") throw invalid();
+    return { symbol, exitDate, pnlFraction, holdingDays };
+  });
+  return { candidateCount, execution, trades, includeMonteCarlo };
 }
 
 function parsePaperNavRows(value: unknown): TspPaperStatisticsInput["finalizedNav"] {
@@ -1794,6 +1814,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const input = parseBacktestPortfolioManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return computeTspBacktestPortfolio(input); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-backtest-candidates") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseBacktestCandidatesManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return computeTspBacktestCandidates(input); }
     catch { throw invalid(); }
   }
   if (action === "replay-paper-ledger") {
