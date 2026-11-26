@@ -637,9 +637,11 @@ function parseBacktestPortfolioManifest(value: unknown): TspBacktestPortfolioInp
   if (schemaVersion !== 1 || typeof initialCapital !== "number" || !Array.isArray(equityCurve) ||
     (includeMonteCarlo !== undefined && typeof includeMonteCarlo !== "boolean")) throw invalid();
   const samples = equityCurve.map((entry: unknown) => {
-    const { date, equity, exposureFraction } = observationManifestObject(entry, ["date", "equity", "exposureFraction"]);
-    if (typeof date !== "string" || typeof equity !== "number" || typeof exposureFraction !== "number") throw invalid();
-    return { date, equity, exposureFraction };
+    const { date, equity, exposureFraction, cash, positionCount } =
+      observationManifestObject(entry, ["date", "equity", "exposureFraction", "cash", "positionCount"]);
+    if (typeof date !== "string" || typeof equity !== "number" || typeof exposureFraction !== "number" ||
+      (cash != null && typeof cash !== "number") || (positionCount != null && typeof positionCount !== "number")) throw invalid();
+    return { date, equity, exposureFraction, cash, positionCount };
   });
   return { initialCapital, equityCurve: samples, trades: parseRealizedTrades(trades, { allowSymbol: true }), includeMonteCarlo,
     benchmark: parseBacktestBenchmarkSupplement(benchmark) };
