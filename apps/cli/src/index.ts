@@ -76,26 +76,6 @@ if (privateAnnualArgs[0] === "web") {
     process.exit(1);
   }
 }
-if (privateAnnualArgs[0] === "observation") {
-  try {
-    if (args.filter(arg => arg === "--json").length > 1) {
-      throw Object.assign(new Error("Use --json at most once."), { code: "invalid_arguments" });
-    }
-    const { runObservationCommand } = await import("./observation.ts");
-    const result = await runObservationCommand(privateAnnualArgs.slice(1), AbortSignal.timeout(60_000));
-    if (json) writeJson({ ok: true, command: "observation", data: result });
-    else console.log(JSON.stringify(result, null, 2));
-    process.exit(0);
-  } catch (error) {
-    const code = (error as { code?: string }).code;
-    if (code === "invalid_arguments" || code === "observation_collection_failed" || code === "observation_archive_unavailable") {
-      writeFailure(code, (error as Error).message, json, "observation");
-    } else {
-      writeFailure("observation_failed", "The observation command could not start.", json, "observation");
-    }
-    process.exit(1);
-  }
-}
 if (privateAnnualArgs[0] === "private-annual") {
   try {
     if (args.filter(arg => arg === "--json").length > 1) throw new Error("Use --json at most once.");
@@ -152,95 +132,119 @@ if (privateAnnualArgs[0] === "alpaca-paper") {
   }
 }
 
-// Root arguments must name an action. A missing one-shot value or unknown flag
-// must never silently turn into interactive startup.
-if (positional[0] !== "doctor") {
-  const actions = args.flatMap((arg, index) => arg === "-c" || arg === "--command" ? [index] : []);
-  const invalid = actions.length > 1 || args.filter(arg => arg === "--json").length > 1
-    || actions.length === 1 && (!cmdArg?.trim() || cmdArg.startsWith("-"))
-    || actions.length === 1 && args.some((arg, index) => index !== actions[0] && index !== actions[0]! + 1
-      && arg !== "--json" && arg !== "--")
-    || actions.length === 0 && args.some(arg => arg !== "--");
-  if (invalid) {
-    writeFailure("invalid_arguments", "Use whyj, whyj [--json] -c \"/help\", or whyj [--json] doctor. Unknown, repeated or missing root arguments are not accepted.",
-      json, actions.length ? "command" : "startup");
-    process.exit(1);
-  }
-}
-
-// Usage and argument errors are readable even when saved configuration cannot be loaded.
-if (cmdArg) {
-  const { parseCommand } = await import("../../../src/cli/arguments.ts");
-  const { commandPreflightCore } = await import("../../../src/runtime/workspace/command-preflight-core.ts");
-  const parsed = parseCommand(cmdArg);
-  const early = parsed && commandPreflightCore(parsed);
-  if (parsed && early) finishOneShot(parsed, early, json);
-  const { isInstalledToolProbeSchemaQuery } = await import("../../../src/runtime/data/tool-probe-schema.ts");
-  const { commandPreflight } = await import("../../../src/runtime/workspace/command-preflight.ts");
-  if (parsed && (parsed.command === "help" || commandPreflight(parsed) || isInstalledToolProbeSchemaQuery(parsed)))
-    await runOneShot(cmdArg, json, true);
-}
-
-let doctorPhases: ReturnType<typeof parseDoctorPhases>;
-if (positional[0] === "doctor") {
+if (privateAnnualArgs[0] === "observation") {
   try {
-    if (positional.length !== 1 || cmdArg || args.filter(arg => arg === "--phase").length > 1
-      || args.filter(arg => arg === "--json").length > 1 || doctorPhase === true
-      || args.some((arg, index) => arg.startsWith("-") && args[index - 1] !== "--phase" && !["--json", "--phase", "--"].includes(arg))) {
-      throw new Error("Use whyj [--json] doctor [--phase model,tools,data]. Unknown or repeated options are not accepted.");
+    if (args.filter(arg => arg === "--json").length > 1) {
+      throw Object.assign(new Error("Use --json at most once."), { code: "invalid_arguments" });
     }
-    doctorPhases = parseDoctorPhases(doctorPhase);
-  }
-  catch (error) { writeFailure("invalid_arguments", (error as Error).message, json, "doctor"); process.exit(1); }
-}
-
-let settings: OhQuantSettings;
-try {
-  const { migrateOldConfig, loadSettings, saveSettings, resolveSettingsPath } = await import("../../../src/storage/index.ts");
-  migrateOldConfig();
-  const initializeDesktop = process.env.WHYJ_DESKTOP === "1" && !existsSync(resolveSettingsPath());
-  settings = loadSettings();
-  if (initializeDesktop) {
-    settings.preferences.source = "akshare";
-    saveSettings(settings);
-  }
-} catch (error) {
-  const code = (error as NodeJS.ErrnoException).code;
-  const message = code === "ESTORAGEFORMAT" || code === "ELOCKED"
-    ? (error as Error).message : "Could not read settings.json. Check file permissions and retry.";
-  writeFailure("settings_unavailable", message, json, positional[0] === "doctor" ? "doctor" : "startup");
-  process.exit(1);
-}
-
-if (positional[0] === "doctor") {
-  const { buildDoctorErrorResult, collectDoctor, formatDoctorFirstSetupText, formatDoctorProgressLine, formatDoctorText } = await import("../../../src/cli/doctor.ts");
-  try {
-    const doctor = await collectDoctor(settings, process.env, json
-      ? { phases: doctorPhases }
-      : { phases: doctorPhases, onState: (state) => console.log(formatDoctorProgressLine(state)) });
-    if (json) writeJson({ ok: true, command: "doctor", data: doctor });
-    else console.log(`\n${doctor.mode === "first_setup" && doctor.overall === "unconfigured" ? formatDoctorFirstSetupText(doctor) : formatDoctorText(doctor)}`);
-    process.exit(doctor.ready ? 0 : 1);
+    const { runObservationCommand } = await import("./observation.ts");
+    const result = await runObservationCommand(privateAnnualArgs.slice(1), AbortSignal.timeout(60_000));
+    if (json) writeJson({ ok: true, command: "observation", data: result });
+    else console.log(JSON.stringify(result, null, 2));
   } catch (error) {
-    const doctor = buildDoctorErrorResult(settings, process.env, error, doctorPhases);
-    if (json) writeJson({ ok: false, command: "doctor", data: doctor, error: { code: "doctor_failed", message: doctor.phases.find((phase) => phase.status === "fail")?.error || "Doctor failed" } });
-    else console.log(`\n${formatDoctorText(doctor)}`);
+    const code = (error as { code?: string }).code;
+    if (code === "invalid_arguments" || code === "observation_collection_failed" || code === "observation_archive_unavailable") {
+      writeFailure(code, (error as Error).message, json, "observation");
+    } else {
+      writeFailure("observation_failed", "The observation command could not start.", json, "observation");
+    }
+    process.exitCode = 1;
+  }
+} else {
+  await runDefaultCli();
+}
+
+async function runDefaultCli() {
+  // Root arguments must name an action. A missing one-shot value or unknown flag
+  // must never silently turn into interactive startup.
+  if (positional[0] !== "doctor") {
+    const actions = args.flatMap((arg, index) => arg === "-c" || arg === "--command" ? [index] : []);
+    const invalid = actions.length > 1 || args.filter(arg => arg === "--json").length > 1
+      || actions.length === 1 && (!cmdArg?.trim() || cmdArg.startsWith("-"))
+      || actions.length === 1 && args.some((arg, index) => index !== actions[0] && index !== actions[0]! + 1
+        && arg !== "--json" && arg !== "--")
+      || actions.length === 0 && args.some(arg => arg !== "--");
+    if (invalid) {
+      writeFailure("invalid_arguments", "Use whyj, whyj [--json] -c \"/help\", or whyj [--json] doctor. Unknown, repeated or missing root arguments are not accepted.",
+        json, actions.length ? "command" : "startup");
+      process.exit(1);
+    }
+  }
+
+  // Usage and argument errors are readable even when saved configuration cannot be loaded.
+  if (cmdArg) {
+    const { parseCommand } = await import("../../../src/cli/arguments.ts");
+    const { commandPreflightCore } = await import("../../../src/runtime/workspace/command-preflight-core.ts");
+    const parsed = parseCommand(cmdArg);
+    const early = parsed && commandPreflightCore(parsed);
+    if (parsed && early) finishOneShot(parsed, early, json);
+    const { isInstalledToolProbeSchemaQuery } = await import("../../../src/runtime/data/tool-probe-schema.ts");
+    const { commandPreflight } = await import("../../../src/runtime/workspace/command-preflight.ts");
+    if (parsed && (parsed.command === "help" || commandPreflight(parsed) || isInstalledToolProbeSchemaQuery(parsed)))
+      await runOneShot(cmdArg, json, true);
+  }
+
+  let doctorPhases: ReturnType<typeof parseDoctorPhases>;
+  if (positional[0] === "doctor") {
+    try {
+      if (positional.length !== 1 || cmdArg || args.filter(arg => arg === "--phase").length > 1
+        || args.filter(arg => arg === "--json").length > 1 || doctorPhase === true
+        || args.some((arg, index) => arg.startsWith("-") && args[index - 1] !== "--phase" && !["--json", "--phase", "--"].includes(arg))) {
+        throw new Error("Use whyj [--json] doctor [--phase model,tools,data]. Unknown or repeated options are not accepted.");
+      }
+      doctorPhases = parseDoctorPhases(doctorPhase);
+    }
+    catch (error) { writeFailure("invalid_arguments", (error as Error).message, json, "doctor"); process.exit(1); }
+  }
+
+  let settings: OhQuantSettings;
+  try {
+    const { migrateOldConfig, loadSettings, saveSettings, resolveSettingsPath } = await import("../../../src/storage/index.ts");
+    migrateOldConfig();
+    const initializeDesktop = process.env.WHYJ_DESKTOP === "1" && !existsSync(resolveSettingsPath());
+    settings = loadSettings();
+    if (initializeDesktop) {
+      settings.preferences.source = "akshare";
+      saveSettings(settings);
+    }
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    const message = code === "ESTORAGEFORMAT" || code === "ELOCKED"
+      ? (error as Error).message : "Could not read settings.json. Check file permissions and retry.";
+    writeFailure("settings_unavailable", message, json, positional[0] === "doctor" ? "doctor" : "startup");
     process.exit(1);
   }
-} else if (cmdArg) {
-  // Fix MSYS2 path mangling: "/config" → "C:/.../git/.../config"
-  const fixed = cmdArg.replace(/^[A-Z]:\/[^ ]+\/(\w+)/, "/$1");
-  await runOneShot(fixed, json);
-} else {
-  try {
-    const { connectWorkspaceHost } = await import("../../../src/app/bootstrap.ts");
-    const { cliHostOptions } = await import("./web.ts");
-    const connection = await connectWorkspaceHost(cliHostOptions());
-    const { startApp } = await import("../../../src/app.ts");
-    await startApp(connection);
-  } catch (error) {
-    writeFailure("terminal_start_failed", error instanceof Error ? error.message : "Terminal startup failed.", json, "terminal");
-    process.exitCode = 1;
+
+  if (positional[0] === "doctor") {
+    const { buildDoctorErrorResult, collectDoctor, formatDoctorFirstSetupText, formatDoctorProgressLine, formatDoctorText } = await import("../../../src/cli/doctor.ts");
+    try {
+      const doctor = await collectDoctor(settings, process.env, json
+        ? { phases: doctorPhases }
+        : { phases: doctorPhases, onState: (state) => console.log(formatDoctorProgressLine(state)) });
+      if (json) writeJson({ ok: true, command: "doctor", data: doctor });
+      else console.log(`\n${doctor.mode === "first_setup" && doctor.overall === "unconfigured" ? formatDoctorFirstSetupText(doctor) : formatDoctorText(doctor)}`);
+      process.exit(doctor.ready ? 0 : 1);
+    } catch (error) {
+      const doctor = buildDoctorErrorResult(settings, process.env, error, doctorPhases);
+      if (json) writeJson({ ok: false, command: "doctor", data: doctor, error: { code: "doctor_failed", message: doctor.phases.find((phase) => phase.status === "fail")?.error || "Doctor failed" } });
+      else console.log(`\n${formatDoctorText(doctor)}`);
+      process.exit(1);
+    }
+  } else if (cmdArg) {
+    // Fix MSYS2 path mangling: "/config" → "C:/.../git/.../config"
+    const fixed = cmdArg.replace(/^[A-Z]:\/[^ ]+\/(\w+)/, "/$1");
+    await runOneShot(fixed, json);
+  } else {
+    try {
+      const { connectWorkspaceHost } = await import("../../../src/app/bootstrap.ts");
+      const { cliHostOptions } = await import("./web.ts");
+      const connection = await connectWorkspaceHost(cliHostOptions());
+      const { startApp } = await import("../../../src/app.ts");
+      await startApp(connection);
+    } catch (error) {
+      writeFailure("terminal_start_failed", error instanceof Error ? error.message : "Terminal startup failed.", json, "terminal");
+      process.exitCode = 1;
+    }
   }
 }
 
@@ -329,6 +333,7 @@ function writeHelp(json: boolean) {
       { command: "whyj --json observation read-current-index-minutes", description: "Read provisional current index minutes and optional previous-close returns" },
       { command: "whyj --json observation read-current-stock-minutes", description: "Read provisional stock minute batches and optional WHYJ chart indicators" },
       { command: "whyj --json observation read-current-etf-minutes", description: "Read provisional ETF minute batches and optional WHYJ chart indicators" },
+      { command: "whyj --json observation read-list-auction-overlay", description: "Read a dated TSP auction overlay with native extension observations" },
       { command: "whyj --json observation collect-tickflow-stock-minutes", description: "Capture one completed TickFlow stock minute session" },
       { command: "whyj --json observation replay-tickflow-stock-minutes", description: "Replay intraday stock metrics from exact TickFlow minute archives" },
       { command: "whyj --json observation collect-depth", description: "Capture current Shanghai market depth for a specified stock list" },
@@ -403,6 +408,7 @@ function writeHelp(json: boolean) {
     "  whyj --json observation read-current-index-minutes --symbol INDEX --date YYYY-MM-DD [--daily-revision SHA256 --previous-date YYYY-MM-DD --calendar-revision ID]",
     "  whyj --json observation read-current-stock-minutes --manifest PATH",
     "  whyj --json observation read-current-etf-minutes --manifest PATH",
+    "  whyj --json observation read-list-auction-overlay --manifest PATH",
     "  whyj --json observation collect-tickflow-stock-minutes --symbol CODE --date YYYY-MM-DD",
     "  whyj --json observation replay-tickflow-stock-minutes --manifest PATH",
     "  whyj --json observation collect-limits --symbol STOCK --start YYYY-MM-DD --end YYYY-MM-DD",
