@@ -106,6 +106,10 @@ The finalized comparison series retains each account's observed dates and NAV am
 
 User state owns the menu and column choices. The configured publisher owns source values. TSP can aggregate groups over the returned rows. A WhyJ mapping requires discovery of dataset ID and version, value type, unit, frequency, effective and observed times, source identity, entitlement and optional field semantics. Presentation format alone leaves unit and history eligibility unknown. The [exchange proposal](./observation-exchange-proposal.md) supplies a versioned envelope to evaluate before implementing a dynamic adapter.
 
+`computeTspExtensionGroups` accepts fixed rows with an explicit schema, dataset and schema revisions, declared data source, frequency, UTC source and receipt times, and reported coverage. Unknown source time and total row count use null. Numeric fields declare their native unit. Type mismatches fail, while omitted or null cells stay unavailable. The calculation returns a row count, rows without a dimension, and a count and numeric denominator per group. It splits TSP delimiters and preserves repeated memberships. Within a group the numeric operations are average, sum, minimum and maximum. A group with no numeric evidence returns null. Ties preserve the first group occurrence in the input. [TSP dimension aggregation](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/components/ExtDimensionAnalysis.tsx#L123)
+
+The result is WhyJ-derived and reports the fixed projection's own coverage. A group count counts memberships, including multiple references to a row. This entry receives rows supplied by the caller. Provider discovery, pagination and archive capture have their own contracts. [TSP extension rows](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/backend/app/api/ext_data.py#L625)
+
 ## Fixed evidence paths
 
 | Dataset | Producer through consumer | Failure and synchronization boundary |
