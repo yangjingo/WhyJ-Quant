@@ -249,6 +249,11 @@ export function computeTspFactorInformation(input: TspFactorInformationInput, re
     }
   });
 
+  const periods = 12;
+  const movingAverage = series.map(({ tradeDate }, i) => ({
+    tradeDate,
+    value: i < periods - 1 ? null : series.slice(i - periods + 1, i + 1).reduce((sum, point) => sum + point.ic, 0) / periods,
+  }));
   return {
     producer: "whyj" as const,
     formulaVersion: TSP_FACTOR_INFORMATION_FORMULA_VERSION,
@@ -261,6 +266,7 @@ export function computeTspFactorInformation(input: TspFactorInformationInput, re
     summary: summary(allValues),
     ...(regime && { marketRegime: summarizeFactorRegimes(regime.aligned, regime.pricedDates, regime.icByDate, sessions[0]!) }),
     series,
+    icMovingAverage: { formulaVersion: "tsp-factor-ic-moving-average-v1" as const, periods, rows: movingAverage },
     yearly: [...yearly].map(([year, values]) => ({ year, ...summary(values) })),
     decay: decay.map(({ horizon, values }) => ({
       horizon, icMean: values.length ? roundDecimalTiesToEven(mean(values)) : null, nDates: values.length,
