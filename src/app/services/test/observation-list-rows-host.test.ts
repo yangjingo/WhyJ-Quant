@@ -23,12 +23,13 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
   const providerCalls: string[] = [];
   const timestamp = Date.now();
   let failQuotes = false;
+  let turnover: number | undefined = 0.01;
   const provider = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const url = new URL(request.url);
     providerCalls.push(url.pathname + "?" + url.searchParams.get("symbols"));
     if (failQuotes) return new Response("fixture unavailable", { status: 403 });
     return Response.json({ data: [{ symbol, region: "CN", timestamp, last_price: 12, prev_close: 10,
-      open: 10, high: 12, low: 9, volume: 0, amount: null }] });
+      open: 10, high: 12, low: 9, volume: 0, amount: null, ext: { turnover_rate: turnover } }] });
   } });
   saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
     env: { WHYJ_QUANT_TICKFLOW_API_KEY: "fixture-tickflow", TICKFLOW_BASE_URL: provider.url.origin } });
@@ -116,14 +117,24 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     expect(quoteResponse.quotes).toMatchObject({
       status: "observed", source: "tickflow", endpoint: "/v1/quotes", units: "unknown", rows: [
         { symbol: empty, status: "missing" },
-        { symbol, status: "available", sourceTimestamp: timestamp, snapshot: { lastPrice: 12, volume: 0 },
+        { symbol, status: "available", sourceTimestamp: timestamp,
+          snapshot: { lastPrice: 12, volume: 0, reportedTurnoverFraction: 0.01 },
           change: { producer: "whyj", changeAmount: 2, changeFraction: 0.2 } },
       ],
     });
     expect(providerCalls).toEqual(["/v1/quotes?" + empty + "," + symbol]);
+    for (const expected of [0, undefined]) {
+      turnover = expected;
+      const { quotes } = await client.readObservationListQuotes!(requestNow);
+      const quotedRow = quotes.status === "observed" ? quotes.rows.find(row => row.symbol === symbol) : undefined;
+      if (quotedRow?.status !== "available") throw new Error("Expected an available quote");
+      expect(quotedRow.snapshot.reportedTurnoverFraction).toBe(expected);
+      expect(Object.hasOwn(quotedRow.snapshot, "reportedTurnoverFraction")).toBe(expected !== undefined);
+      expect(quotedRow.change).toEqual({ producer: "whyj", changeAmount: 2, changeFraction: 0.2 });
+    }
     failQuotes = true;
     expect(await client.readObservationListQuotes!(requestNow)).toEqual({ fixed: fixedNow, quotes: { status: "unavailable" } });
-    expect(providerCalls).toHaveLength(2);
+    expect(providerCalls).toHaveLength(4);
   } finally {
     await host.close();
     await provider.stop(true);

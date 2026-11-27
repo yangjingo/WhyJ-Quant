@@ -944,6 +944,8 @@ CLI 使用 `whyj --json observation read-current-etf-minutes --manifest PATH`，
 
 运行 `whyj --json observation read-list-auction-overlay --manifest PATH` 读取竞价数据。清单字段为 `version: 1`、`datasetId`、`date`、`symbols`、`fields: { price, matchedQuantity?, unmatchedQuantity? }` 和 `timeBasis: "caller-confirmed-shanghai-wall-clock"`。TSP 连接读取 `WHYJ_QUANT_TSP_BASE_URL` 与 `WHYJ_QUANT_TSP_READ_EXT_TOKEN`。清单无效时返回 `invalid_arguments`，供应商读取失败时返回 `observation_collection_failed`。命令等待输出写完并自然退出。
 
+CLI 和认证 Host 的当日报价在 `quotes.rows[].snapshot.reportedTurnoverFraction` 保留 TickFlow 报告的换手率小数。`0.01` 表示 `1%`，供应商未提供时省略。WHYJ 依据报价前收计算的涨跌仍在逐股 `change` 字段。
+
 ### 流通市值与换手率回放
 
 `replayTspListLiquidity` 以固定市场截面归档和交易所限定的股票代码查询两个列表指标。Runtime 在同一交易日关联 Tushare `daily` 的未复权收盘价与成交量、`daily_basic` 的流通股数。成交量从手换算为股，流通股数从万股换算为股。标的须属于归档股票池，归档内缺失的源记录和计算值以 `null` 表示。
