@@ -98,6 +98,18 @@ test("builds a bounded ordered Host request from the CLI manifest", () => {
   for (const sessions of [[date, date], [date, "2024-03-01"], ["2024-02-30", date], []]) {
     expect(() => listRowsManifest({ ...manifest, limitCalendar: { ...limitCalendar, sessions } })).toThrow("交易日历");
   }
+  const deviationCalendar = { revision: "fixture-deviation", sessions: ["2024-03-01", date] };
+  const deviation = { stockRevision: dailyRevision, benchmarkRevision: rawRevision };
+  const deviationManifest = { ...manifest, deviationCalendar, stocks: [{ symbol, deviation }] };
+  expect(listRowsManifest(deviationManifest)).toMatchObject({ deviationCalendar,
+    stocks: [{ symbol, deviation: { stockRef: { version: 2, revision: dailyRevision },
+      benchmarkRef: { version: 1, kind: "benchmark-index", revision: rawRevision } } }],
+  });
+  for (const invalid of [
+    { ...deviationManifest, deviationCalendar: undefined },
+    { ...deviationManifest, deviationCalendar: { ...deviationCalendar, sessions: [date, date] } },
+    { ...deviationManifest, stocks: [{ symbol, deviation: { ...deviation, benchmarkRevision: "../private" } }] },
+  ]) expect(() => listRowsManifest(invalid)).toThrow("偏离");
   expect(() => listRowsManifest({ ...manifest, stocks: [{ symbol, dailyRevision, limitsRevision, tradingLimitsRevision: limitsRevision }] }))
     .toThrow("一种限价归档");
 });
@@ -135,6 +147,41 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).not.toContain("WHYJ 分时走势");
   expect(html).not.toContain("加入以来涨跌幅");
   expect(html).not.toContain("选股评分依据");
+  expect(html).not.toContain("WHYJ 价格偏离");
+  const deviation: NonNullable<ObservationListRowsPreview["rows"][number]["metrics"]["deviation"]> = {
+    producer: "whyj", date, symbol, board: "SH", benchmark: "000002.SH", benchmarkCandidates: ["000002.SH", "000001.SH"],
+    formula: { id: "tsp_price_deviation", version: 1, revision: "tsp" }, outputUnit: "fraction",
+    values: { deviate_3d: 0, deviate_10d: 0.1, deviate_30d: null },
+    comparisonDates: { 3: "2024-02-28", 10: "2024-02-19", 30: null },
+    input: {
+      stock: { ref: { version: 2, revision: dailyRevision }, symbol, source: "tickflow", endpoint: "/v1/klines", observedAt,
+        requested: { startDate: "2024-02-19", endDate: date }, adjustment: "forward", coverage: "unknown", rowsUsed: 11 },
+      benchmark: { ref: { version: 1, kind: "benchmark-index", revision: rawRevision }, symbol: "000002.SH", source: "tushare",
+        endpoint: "index_daily", observedAt, requested: { start: "2024-02-19", end: date }, priceUnit: "index-points", coverage: "unknown", rowsUsed: 11 },
+    },
+    proximity: { producer: "whyj", date, formula: { id: "tsp_deviation_proximity", version: 1, revision: "tsp" },
+      basis: "completed-session", unit: "fraction", tier: "below-watch", dominantWindow: 10, maxCloseness: 0.1,
+      windows: [{ window: 3, deviation: 0, direction: "up", threshold: 0.2, closeness: 0 },
+        { window: 10, deviation: 0.1, direction: "up", threshold: 1, closeness: 0.1 },
+        { window: 30, deviation: null, direction: null, threshold: null, closeness: null }],
+    },
+  };
+  const renderDeviation = (metric: typeof deviation) => renderToStaticMarkup(<ObservationListResult result={{
+    ...result, deviationCalendar: { revision: "fixture-deviation", sessions: ["2024-02-19", date], zone: "Asia/Shanghai" },
+    rows: result.rows.map(row => ({ ...row, metrics: { ...row.metrics, deviation: metric } })),
+  }} />);
+  const priced = renderDeviation(deviation);
+  expect(priced).toContain("<dt>3 日偏离</dt><dd>0%</dd>");
+  expect(priced).toContain("<dt>10 日偏离</dt><dd>10%</dd>");
+  expect(priced).toContain("<dt>30 日偏离</dt><dd>暂无</dd>");
+  expect(priced).toContain("2024-02-28");
+  for (const text of ["000002.SH", dailyRevision, rawRevision, "tsp_price_deviation", "tsp_deviation_proximity", "fixture-deviation"]) {
+    expect(priced).toContain(text);
+  }
+  expect(renderDeviation({ ...deviation, benchmark: null, input: { ...deviation.input, benchmark: null },
+    values: { deviate_3d: null, deviate_10d: null, deviate_30d: null },
+    proximity: { ...deviation.proximity, tier: "unavailable", dominantWindow: null, maxCloseness: null },
+  })).toContain("未绑定基准指数");
   const screenerResult: ObservationListRowsPreview = { ...result,
     screener: { scoped: 5, matched: 3, strategies: [{
       strategy: scoringStrategy.strategy, formula: { id: "tsp_screener_score", version: 1, revision: "tsp" },

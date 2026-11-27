@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ObservationListIntradayRequest, ObservationListQuoteRow, ObservationListQuotesPreview, ObservationListRowsPreview,
-  ObservationListRowsRequest, ObservationListScreenerScope, WorkbenchClient } from "../client/contract";
+  ObservationListDeviationPreview, ObservationListRowsRequest, ObservationListScreenerScope, WorkbenchClient } from "../client/contract";
 import { ObservationDailyValues } from "./ObservationCollection";
 import { ObservationCandleChart } from "./ObservationCandleChart";
 import { ObservationListIntradayChart } from "./ObservationListIntradayChart";
@@ -103,39 +103,50 @@ function screenerScope(value: unknown): ObservationListScreenerScope {
   return { histories, strategies };
 }
 
+function listCalendar(value: unknown, error: () => Error): NonNullable<ObservationListRowsRequest["limitCalendar"]> {
+  if (!isObject(value) || Object.keys(value).some(key => key !== "revision" && key !== "sessions") ||
+    typeof value.revision !== "string" || !value.revision.trim() || value.revision.length > 256 ||
+    !Array.isArray(value.sessions) || !value.sessions.length) throw error();
+  const sessions: string[] = [];
+  for (const date of value.sessions) {
+    if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < "0001-01-01" ||
+      date <= (sessions.at(-1) ?? "")) throw error();
+    const time = Date.parse(date + "T00:00:00Z");
+    if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== date) throw error();
+    sessions.push(date);
+  }
+  return { revision: value.revision, sessions };
+}
+
+const invalidDeviation = () => new Error("价格偏离需要有效的交易日历、股票归档修订和可选的基准指数归档修订。");
+
+function deviationReferences(value: unknown): NonNullable<ObservationListRowsRequest["stocks"][number]["deviation"]> {
+  if (!isObject(value) || Object.keys(value).some(key => key !== "stockRevision" && key !== "benchmarkRevision") ||
+    !isRevision(value.stockRevision) || (value.benchmarkRevision !== undefined && !isRevision(value.benchmarkRevision))) throw invalidDeviation();
+  return { stockRef: { version: 2, revision: value.stockRevision },
+    ...(value.benchmarkRevision !== undefined && { benchmarkRef: { version: 1, kind: "benchmark-index", revision: value.benchmarkRevision } }) };
+}
+
 export function listRowsManifest(value: unknown): ObservationListRowsRequest {
   if (!isObject(value) || Object.keys(value).some(key => !["version", "marketRevision", "adjustment", "stocks", "limitCalendar",
-    "watchlistMembershipRevision", "screener"].includes(key)) ||
+    "watchlistMembershipRevision", "screener", "deviationCalendar"].includes(key)) ||
     value.version !== 1 || !isRevision(value.marketRevision) || (value.adjustment !== "none" && value.adjustment !== "forward") ||
     !Array.isArray(value.stocks) || value.stocks.length > 100) throw invalid();
   const watchlistError = () => new Error("自选清单需要有效的成员修订。附上收益率历史时也要提供前复权日线归档修订。");
   const { watchlistMembershipRevision } = value;
   if (watchlistMembershipRevision !== undefined && !isRevision(watchlistMembershipRevision)) throw watchlistError();
   const screener = value.screener === undefined ? undefined : screenerScope(value.screener);
-  let limitCalendar: ObservationListRowsRequest["limitCalendar"];
-  if (value.limitCalendar !== undefined) {
-    const calendar = value.limitCalendar;
-    const error = () => new Error("交易日历须包含修订号和升序且互异的有效交易日。");
-    if (!isObject(calendar) || Object.keys(calendar).some(key => key !== "revision" && key !== "sessions") ||
-      typeof calendar.revision !== "string" || !calendar.revision.trim() || calendar.revision.length > 256 ||
-      !Array.isArray(calendar.sessions) || !calendar.sessions.length) throw error();
-    const sessions: string[] = [];
-    for (const date of calendar.sessions) {
-      if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < "0001-01-01" ||
-        date <= (sessions.at(-1) ?? "")) throw error();
-      const time = Date.parse(date + "T00:00:00Z");
-      if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== date) throw error();
-      sessions.push(date);
-    }
-    limitCalendar = { revision: calendar.revision, sessions };
-  }
+  const limitCalendar = value.limitCalendar === undefined ? undefined :
+    listCalendar(value.limitCalendar, () => new Error("交易日历须包含修订号和升序且互异的有效交易日。"));
+  const deviationCalendar = value.deviationCalendar === undefined ? undefined : listCalendar(value.deviationCalendar, invalidDeviation);
   const seen = new Set<string>();
   const stocks: ObservationListRowsRequest["stocks"] = value.stocks.map(entry => {
     if (!isObject(entry) || Object.keys(entry).some(key => !["symbol", "dailyRevision", "limitsRevision", "rawRevision",
       "financialReportRevisions", "financialDisclosureRevisions", "tradingLimitsRevision", "candleBars", "intraday",
-      "watchlistHistoryRevision"].includes(key))) throw invalid();
+      "watchlistHistoryRevision", "deviation"].includes(key))) throw invalid();
     const { symbol, dailyRevision, limitsRevision, rawRevision, financialReportRevisions, financialDisclosureRevisions, tradingLimitsRevision, candleBars,
-      intraday, watchlistHistoryRevision } = entry;
+      intraday, watchlistHistoryRevision, deviation } = entry;
+    if (deviation !== undefined && !deviationCalendar) throw invalidDeviation();
     if (watchlistHistoryRevision !== undefined && (watchlistMembershipRevision === undefined || !isRevision(watchlistHistoryRevision))) {
       throw watchlistError();
     }
@@ -149,6 +160,7 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
     const stock = { symbol, ...(financialArchives !== undefined && { financialArchives }),
       ...(intraday !== undefined && { intraday: intradayReference(intraday) }),
       ...(watchlistHistoryRevision !== undefined && { watchlistHistoryRef: { version: 2, revision: watchlistHistoryRevision } as const }),
+      ...(deviation !== undefined && { deviation: deviationReferences(deviation) }),
       ...(tradingLimitsRevision && { tradingLimitsRef: { version: 1, kind: "daily-trading-limits", revision: tradingLimitsRevision } as const }) };
     if (dailyRevision === undefined && limitsRevision === undefined && rawRevision === undefined) return stock;
     return { ...stock, history: { ...dailyHistory(dailyRevision, limitsRevision, rawRevision, invalid),
@@ -156,7 +168,7 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
   });
   return { marketRef: { version: 1, kind: "market-cross-section", revision: value.marketRevision }, adjustment: value.adjustment, stocks,
     ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }),
-    ...(limitCalendar && { limitCalendar }), ...(screener && { screener }) };
+    ...(limitCalendar && { limitCalendar }), ...(screener && { screener }), ...(deviationCalendar && { deviationCalendar }) };
 }
 
 const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 4 });
@@ -332,9 +344,42 @@ function StockListScreener({ metric }: { metric: NonNullable<ListRow["metrics"][
   </section>;
 }
 
+const proximityStatus = {
+  unavailable: "证据不足",
+  "below-watch": "低于关注区间",
+  watch: "关注",
+  edge: "接近阈值",
+  triggered: "达到分析阈值",
+} as const;
+
+function StockListDeviation({ metric }: { metric: ObservationListDeviationPreview }) {
+  const { formula, input: { stock, benchmark }, values, comparisonDates, proximity } = metric;
+  const fraction = (value: number | null) => display(value === null ? null : value * 100, "%");
+  return <details>
+    <summary>WHYJ 价格偏离</summary>
+    {benchmark ? <p className="supporting observation-ref">基准指数 {benchmark.symbol} · {benchmark.source} · {benchmark.endpoint}
+      {" · "}<code>{benchmark.ref.revision}</code></p> : <p className="supporting">未绑定基准指数。</p>}
+    <ListValues values={([3, 10, 30] as const).flatMap((window): [string, string][] => [
+      [`${window} 日偏离`, fraction(values[`deviate_${window}d`])],
+      [`${window} 日比较日期`, comparisonDates[window] ?? "暂无"],
+    ])} />
+    <p className="supporting observation-ref">前复权历史 {stock.source} · {stock.endpoint} · <code>{stock.ref.revision}</code></p>
+    <p className="supporting observation-ref">{formula.id} v{formula.version} · <code>{formula.revision}</code></p>
+    <h5>分析阈值接近度</h5>
+    <ListValues values={[
+      ["状态", proximityStatus[proximity.tier]],
+      ["最接近阈值的窗口", display(proximity.dominantWindow, " 日")],
+      ...proximity.windows.flatMap(({ window, threshold, closeness }): [string, string][] => [
+        [`${window} 日分析阈值`, fraction(threshold)], [`${window} 日接近度`, fraction(closeness)],
+      ]),
+    ]} />
+    <p className="supporting observation-ref">{proximity.formula.id} v{proximity.formula.version} · <code>{proximity.formula.revision}</code></p>
+  </details>;
+}
+
 function StockListRow({ row, quote }: { row: ListRow; quote?: ObservationListQuoteRow }) {
   const { instrument, membership, observations: { bar, basic, quantities, financial, tradingLimits, dailyCandles, intraday: minuteObservation },
-    metrics: { liquidity, history, daily, signals, limitStreaks, intraday: minuteMetric, watchlistReturn, screener } } = row;
+    metrics: { liquidity, history, daily, signals, limitStreaks, intraday: minuteMetric, watchlistReturn, screener, deviation } } = row;
   return <details className="observation-list-stock">
     <summary>
       <span><strong>{instrument.name || instrument.symbol}</strong><span className="supporting">{instrument.symbol}</span></span>
@@ -385,6 +430,7 @@ function StockListRow({ row, quote }: { row: ListRow; quote?: ObservationListQuo
       ]} />
       <p className="supporting observation-ref">{liquidity.formula.id} v{liquidity.formula.version} · <code>{liquidity.formula.revision}</code></p>
       {minuteObservation && minuteMetric && <StockListIntraday observation={minuteObservation} metric={minuteMetric} />}
+      {deviation && <StockListDeviation metric={deviation} />}
       {limitStreaks && <section aria-label="WHYJ 连板计数">
         <h5>WHYJ 连板计数</h5>
         <ListValues values={[
@@ -437,6 +483,8 @@ export function ObservationListResult({ result, quotes }: {
     </details>}
     {result.limitCalendar && <p className="supporting observation-ref">连板日历 <code>{result.limitCalendar.revision}</code>
       {" · "}{result.limitCalendar.sessions[0]} 至 {result.limitCalendar.sessions.at(-1)}</p>}
+    {result.deviationCalendar && <p className="supporting observation-ref">偏离日历 <code>{result.deviationCalendar.revision}</code>
+      {" · "}{result.deviationCalendar.sessions[0]} 至 {result.deviationCalendar.sessions.at(-1)}</p>}
     {quotes && <p className="supporting" role="status">{quotes.status === "observed"
       ? <>报价 {quotes.source} · {quotes.endpoint} · 获取于 <time dateTime={quotes.observedAt}>{quoteTime.format(new Date(quotes.observedAt))}</time>（上海）· 原始数量单位未知</>
       : quoteBatchStatus[quotes.status]}</p>}
