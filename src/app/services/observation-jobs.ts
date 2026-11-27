@@ -77,14 +77,17 @@ function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][numb
     tradingLimitsRef: fixedReference(value.tradingLimitsRef, "daily-trading-limits", invalidListRows),
   }) };
   if (!Object.hasOwn(value, "history")) return stock;
-  if (!object(history) || Object.keys(history).some(key => key !== "ref" && key !== "exchange")) throw invalidListRows();
-  const ref = dailyReference(history.ref);
-  if (!Object.hasOwn(history, "exchange")) return { ...stock, history: { ref } };
+  if (!object(history) || Object.keys(history).some(key => key !== "ref" && key !== "exchange" && key !== "candleBars")) throw invalidListRows();
+  const { candleBars } = history;
+  if (candleBars !== undefined && (typeof candleBars !== "number" || !Number.isInteger(candleBars) ||
+    candleBars < 5 || candleBars > 60)) throw invalidListRows();
+  const fixedHistory = { ref: dailyReference(history.ref), ...(candleBars !== undefined && { candleBars }) };
+  if (!Object.hasOwn(history, "exchange")) return { ...stock, history: fixedHistory };
   const exchange = history.exchange;
   if (hasTradingLimits || !object(exchange) || Object.keys(exchange).some(key => key !== "rawArchiveRef" && key !== "tradingLimitArchiveRef")) {
     throw invalidListRows();
   }
-  return { ...stock, history: { ref, exchange: {
+  return { ...stock, history: { ...fixedHistory, exchange: {
     tradingLimitArchiveRef: fixedReference(exchange.tradingLimitArchiveRef, "daily-trading-limits", invalidListRows),
     ...(Object.hasOwn(exchange, "rawArchiveRef") && { rawArchiveRef: dailyReference(exchange.rawArchiveRef) }),
   } } };

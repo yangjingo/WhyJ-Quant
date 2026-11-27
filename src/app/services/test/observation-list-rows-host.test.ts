@@ -80,6 +80,17 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     ] });
     expect(await client.readObservationListRows!(request)).toEqual(result);
     expect(result.rows.every(row => !Object.hasOwn(row.observations, "financial"))).toBe(true);
+    const withCandles = { ...request, stocks: [{ ...stock, history: { ...stock.history, candleBars: 5 } }] };
+    expect((await send(withCandles, false)).status).toBe(401);
+    const candles = await client.readObservationListRows!(withCandles);
+    expect(candles.rows[0]?.observations.dailyCandles).toMatchObject({
+      ref, source: "tushare", endpoint: "daily", observedAt, requestedBars: 5, adjustment: "none",
+      volumeUnit: "hand", amountUnit: "CNY-thousand", rows: [{
+        tradeDate, sourceTimestamp: null, open: 10, high: 10, low: 10, close: 10, volume: 12, amount: 1.2,
+      }],
+    });
+    expect(await client.readObservationListQuotes!(withCandles)).toEqual({ fixed: candles, quotes: { status: "outside-current-day" } });
+    expect(result.rows.every(row => !Object.hasOwn(row.observations, "dailyCandles"))).toBe(true);
     expect(result.limitCalendar).toBeUndefined();
     const limitCalendar = { revision: "fixture-list-sessions", sessions: [tradeDate] };
     const withExchange = { ...request, limitCalendar };
@@ -126,6 +137,8 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     });
     for (const invalid of [
       { ...request, marketRef: { ...marketRef, revision: "../private" } },
+      { ...request, stocks: [{ symbol, history: { candleBars: 5 } }] },
+      { ...request, stocks: [{ symbol, history: { ref, candleBars: 61 } }] },
       { ...request, stocks: [stock, stock] },
       { ...request, stocks: Array.from({ length: 101 }, (_, i) => ({ symbol: `600${String(i).padStart(3, "0")}.SH` })) },
       { ...request, stocks: [{ ...stock, history: { ref, exchange: { rawArchiveRef: ref } } }] },
