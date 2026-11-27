@@ -90,7 +90,8 @@ function financialReferences(value: unknown, error: () => WorkbenchError): Finan
 }
 
 function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][number] {
-  if (!object(value) || Object.keys(value).some(key => !["symbol", "history", "financialArchives", "tradingLimitsRef", "intraday"].includes(key)) ||
+  if (!object(value) || Object.keys(value).some(key => !["symbol", "history", "financialArchives", "tradingLimitsRef", "intraday",
+    "watchlistHistoryRef"].includes(key)) ||
     typeof value.symbol !== "string" || !datedStock.test(value.symbol)) throw invalidListRows();
   const { symbol, history } = value;
   const hasTradingLimits = Object.hasOwn(value, "tradingLimitsRef");
@@ -100,6 +101,8 @@ function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][numb
     tradingLimitsRef: fixedReference(value.tradingLimitsRef, "daily-trading-limits", invalidListRows),
   }), ...(Object.hasOwn(value, "intraday") && {
     intraday: listRowIntraday(value.intraday),
+  }), ...(Object.hasOwn(value, "watchlistHistoryRef") && {
+    watchlistHistoryRef: dailyReference(value.watchlistHistoryRef),
   }) };
   if (!Object.hasOwn(value, "history")) return stock;
   if (!object(history) || Object.keys(history).some(key => key !== "ref" && key !== "exchange" && key !== "candleBars")) throw invalidListRows();
@@ -133,16 +136,20 @@ function listLimitCalendar(value: unknown): NonNullable<ObservationListRowsReque
 async function readListArchive<T>(
   value: unknown, read: (request: ObservationListRowsRequest, signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  if (!object(value) || Object.keys(value).some(key => !["marketRef", "adjustment", "stocks", "limitCalendar"].includes(key)) ||
+  if (!object(value) || Object.keys(value).some(key => !["marketRef", "adjustment", "stocks", "limitCalendar", "watchlistMembershipRevision"].includes(key)) ||
     !["marketRef", "adjustment", "stocks"].every(key => Object.hasOwn(value, key)) ||
     (value.adjustment !== "none" && value.adjustment !== "forward") ||
     !Array.isArray(value.stocks) || value.stocks.length > 100) throw invalidListRows();
   const marketRef = fixedReference(value.marketRef, "market-cross-section", invalidListRows);
   const stocks = value.stocks.map(listRowStock);
   const limitCalendar = Object.hasOwn(value, "limitCalendar") ? listLimitCalendar(value.limitCalendar) : undefined;
+  const { watchlistMembershipRevision } = value;
+  if (watchlistMembershipRevision !== undefined &&
+    (typeof watchlistMembershipRevision !== "string" || !revision.test(watchlistMembershipRevision))) throw invalidListRows();
+  if (watchlistMembershipRevision === undefined && stocks.some(stock => stock.watchlistHistoryRef !== undefined)) throw invalidListRows();
   if (new Set(stocks.map(stock => stock.symbol)).size !== stocks.length) throw invalidListRows();
   try {
-    return await read({ marketRef, adjustment: value.adjustment, stocks, limitCalendar }, AbortSignal.timeout(25_000));
+    return await read({ marketRef, adjustment: value.adjustment, stocks, limitCalendar, watchlistMembershipRevision }, AbortSignal.timeout(25_000));
   } catch {
     throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的股票列表归档。请核对归档引用后重试。", 404);
   }
