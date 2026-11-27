@@ -7,13 +7,14 @@ import {
   computeTspBacktestRobustness, computeTspCompositeFactor, computeTspExtensionGroups, computeTspMiningCandidateReport,
   computeTspPaperStatistics, computeTspParameterRobustness, computeTspScreenerScores, computeTspWalkForward, evaluateTspStrategyGuardian,
   parseTspIntradaySignalRule, planTspMiningValidation, planTspStrategyGuardianCheck, replayTspPaperLedger, replayTspStrategyMonitor,
-  summarizeTspMiningRegimes, summarizeTspStrategyGuardianHistory, tspMinuteIndex,
+  summarizeTspMiningRegimes, summarizeTspMiningRun, summarizeTspStrategyGuardianHistory, tspMinuteIndex,
   TSP_DAILY_SIGNAL_FIELDS, TSP_INDICATOR_REVISION, TSP_MINING_MAX_FACTORS, TSP_PARAMETER_OBJECTIVES,
   TSP_SECTOR_MONITOR_WINDOWS, TSP_STRATEGY_GUARDIAN_FORMULA_VERSION, TSP_STRATEGY_MONITOR_EVENT_TYPES, type TspScreenerScoreInput,
   type TspBacktestCandidateInput, type TspBacktestDailyTradesInput, type TspBacktestFactorAttributionInput, type TspBacktestPortfolioInput,
   type TspBacktestRobustnessInput, type TspCompositeFactorInput, type TspParameterRobustnessInput,
   type TspMiningCandidateFoldEvidence, type TspMiningCandidateReportInput,
-  type TspMiningRegimeFoldEvidence, type TspMiningRegimeReportInput, type TspMiningValidationInput,
+  type TspMiningRegimeFoldEvidence, type TspMiningRegimeReportInput, type TspMiningRunFold,
+  type TspMiningRunSummaryInput, type TspMiningValidationInput,
   type TspParameterSegmentEvidence, type TspWalkForwardInput,
   type TspStrategyGuardianCheckInput, type TspStrategyGuardianHistoryInput, type TspStrategyGuardianPlanInput,
   type TspStrategyGuardianThresholds, type TspStrategyMonitorCapture, type TspStrategyMonitorInput, type TspStrategyMonitorSignal,
@@ -1022,6 +1023,35 @@ function parseMiningValidationManifest(value: unknown): TspMiningValidationInput
     !Array.isArray(availableDates) || availableDates.some(date => typeof date !== "string") ||
     (start != null && typeof start !== "string") || (end != null && typeof end !== "string")) throw invalid();
   return { assetType, profile, availableDates, start, end };
+}
+
+function parseMiningRunManifest(value: unknown): TspMiningRunSummaryInput {
+  const { schemaVersion, profile, factors, candidateIds, folds, trials: rawTrials } =
+    observationManifestObject(value, ["schemaVersion", "profile", "factors", "candidateIds", "folds", "trials"]);
+  if (schemaVersion !== 1 || (profile !== "exploratory" && profile !== "balanced" && profile !== "strict") ||
+    !Array.isArray(factors) || !Array.isArray(candidateIds) || candidateIds.some(id => typeof id !== "string") ||
+    !Array.isArray(folds)) throw invalid();
+  const { maxProxyTrials, maxTrials, proxyTrialsUsed, searchTrialsUsed, evaluatorBacktestCount } = observationManifestObject(rawTrials,
+    ["maxProxyTrials", "maxTrials", "proxyTrialsUsed", "searchTrialsUsed", "evaluatorBacktestCount"]);
+  if (typeof maxProxyTrials !== "number" || typeof maxTrials !== "number" || typeof proxyTrialsUsed !== "number" ||
+    typeof searchTrialsUsed !== "number" || typeof evaluatorBacktestCount !== "number") throw invalid();
+  return {
+    profile, candidateIds, trials: { maxProxyTrials, maxTrials, proxyTrialsUsed, searchTrialsUsed, evaluatorBacktestCount },
+    factors: factors.map((value: unknown) => {
+      const { factorId, selected } = observationManifestObject(value, ["factorId", "selected"]);
+      if (typeof factorId !== "string" || typeof selected !== "boolean") throw invalid();
+      return { factorId, selected };
+    }),
+    folds: folds.map((value: unknown): TspMiningRunFold => {
+      const { foldIndex, state, candidateId, evaluationKind, skipped, outerSearchError } =
+        observationManifestObject(value, ["foldIndex", "state", "candidateId", "evaluationKind", "skipped", "outerSearchError"]);
+      if (typeof foldIndex !== "number" || (state !== "overall" && state !== "strong" && state !== "range" && state !== "weak") ||
+        (candidateId !== null && typeof candidateId !== "string") ||
+        (evaluationKind !== "selected" && evaluationKind !== "cross" && evaluationKind !== "benchmark") ||
+        typeof skipped !== "boolean" || (outerSearchError != null && typeof outerSearchError !== "string")) throw invalid();
+      return { foldIndex, state, candidateId, evaluationKind, skipped, outerSearchError };
+    }),
+  };
 }
 
 function parseMiningRegimeManifest(value: unknown): TspMiningRegimeReportInput {
@@ -2137,6 +2167,13 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     if (!path) throw invalid();
     const request = parseMiningValidationManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
     try { return planTspMiningValidation(request); }
+    catch { throw invalid(); }
+  }
+  if (action === "replay-mining-run") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const input = parseMiningRunManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return summarizeTspMiningRun(input); }
     catch { throw invalid(); }
   }
   if (action === "replay-mining-regimes") {
