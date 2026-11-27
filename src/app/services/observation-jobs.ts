@@ -5,6 +5,7 @@ import { collectObservations, collectTradingDateObservations, collectTradingLimi
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes, type TspListRowsRequest } from "../../runtime/data/list-rows.ts";
 import { previewCurrentTspEtfIntraday, previewCurrentTspListIntraday } from "../../runtime/data/tickflow-stock-minute-replay.ts";
+import { readTspListAuctionOverlay } from "../../runtime/data/tsp-list-auction-overlay.ts";
 import { parseRegimeSummaryManifest } from "../../runtime/data/market-regime-manifest.ts";
 import { replayTspMarketRegimeSummary } from "../../runtime/data/market-regime-summary-replay.ts";
 import { loadMarketRegimeManifest } from "../../storage/index.ts";
@@ -14,7 +15,8 @@ import { TSP_DAILY_SIGNAL_FIELDS } from "../../quant/index.ts";
 import type { ObservationAnalyticsPreview, ObservationCurrentEtfMinutesPreview, ObservationCurrentEtfMinutesRequest,
   ObservationCurrentStockMinutesPreview, ObservationCurrentStockMinutesRequest,
   ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
-  ObservationJobRequest, ObservationJobView, ObservationListIntradayRequest, ObservationListQuotesPreview, ObservationListRowsPreview,
+  ObservationJobRequest, ObservationJobView, ObservationListAuctionOverlayPreview, ObservationListAuctionOverlayRequest,
+  ObservationListIntradayRequest, ObservationListQuotesPreview, ObservationListRowsPreview,
   ObservationListRowsRequest, ObservationMarketRegimePreview } from "../../types/workbench.ts";
 import type { ArchiveAnalyticsSupplements, FinancialObservationArchiveRef, TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
@@ -299,6 +301,45 @@ export async function readObservationCurrentEtfMinutes(value: unknown): Promise<
       { signal: AbortSignal.timeout(25_000), timeoutMs: 10_000 });
   } catch {
     throw new WorkbenchError("OBSERVATION_COLLECTION_FAILED", "无法读取指定的当日 ETF 分时。请核对数据源和昨收引用后重试。", 502);
+  }
+}
+
+function listAuctionRequest(value: unknown): ObservationListAuctionOverlayRequest {
+  const error = () => new WorkbenchError("INPUT_INVALID", "集合竞价清单的扩展表、日期、标的或字段映射无效。", 400);
+  if (!object(value) || Object.keys(value).some(key => !["datasetId", "date", "symbols", "fields", "timeBasis"].includes(key))) throw error();
+  const { datasetId, date, symbols, fields, timeBasis } = value;
+  if (typeof datasetId !== "string" || !/^[A-Za-z0-9_]{1,128}$/.test(datasetId) || typeof date !== "string" || !isDailyDate(date) ||
+    timeBasis !== "caller-confirmed-shanghai-wall-clock" || !Array.isArray(symbols) || !symbols.length || symbols.length > 100 ||
+    new Set(symbols).size !== symbols.length || symbols.some(symbol => typeof symbol !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(symbol)) ||
+    !object(fields) || Object.keys(fields).some(role => !["price", "matchedQuantity", "unmatchedQuantity"].includes(role))) throw error();
+  const fieldName = (name: unknown) => {
+    if (typeof name !== "string" || !name.length || name.length > 256 || name !== name.trim() || /[,\u0000-\u001f]/.test(name)) throw error();
+    return name;
+  };
+  const price = fieldName(fields.price);
+  const matchedQuantity = fields.matchedQuantity === undefined ? undefined : fieldName(fields.matchedQuantity);
+  const unmatchedQuantity = fields.unmatchedQuantity === undefined ? undefined : fieldName(fields.unmatchedQuantity);
+  const names = [price, matchedQuantity, unmatchedQuantity].filter(name => name !== undefined);
+  if (new Set(names).size !== names.length) throw error();
+  return { datasetId, date, symbols, fields: { price, matchedQuantity, unmatchedQuantity }, timeBasis };
+}
+
+export async function readObservationListAuctionOverlay(value: unknown): Promise<ObservationListAuctionOverlayPreview> {
+  const request = listAuctionRequest(value);
+  try {
+    const { input, overlay } = await readTspListAuctionOverlay(request, { signal: AbortSignal.timeout(25_000), timeoutMs: 10_000 });
+    const summarize = (capture: typeof input.price): ObservationListAuctionOverlayPreview["input"]["price"] => ({
+      source: capture.source, originalPublisher: capture.originalPublisher, field: capture.request.field, revision: capture.revision,
+      valueUnit: capture.valueUnit, observedAt: capture.observedAt,
+      series: capture.series.map(({ symbol, points }) => ({
+        symbol, status: points === null ? "missing" : points.length ? "observed" : "empty", pointCount: points?.length ?? 0,
+      })),
+    });
+    return { input: { datasetId: request.datasetId, timeBasis: input.timeBasis, price: summarize(input.price),
+      matchedQuantity: input.matchedQuantity && summarize(input.matchedQuantity),
+      unmatchedQuantity: input.unmatchedQuantity && summarize(input.unmatchedQuantity) }, overlay };
+  } catch {
+    throw new WorkbenchError("OBSERVATION_COLLECTION_FAILED", "无法读取指定的集合竞价数据。请核对 TSP 连接、扩展表和字段后重试。", 502);
   }
 }
 

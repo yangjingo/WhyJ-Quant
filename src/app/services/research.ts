@@ -49,7 +49,7 @@ import type { HudContextUsage } from "../../types/hud.ts";
 import { terminalCommandResources, terminalReadResources } from "./resource-paths.ts";
 import { createDataDrafts } from "./data-drafts.ts";
 import { createObservationJobs, readObservationAnalytics, readObservationExchangeIndicators, readObservationIndicators,
-  readObservationCurrentEtfMinutes, readObservationCurrentStockMinutes, readObservationIntraday, readObservationListQuotes, readObservationListRows,
+  readObservationCurrentEtfMinutes, readObservationCurrentStockMinutes, readObservationIntraday, readObservationListAuctionOverlay, readObservationListQuotes, readObservationListRows,
   readObservationMarketRegime } from "./observation-jobs.ts";
 import { createModelDrafts } from "./model-drafts.ts";
 import { removeDataCredential } from "./data-credentials.ts";
@@ -1033,6 +1033,7 @@ export function createResearchService(options: { cwd?: string; workspaceId?: str
     async readObservationListQuotes(input) { assertOpen(); return readObservationListQuotes(input); },
     async readObservationCurrentStockMinutes(input) { assertOpen(); return readObservationCurrentStockMinutes(input); },
     async readObservationCurrentEtfMinutes(input) { assertOpen(); return readObservationCurrentEtfMinutes(input); },
+    async readObservationListAuctionOverlay(input) { assertOpen(); return readObservationListAuctionOverlay(input); },
     async readObservationMarketRegime(ref) { assertOpen(); return readObservationMarketRegime(ref); },
     async editDataDraft(input) { assertOpen(); return dataDrafts.edit(input); },
     async verifyDataDraft(id) { assertOpen(); return dataDrafts.verify(id); },

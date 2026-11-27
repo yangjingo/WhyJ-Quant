@@ -67,6 +67,10 @@ export async function dispatchWorkbench(client: WorkbenchClient, payload: unknow
       if (!client.readObservationCurrentEtfMinutes) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持当日 ETF 分时读取。", 404);
       return client.readObservationCurrentEtfMinutes(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationCurrentEtfMinutes"]>>[0]);
     }
+    case "readObservationListAuctionOverlay": count(1); {
+      if (!client.readObservationListAuctionOverlay) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持集合竞价读取。", 404);
+      return client.readObservationListAuctionOverlay(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationListAuctionOverlay"]>>[0]);
+    }
     case "readObservationAnalytics": count(1); {
       if (!client.readObservationAnalytics) throw new WorkbenchError("METHOD_NOT_FOUND", "当前服务不支持研究因子预览。", 404);
       return client.readObservationAnalytics(args[0] as Parameters<NonNullable<WorkbenchClient["readObservationAnalytics"]>>[0]);

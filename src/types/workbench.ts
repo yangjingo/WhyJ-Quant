@@ -305,6 +305,7 @@ export interface WorkbenchClient {
   readObservationListQuotes?(input: ObservationListRowsRequest): Promise<ObservationListQuotesPreview>;
   readObservationCurrentStockMinutes?(input: ObservationCurrentStockMinutesRequest): Promise<ObservationCurrentStockMinutesPreview>;
   readObservationCurrentEtfMinutes?(input: ObservationCurrentEtfMinutesRequest): Promise<ObservationCurrentEtfMinutesPreview>;
+  readObservationListAuctionOverlay?(input: ObservationListAuctionOverlayRequest): Promise<ObservationListAuctionOverlayPreview>;
   readObservationAnalytics?(request: TradingDateArchiveRef | ObservationAnalyticsRequest): Promise<ObservationAnalyticsPreview>;
   readObservationMarketRegime?(ref: MarketRegimeManifestRef): Promise<ObservationMarketRegimePreview>;
   startModelDraft?(): Promise<ModelDraftView>;
@@ -760,6 +761,46 @@ export interface ObservationCurrentEtfMinutesPreview {
     previousClose: (EtfMinutePreviousClose & Pick<StoredDatedEtfDailyBatch, "source" | "endpoint" | "observedAt" | "priceUnit" | "requested"> &
       { row: StoredDatedEtfDailyBatch["rows"][number] | null }) | null;
   })[];
+}
+
+export interface ObservationListAuctionOverlayRequest {
+  datasetId: string;
+  date: string;
+  symbols: readonly string[];
+  fields: { price: string; matchedQuantity?: string; unmatchedQuantity?: string };
+  timeBasis: "caller-confirmed-shanghai-wall-clock";
+}
+
+interface AuctionOverlaySource {
+  source: "tsp";
+  originalPublisher: "unknown";
+  observedAt: string;
+  revision: string;
+  field: string;
+  valueUnit: "unknown";
+  series: { symbol: string; status: "observed" | "empty" | "missing"; pointCount: number }[];
+}
+
+export interface ObservationListAuctionOverlayPreview {
+  input: {
+    datasetId: string;
+    timeBasis: ObservationListAuctionOverlayRequest["timeBasis"];
+    price: AuctionOverlaySource;
+    matchedQuantity: AuctionOverlaySource | null;
+    unmatchedQuantity: AuctionOverlaySource | null;
+  };
+  overlay: {
+    producer: "whyj";
+    version: 1;
+    tradeDate: string;
+    rows: {
+      symbol: string;
+      status: "observed" | "unavailable-price";
+      ambiguous: { role: keyof ObservationListAuctionOverlayRequest["fields"]; time: string }[];
+      points: { time: string; price: number | null; matchedQuantity: number | null; unmatchedQuantity: number | null;
+        unmatchedSide: "buy" | "sell" | "balanced" | null }[];
+    }[];
+  };
 }
 
 export type ObservationRegimeState = "strong" | "lean_strong" | "range" | "lean_weak" | "weak";
