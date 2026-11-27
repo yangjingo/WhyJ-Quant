@@ -1,6 +1,7 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
 import type {
-  BenchmarkIndexArchiveRef, FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
+  ArchiveAnalyticsBookValueBasis, ArchiveAnalyticsSupplements, ArchiveAnalyticsTurnoverInput, BenchmarkIndexArchiveRef,
+  FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
   MarketCrossSectionArchiveRef, MarketRegimeManifestRef,
   ObservationArchiveRef, SectorObservationArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
   StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
@@ -301,7 +302,7 @@ export interface WorkbenchClient {
   readObservationIntraday?(input: ObservationIntradayRequest): Promise<ObservationIntradayPreview>;
   readObservationListRows?(input: ObservationListRowsRequest): Promise<ObservationListRowsPreview>;
   readObservationListQuotes?(input: ObservationListRowsRequest): Promise<ObservationListQuotesPreview>;
-  readObservationAnalytics?(ref: TradingDateArchiveRef): Promise<ObservationAnalyticsPreview>;
+  readObservationAnalytics?(request: TradingDateArchiveRef | ObservationAnalyticsRequest): Promise<ObservationAnalyticsPreview>;
   readObservationMarketRegime?(ref: MarketRegimeManifestRef): Promise<ObservationMarketRegimePreview>;
   startModelDraft?(): Promise<ModelDraftView>;
   editModelDraft?(input: ModelDraftEdit): Promise<ModelDraftView>;
@@ -625,11 +626,19 @@ export interface ObservationMarketRegimePreview {
   }[];
 }
 
+export interface ObservationAnalyticsRequest extends ArchiveAnalyticsSupplements {
+  archiveRef: TradingDateArchiveRef;
+}
+
 export interface ObservationAnalyticsPreview {
   archiveRef: TradingDateArchiveRef;
   input: ObservationIndicatorPreview["input"] & Pick<StoredTradingDateBarObservation, "volumeUnit" | "amountUnit"> & {
     rowCount: number;
     usableCnyAmounts: number;
+    turnoverInputs?: ArchiveAnalyticsTurnoverInput[];
+    financialInput?: FinancialInputReplayRow & {
+      bookValueBasis?: ArchiveAnalyticsBookValueBasis & { compatible: boolean };
+    };
   };
   researchFactors: {
     producer: "whyj";

@@ -346,6 +346,8 @@ Runtime 的 `deriveTspArchiveAnalytics` 用精确的 v2 日线引用生成归档
 
 可选认证 RPC `readObservationAnalytics` 接收一份 v2 日线引用，返回归档末日的研究因子及价格位。调用方可读取各组的公式版本与同一份行情证据。归档缺失或损坏时返回固定诊断，旧 Host 对此可选方法返回 `METHOD_NOT_FOUND`。
 
+同一 RPC 还接受包含 `archiveRef` 的对象，可选传入 `turnoverArchives`、`financialArchives` 和对应报告的 `bookValueBasis`。Host 校验引用后复用离线研究计算，返回各交易日换手率和财务报告的归档证据。只传日线引用时保持原有响应。
+
 可选的 `turnoverArchives` 指定市场截面归档。Runtime 按日线归档的实际交易日和标的代码读取 Tushare `daily_basic` 换手率（百分点），供换手因子、滚动量化和价格位的量分布衰减使用。返回值逐日保留来源、采集时间、归档引用和缺失状态，零换手仍为零。重复日期或超出日线实际日期的引用会失败。历史采集时间无法确认当日的可得时间，覆盖仍为未知。
 
 可选的 `financialArchives` 只补充日线归档末日已经可用的财务版本。返回值保留报告期、实际披露日、两类精确引用及采集时间，并带回供应商原始数值和单位。六项财务指标使用 Tushare 的 ROE、销售毛利率、销售净利率、营业收入同比、归母净利润同比和资产负债率。默认保留 PB 为空。调用方有独立币种证据时，可用 `bookValueBasis` 声明特定报告期和精确财务归档版本的每股净资产与未复权收盘价同为人民币。只有声明与实际选中的财报匹配且每股净资产为正，才计算 PB。 [Tushare 财务指标字段](https://tushare.pro/document/2?doc_id=79)

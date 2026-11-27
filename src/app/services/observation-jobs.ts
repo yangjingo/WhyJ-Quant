@@ -11,7 +11,7 @@ import { isDailyDate } from "../../market/bars.ts";
 import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
   ObservationJobRequest, ObservationJobView, ObservationListQuotesPreview, ObservationListRowsPreview,
   ObservationListRowsRequest, ObservationMarketRegimePreview } from "../../types/workbench.ts";
-import type { FinancialObservationArchiveRef, TradingDateArchiveRef } from "../../types/observation.ts";
+import type { ArchiveAnalyticsSupplements, FinancialObservationArchiveRef, TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
 const invalid = () => new WorkbenchError("INPUT_INVALID", "采集参数无效。", 400);
@@ -54,15 +54,15 @@ export async function readObservationIndicators(value: unknown): Promise<Observa
 
 const invalidListRows = () => new WorkbenchError("INPUT_INVALID", "股票列表范围或归档引用无效。", 400);
 
-function listFinancialReferences(value: unknown): FinancialObservationArchiveRef[] {
-  if (!Array.isArray(value)) throw invalidListRows();
+function financialReferences(value: unknown, error: () => WorkbenchError): FinancialObservationArchiveRef[] {
+  if (!Array.isArray(value)) throw error();
   const references = value.map((ref: unknown) => {
     if (!object(ref) || (ref.kind !== "report-financial-indicators" && ref.kind !== "financial-disclosure-dates")) {
-      throw invalidListRows();
+      throw error();
     }
-    return fixedReference(ref, ref.kind, invalidListRows);
+    return fixedReference(ref, ref.kind, error);
   });
-  if (new Set(references.map(ref => ref.revision)).size !== references.length) throw invalidListRows();
+  if (new Set(references.map(ref => ref.revision)).size !== references.length) throw error();
   return references;
 }
 
@@ -71,7 +71,7 @@ function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][numb
     typeof value.symbol !== "string" || !datedStock.test(value.symbol)) throw invalidListRows();
   const { symbol, history } = value;
   const stock = { symbol, ...(Object.hasOwn(value, "financialArchives") && {
-    financialArchives: listFinancialReferences(value.financialArchives),
+    financialArchives: financialReferences(value.financialArchives, invalidListRows),
   }) };
   if (!Object.hasOwn(value, "history")) return stock;
   if (!object(history) || Object.keys(history).some(key => key !== "ref" && key !== "exchange")) throw invalidListRows();
@@ -152,12 +152,46 @@ export async function readObservationMarketRegime(value: unknown): Promise<Obser
   }
 }
 
+function analyticsSupplements(value: Record<string, unknown>): ArchiveAnalyticsSupplements {
+  const error = () => new WorkbenchError("INPUT_INVALID", "研究因子归档引用无效。", 400);
+  if (Object.keys(value).some(key => !["archiveRef", "turnoverArchives", "financialArchives", "bookValueBasis"].includes(key))) {
+    throw error();
+  }
+  const supplements: ArchiveAnalyticsSupplements = {};
+  if (Object.hasOwn(value, "turnoverArchives")) {
+    if (!Array.isArray(value.turnoverArchives) || value.turnoverArchives.length > 366) throw error();
+    const refs = value.turnoverArchives.map(ref => fixedReference(ref, "market-cross-section", error));
+    if (new Set(refs.map(ref => ref.revision)).size !== refs.length) throw error();
+    supplements.turnoverArchives = refs;
+  }
+  if (Object.hasOwn(value, "financialArchives")) {
+    supplements.financialArchives = financialReferences(value.financialArchives, error);
+  }
+  if (Object.hasOwn(value, "bookValueBasis")) {
+    const confirmation = value.bookValueBasis;
+    if (!object(confirmation) || Object.keys(confirmation).length !== 3 ||
+      confirmation.basis !== "caller-confirmed-unadjusted-CNY" ||
+      typeof confirmation.reportRevision !== "string" || !revision.test(confirmation.reportRevision) ||
+      typeof confirmation.periodEnd !== "string" || !isDailyDate(confirmation.periodEnd) ||
+      !supplements.financialArchives?.some(ref =>
+        ref.kind === "report-financial-indicators" && ref.revision === confirmation.reportRevision)) throw error();
+    supplements.bookValueBasis = {
+      basis: confirmation.basis, reportRevision: confirmation.reportRevision, periodEnd: confirmation.periodEnd,
+    };
+  }
+  return supplements;
+}
+
 export async function readObservationAnalytics(value: unknown): Promise<ObservationAnalyticsPreview> {
-  const ref = dailyReference(value);
+  const structured = object(value) && Object.hasOwn(value, "archiveRef");
+  const ref = dailyReference(structured ? value.archiveRef : value);
+  const supplements = structured ? analyticsSupplements(value) : undefined;
   try {
-    return await deriveTspArchiveAnalytics(ref, AbortSignal.timeout(30_000));
+    return await deriveTspArchiveAnalytics(ref, AbortSignal.timeout(30_000), supplements);
   } catch {
-    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的日线归档。请核对归档引用后重试。", 404);
+    throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", structured
+      ? "无法读取指定的研究证据归档。请核对归档引用后重试。"
+      : "无法读取指定的日线归档。请核对归档引用后重试。", 404);
   }
 }
 

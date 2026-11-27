@@ -178,6 +178,30 @@ export type FinancialInputReplayRow = { tradingDate: string } & (
   }
 );
 
+export interface ArchiveAnalyticsBookValueBasis {
+  reportRevision: string;
+  periodEnd: string;
+  basis: "caller-confirmed-unadjusted-CNY";
+}
+
+export interface ArchiveAnalyticsSupplements {
+  turnoverArchives?: readonly MarketCrossSectionArchiveRef[];
+  financialArchives?: readonly FinancialObservationArchiveRef[];
+  bookValueBasis?: ArchiveAnalyticsBookValueBasis;
+}
+
+export interface ArchiveAnalyticsTurnoverInput {
+  archiveRef: MarketCrossSectionArchiveRef;
+  tradeDate: string;
+  source: "tushare";
+  endpoint: "daily_basic";
+  observedAt: string;
+  coverage: "unknown";
+  unit: "percentage-point";
+  value: number | null;
+  availability: "reported" | "unreported" | "missing-symbol";
+}
+
 interface StoredMarketSlice<Endpoint extends string> {
   endpoint: Endpoint;
   tradeDate: string;
