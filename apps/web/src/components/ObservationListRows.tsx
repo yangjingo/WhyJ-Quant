@@ -49,9 +49,13 @@ function intradayReference(value: unknown): ObservationListIntradayRequest {
 }
 
 export function listRowsManifest(value: unknown): ObservationListRowsRequest {
-  if (!isObject(value) || Object.keys(value).some(key => !["version", "marketRevision", "adjustment", "stocks", "limitCalendar"].includes(key)) ||
+  if (!isObject(value) || Object.keys(value).some(key => !["version", "marketRevision", "adjustment", "stocks", "limitCalendar",
+    "watchlistMembershipRevision"].includes(key)) ||
     value.version !== 1 || !isRevision(value.marketRevision) || (value.adjustment !== "none" && value.adjustment !== "forward") ||
     !Array.isArray(value.stocks) || value.stocks.length > 100) throw invalid();
+  const watchlistError = () => new Error("自选清单需要有效的成员修订。附上收益率历史时也要提供前复权日线归档修订。");
+  const { watchlistMembershipRevision } = value;
+  if (watchlistMembershipRevision !== undefined && !isRevision(watchlistMembershipRevision)) throw watchlistError();
   let limitCalendar: ObservationListRowsRequest["limitCalendar"];
   if (value.limitCalendar !== undefined) {
     const calendar = value.limitCalendar;
@@ -72,9 +76,13 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
   const seen = new Set<string>();
   const stocks: ObservationListRowsRequest["stocks"] = value.stocks.map(entry => {
     if (!isObject(entry) || Object.keys(entry).some(key => !["symbol", "dailyRevision", "limitsRevision", "rawRevision",
-      "financialReportRevisions", "financialDisclosureRevisions", "tradingLimitsRevision", "candleBars", "intraday"].includes(key))) throw invalid();
+      "financialReportRevisions", "financialDisclosureRevisions", "tradingLimitsRevision", "candleBars", "intraday",
+      "watchlistHistoryRevision"].includes(key))) throw invalid();
     const { symbol, dailyRevision, limitsRevision, rawRevision, financialReportRevisions, financialDisclosureRevisions, tradingLimitsRevision, candleBars,
-      intraday } = entry;
+      intraday, watchlistHistoryRevision } = entry;
+    if (watchlistHistoryRevision !== undefined && (watchlistMembershipRevision === undefined || !isRevision(watchlistHistoryRevision))) {
+      throw watchlistError();
+    }
     if (candleBars !== undefined && (typeof candleBars !== "number" || !Number.isInteger(candleBars) || candleBars < 5 ||
       candleBars > 60 || !isRevision(dailyRevision))) throw new Error("日 K 窗口须为 5 至 60 的整数，并附上日线归档修订。");
     if (typeof symbol !== "string" || !stockPattern.test(symbol) || seen.has(symbol)) throw invalid();
@@ -84,6 +92,7 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
     if (tradingLimitsRevision !== undefined && limitsRevision !== undefined) throw new Error("每只股票只能指定一种限价归档引用。");
     const stock = { symbol, ...(financialArchives !== undefined && { financialArchives }),
       ...(intraday !== undefined && { intraday: intradayReference(intraday) }),
+      ...(watchlistHistoryRevision !== undefined && { watchlistHistoryRef: { version: 2, revision: watchlistHistoryRevision } as const }),
       ...(tradingLimitsRevision && { tradingLimitsRef: { version: 1, kind: "daily-trading-limits", revision: tradingLimitsRevision } as const }) };
     if (dailyRevision === undefined && limitsRevision === undefined && rawRevision === undefined) return stock;
     if (!isRevision(dailyRevision) || (limitsRevision !== undefined && !isRevision(limitsRevision)) ||
@@ -95,6 +104,7 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
     } }) } };
   });
   return { marketRef: { version: 1, kind: "market-cross-section", revision: value.marketRevision }, adjustment: value.adjustment, stocks,
+    ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }),
     ...(limitCalendar && { limitCalendar }) };
 }
 
@@ -218,9 +228,43 @@ function StockListIntraday({ observation, metric }: { observation: ListIntradayO
   </details>;
 }
 
-function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][number]; quote?: ObservationListQuoteRow }) {
-  const { instrument, observations: { bar, basic, quantities, financial, tradingLimits, dailyCandles, intraday: minuteObservation },
-    metrics: { liquidity, history, daily, signals, limitStreaks, intraday: minuteMetric } } = row;
+type ListRow = ObservationListRowsPreview["rows"][number];
+const watchlistReturnReason = {
+  "missing-baseline": "缺少加入日或之前的前复权收盘价。",
+  "missing-added-date": "缺少可以用于计算的加入日期。",
+  "added-after-cutoff": "加入日期晚于列表交易日。",
+  "unsupported-asset": "该资产类型暂无加入以来收益率。",
+} as const;
+
+function StockListMembership({ membership, result }: {
+  membership: NonNullable<ListRow["membership"]>;
+  result: ListRow["metrics"]["watchlistReturn"];
+}) {
+  const endpoint = (value: { tradeDate: string; close: number } | null) =>
+    value ? `${value.tradeDate} · ${display(value.close, " 元")}` : "暂无";
+  return <section aria-label="自选记录">
+    <h5>自选记录</h5>
+    <ListValues values={[["加入时间", membership.addedAt ?? "暂无"], ["保存在自选中的代码", membership.code]]} />
+    <p className="supporting observation-ref">自选清单修订 <code>{membership.revision}</code></p>
+    {result ? <>
+      <h5>WHYJ 自选收益率</h5>
+      <ListValues values={[
+        ["加入以来涨跌幅", display(result.pctSinceAdded === null ? null : result.pctSinceAdded * 100, "%")],
+        ["加入日期（上海）", result.addedDate ?? "暂无"],
+        ["基准收盘", endpoint(result.baseline)],
+        ["截至列表日期的收盘", endpoint(result.latest)],
+      ]} />
+      {result.status !== "available" && <p className="supporting">{watchlistReturnReason[result.status]}</p>}
+      <p className="supporting observation-ref">{result.formulaVersion} · <code>{result.referenceRevision}</code></p>
+      <p className="supporting observation-ref">前复权历史 {result.history.source} · {result.history.endpoint}
+        {" · "}<code>{result.history.ref.revision}</code></p>
+    </> : <p className="supporting">清单未绑定用于计算收益率的前复权历史。</p>}
+  </section>;
+}
+
+function StockListRow({ row, quote }: { row: ListRow; quote?: ObservationListQuoteRow }) {
+  const { instrument, membership, observations: { bar, basic, quantities, financial, tradingLimits, dailyCandles, intraday: minuteObservation },
+    metrics: { liquidity, history, daily, signals, limitStreaks, intraday: minuteMetric, watchlistReturn } } = row;
   return <details className="observation-list-stock">
     <summary>
       <span><strong>{instrument.name || instrument.symbol}</strong><span className="supporting">{instrument.symbol}</span></span>
@@ -262,6 +306,7 @@ function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][
       </section>}
       {dailyCandles && <StockListCandles candles={dailyCandles} />}
       {financial && <StockListFinancial financial={financial} />}
+      {membership && <StockListMembership membership={membership} result={watchlistReturn} />}
       <h5>WHYJ 计算</h5>
       <ListValues values={[
         ["流通市值（元）", display(liquidity.floatValueCny)], ["按流通股计算的换手率", display(liquidity.turnoverPct, "%")],
