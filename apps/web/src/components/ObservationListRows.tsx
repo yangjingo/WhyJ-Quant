@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ObservationListQuoteRow, ObservationListQuotesPreview, ObservationListRowsPreview,
   ObservationListRowsRequest, WorkbenchClient } from "../client/contract";
 import { ObservationDailyValues } from "./ObservationCollection";
+import { ObservationCandleChart } from "./ObservationCandleChart";
 
 const stockPattern = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 const isRevision = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
@@ -45,8 +46,10 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
   const seen = new Set<string>();
   const stocks: ObservationListRowsRequest["stocks"] = value.stocks.map(entry => {
     if (!isObject(entry) || Object.keys(entry).some(key => !["symbol", "dailyRevision", "limitsRevision", "rawRevision",
-      "financialReportRevisions", "financialDisclosureRevisions", "tradingLimitsRevision"].includes(key))) throw invalid();
-    const { symbol, dailyRevision, limitsRevision, rawRevision, financialReportRevisions, financialDisclosureRevisions, tradingLimitsRevision } = entry;
+      "financialReportRevisions", "financialDisclosureRevisions", "tradingLimitsRevision", "candleBars"].includes(key))) throw invalid();
+    const { symbol, dailyRevision, limitsRevision, rawRevision, financialReportRevisions, financialDisclosureRevisions, tradingLimitsRevision, candleBars } = entry;
+    if (candleBars !== undefined && (typeof candleBars !== "number" || !Number.isInteger(candleBars) || candleBars < 5 ||
+      candleBars > 60 || !isRevision(dailyRevision))) throw new Error("日 K 窗口须为 5 至 60 的整数，并附上日线归档修订。");
     if (typeof symbol !== "string" || !stockPattern.test(symbol) || seen.has(symbol)) throw invalid();
     seen.add(symbol);
     const financialArchives = financialReferences(financialReportRevisions, financialDisclosureRevisions);
@@ -57,7 +60,8 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
     if (dailyRevision === undefined && limitsRevision === undefined && rawRevision === undefined) return stock;
     if (!isRevision(dailyRevision) || (limitsRevision !== undefined && !isRevision(limitsRevision)) ||
       (rawRevision !== undefined && (!isRevision(rawRevision) || limitsRevision === undefined))) throw invalid();
-    return { ...stock, history: { ref: { version: 2, revision: dailyRevision }, ...(limitsRevision && { exchange: {
+    return { ...stock, history: { ref: { version: 2, revision: dailyRevision }, ...(candleBars !== undefined && { candleBars }),
+      ...(limitsRevision && { exchange: {
       tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
       ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
     } }) } };
@@ -120,8 +124,35 @@ function StockListFinancial({ financial }: { financial: ListFinancial }) {
   </section>;
 }
 
+type ListCandles = NonNullable<ObservationListRowsPreview["rows"][number]["observations"]["dailyCandles"]>;
+
+function StockListCandles({ candles }: { candles: ListCandles }) {
+  const { rows } = candles;
+  const [open, setOpen] = useState(false);
+  const [date, setDate] = useState(rows.at(-1)?.tradeDate);
+  const selected = rows.find(row => row.tradeDate === date) ?? rows.at(-1);
+
+  return <details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary>供应商日 K · {rows.length} 根</summary>
+    <p className="supporting observation-ref">{candles.source} · {candles.endpoint} · {candles.adjustment === "forward" ? "前复权" : "未复权"}
+      {" · "}<time dateTime={candles.observedAt}>{candles.observedAt}</time> · <code>{candles.ref.revision}</code></p>
+    {selected ? <>
+      <p className="supporting">{rows[0]!.tradeDate} 至 {rows.at(-1)!.tradeDate} · 已观察 {rows.length} / 请求 {candles.requestedBars} 根</p>
+      {open && <ObservationCandleChart rows={rows} />}
+      <label className="field-row">查看交易日<select value={selected.tradeDate} onChange={event => setDate(event.currentTarget.value)}>
+        {rows.map(row => <option key={row.tradeDate} value={row.tradeDate}>{row.tradeDate}</option>)}
+      </select></label>
+      <ListValues values={[
+        ["开盘", display(selected.open)], ["最高", display(selected.high)], ["最低", display(selected.low)], ["收盘", display(selected.close)],
+        [candles.volumeUnit === "hand" ? "成交量（手）" : "成交量（单位未知）", display(selected.volume)],
+        [candles.amountUnit === "CNY-thousand" ? "成交额（千元）" : "成交额（单位未知）", display(selected.amount)],
+      ]} />
+    </> : <p role="status">归档没有可显示的日 K。</p>}
+  </details>;
+}
+
 function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][number]; quote?: ObservationListQuoteRow }) {
-  const { instrument, observations: { bar, basic, quantities, financial, tradingLimits },
+  const { instrument, observations: { bar, basic, quantities, financial, tradingLimits, dailyCandles },
     metrics: { liquidity, history, daily, signals, limitStreaks } } = row;
   return <details className="observation-list-stock">
     <summary>
@@ -162,6 +193,7 @@ function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][
         <p className="supporting observation-ref">{tradingLimits.source} · {tradingLimits.endpoint} · <code>{tradingLimits.ref.revision}</code>
           {" · "}<time dateTime={tradingLimits.observedAt}>{tradingLimits.observedAt}</time></p>
       </section>}
+      {dailyCandles && <StockListCandles candles={dailyCandles} />}
       {financial && <StockListFinancial financial={financial} />}
       <h5>WHYJ 计算</h5>
       <ListValues values={[

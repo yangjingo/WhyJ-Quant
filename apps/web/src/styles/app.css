@@ -326,6 +326,7 @@ summary { cursor: pointer; min-height: 36px; display: list-item; align-content: 
 .observation-list-detail { padding: 8px 0 12px 14px; min-width: 0; }
 .observation-list-detail > details { margin-top: 8px; }
 .observation-list-detail summary { cursor: pointer; }
+.observation-list-candle-chart { width: 100%; min-width: 0; height: 180px; margin: 8px 0; background: var(--panel); }
 .observation-regime .field-row { margin: 12px 0; min-width: 0; }
 .observation-regime .field-row :is(input, select) { width: 100%; min-width: 0; }
 .observation-regime-result { overflow-wrap: anywhere; }
