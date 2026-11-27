@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveDailyTradingLimits, archiveDatedStockMinutes, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
+import { archiveBenchmarkIndexObservations, archiveDailyTradingLimits, archiveDatedStockMinutes, archiveFinancialObservations,
+  archiveMarketCrossSection, archiveTradingDateObservations,
   loadMarketCrossSectionArchive, loadPanelPortfolio, loadTradingDateArchive, savePanelPortfolio, saveSettings } from "../../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../../types/config.ts";
 import type { ObservationListRowsRequest } from "../../../types/workbench.ts";
@@ -80,6 +81,57 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     ] });
     expect(await client.readObservationListRows!(request)).toEqual(result);
     expect(result.rows.every(row => !Object.hasOwn(row.observations, "financial"))).toBe(true);
+    const deviationSessions = Array.from({ length: 48 }, (_, i) => new Date(Date.parse(tradeDate) - i * 86_400_000))
+      .filter(day => day.getUTCDay() !== 0 && day.getUTCDay() !== 6).slice(0, 31).reverse().map(day => day.toISOString().slice(0, 10));
+    const deviationRange = { start: deviationSessions[0]!, end: tradeDate };
+    const [deviationStock, benchmarkRef] = await Promise.all([
+      archiveTradingDateObservations(deviationSessions.map((date, index) => {
+        const close = 10 + index;
+        return {
+          ...meta, tradeDate: date, schemaVersion: 2, kind: "trading_date_daily_bar", symbol, market: "A", assetType: "stock",
+          interval: "1d", calendarTimeZone: "Asia/Shanghai", source: "tickflow", endpoint: "/v1/klines",
+          sourceTimestamp: Date.parse(date + "T15:00:00+08:00"), adjustment: "forward", volumeUnit: "unknown", amountUnit: "unknown",
+          requested: { startDate: deviationRange.start, endDate: deviationRange.end },
+          values: { open: close, high: close, low: close, close, volume: 0, amount: null },
+        };
+      })),
+      archiveBenchmarkIndexObservations({ symbol: "000002.SH", source: "tushare", market: "A", endpoint: "index_daily",
+        observedAt, coverage: "unknown", priceUnit: "index-points", returnUnit: "percentage-points", requested: deviationRange,
+        rows: deviationSessions.map((date, index) => ({ tradeDate: date, closePoints: 10 + index, previousClosePoints: null, changePoints: null, returnPct: null })),
+      }),
+    ]);
+    const deviation = { stockRef: deviationStock, benchmarkRef };
+    const deviationCalendar = { revision: "fixture-cn-sessions", sessions: deviationSessions };
+    const withDeviation = { ...request, deviationCalendar, stocks: [{ symbol, deviation }, { symbol: empty }] };
+    expect((await send(withDeviation, false)).status).toBe(401);
+    const dated = await client.readObservationListRows!(withDeviation);
+    expect(dated.deviationCalendar).toEqual({ ...deviationCalendar, zone: "Asia/Shanghai" });
+    expect(dated.rows[0]).toMatchObject({ observations: { bar: { close: 10 } }, metrics: { deviation: {
+      date: tradeDate, producer: "whyj", values: { deviate_3d: 0, deviate_10d: 0, deviate_30d: 0 },
+      comparisonDates: { 3: deviationSessions.at(-4), 10: deviationSessions.at(-11), 30: deviationSessions[0] },
+      input: { stock: { ref: deviationStock, source: "tickflow" }, benchmark: { ref: benchmarkRef, source: "tushare" } },
+      proximity: { basis: "completed-session", tier: "below-watch", maxCloseness: 0 },
+    } } });
+    expect(await client.readObservationListQuotes!(withDeviation)).toEqual({ fixed: dated, quotes: { status: "outside-current-day" } });
+    expect(dated.rows[1]?.metrics).not.toHaveProperty("deviation");
+    expect(result).not.toHaveProperty("deviationCalendar");
+    const noBenchmark = await client.readObservationListRows!({ ...withDeviation, stocks: [{ symbol, deviation: { stockRef: deviationStock } }] });
+    expect(noBenchmark.rows[0]?.metrics.deviation).toMatchObject({ input: { benchmark: null },
+      values: { deviate_3d: null, deviate_10d: null, deviate_30d: null }, proximity: { tier: "unavailable" } });
+    for (const [input, status, code] of [
+      [{ ...withDeviation, deviationCalendar: undefined }, 400, "INPUT_INVALID"],
+      [{ ...withDeviation, deviationCalendar: { ...deviationCalendar, sessions: [tradeDate, tradeDate] } }, 400, "INPUT_INVALID"],
+      [{ ...withDeviation, stocks: [{ symbol, deviation: { stockRef: deviationStock, benchmarkRef: tradingLimitArchiveRef } }] }, 400, "INPUT_INVALID"],
+      [{ ...withDeviation, stocks: [{ symbol: empty, deviation }] }, 404, "OBSERVATION_ARCHIVE_UNAVAILABLE"],
+      [{ ...withDeviation, stocks: [{ symbol, deviation: { ...deviation, benchmarkRef: { ...benchmarkRef, revision: "f".repeat(64) } } }] },
+        404, "OBSERVATION_ARCHIVE_UNAVAILABLE"],
+    ] as const) {
+      for (const method of ["readObservationListRows", "readObservationListQuotes"]) {
+        const response = await send(input, true, method);
+        expect(response.status).toBe(status);
+        expect(await response.json()).toMatchObject({ error: { code } });
+      }
+    }
     const siblingRef = await archiveTradingDateObservations((await loadTradingDateArchive(ref)).map(row => ({ ...row, symbol: empty })));
     const screener = {
       histories: [{ symbol: empty, ref: siblingRef }, { symbol, ref, exchange: { tradingLimitArchiveRef } }],
