@@ -8,6 +8,10 @@ const observedAt = "2024-03-05T02:00:00Z";
 const marketRevision = "a".repeat(64), dailyRevision = "b".repeat(64);
 const limitsRevision = "c".repeat(64), rawRevision = "d".repeat(64);
 const reportRevision = "e".repeat(64), disclosureRevision = "f".repeat(64);
+const minuteRevision = "1".repeat(64);
+const minuteRequest = { minuteRevision, interpretation: {
+  timestampLabel: "minute-end", priceBasis: "caller-confirmed-unadjusted-CNY", volumeUnit: "hand",
+} } as const;
 const reportRef = { version: 1, kind: "report-financial-indicators", revision: reportRevision } as const;
 const disclosureRef = { version: 1, kind: "financial-disclosure-dates", revision: disclosureRevision } as const;
 const symbol = "600000.SH", missing = "000001.SZ";
@@ -28,6 +32,18 @@ test("builds a bounded ordered Host request from the CLI manifest", () => {
   for (const stock of [{ symbol, candleBars: 12 }, { symbol, dailyRevision, candleBars: 61 },
     { symbol, dailyRevision, candleBars: "12" }]) {
     expect(() => listRowsManifest({ ...manifest, stocks: [stock] })).toThrow("日 K");
+  }
+  const previousClose = { revision: limitsRevision, priceBasis: "caller-confirmed-same-basis" } as const;
+  expect(listRowsManifest({ ...manifest, stocks: [{ symbol, intraday: { ...minuteRequest, previousClose } }] }).stocks).toEqual([
+    { symbol, intraday: { ref: { version: 1, kind: "dated-stock-minute", revision: minuteRevision },
+      interpretation: minuteRequest.interpretation,
+      previousClose: { ref: { version: 1, kind: "daily-trading-limits", revision: limitsRevision }, priceBasis: previousClose.priceBasis } } },
+  ]);
+  for (const intraday of [null, { ...minuteRequest, minuteRevision: "../private" },
+    { ...minuteRequest, interpretation: { ...minuteRequest.interpretation, amountUnit: "CNY-million" } },
+    { ...minuteRequest, previousClose: { ...previousClose, priceBasis: "assumed" } },
+    { ...minuteRequest, market: "HK" }]) {
+    expect(() => listRowsManifest({ ...manifest, stocks: [{ symbol, intraday }] })).toThrow("分时");
   }
   const finance = { financialReportRevisions: [reportRevision], financialDisclosureRevisions: [disclosureRevision] };
   expect(listRowsManifest({ ...manifest, stocks: [
@@ -89,6 +105,52 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).toContain(observedAt);
   expect(html).toContain("供应商行情与估值");
   expect(html).not.toContain("供应商日 K");
+  expect(html).not.toContain("WHYJ 分时走势");
+  const minuteResult: ObservationListRowsPreview = { ...result, rows: result.rows.map(row => ({
+    ...row,
+    observations: { ...row.observations, intraday: {
+      ...meta, ref: { version: 1, kind: "dated-stock-minute", revision: minuteRevision },
+      source: "tickflow", endpoint: "/v1/klines", market: "A", symbol, assetType: "stock", interval: "1m", adjustment: "none",
+      priceUnit: "provider-native", volumeUnit: "provider-native", amountUnit: "provider-native", finality: "unknown",
+      timeZone: "Asia/Shanghai", timestampLabel: "provider-native", interpretation: { ...minuteRequest.interpretation, amountUnit: "unknown" },
+      rows: [{ sourceTimestamp: 1709515860000, open: 10, high: 10, low: 10, close: 10, volume: 0, amount: null }],
+      rowCount: 1, previousClose: null, excluded: [],
+    } },
+    metrics: { ...row.metrics, intraday: {
+      producer: "whyj", formula: { id: "tsp_list_intraday", version: 1, revision: "tsp" }, tradeDate: date,
+      plotBaseline: { kind: "first-observed-open", value: 10 }, latestReturnFraction: null,
+      points: [{ minute: "09:30", sourceTimestamp: 1709515860000, close: 10, averageClose: 10, previousCloseReturnFraction: null }],
+    } },
+  })) };
+  const minutes = renderToStaticMarkup(<ObservationListResult result={minuteResult} />);
+  expect(minutes).toContain("WHYJ 分时走势");
+  expect(minutes).toContain("首个观测开盘价");
+  expect(minutes).toContain("查看分钟");
+  expect(minutes).toContain(minuteRevision);
+  expect(minutes).toContain("tsp_list_intraday v1");
+  expect(minutes).toContain("<dt>基于实际昨收的涨跌幅</dt><dd>暂无</dd>");
+  const minuteRow = minuteResult.rows[0]!;
+  const observedMinute = minuteRow.observations.intraday!;
+  const calculatedMinute = minuteRow.metrics.intraday!;
+  const zero = renderToStaticMarkup(<ObservationListResult result={{ ...minuteResult, rows: [{
+    ...minuteRow,
+    observations: { ...minuteRow.observations, intraday: { ...observedMinute, previousClose: {
+      archiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
+      priceBasis: "caller-confirmed-same-basis", source: "tushare", endpoint: "stk_limit", observedAt, priceUnit: "CNY",
+      requested: { startDate: date, endDate: date }, rows: [{ tradeDate: date, price: 10 }],
+    } } },
+    metrics: { ...minuteRow.metrics, intraday: {
+      ...calculatedMinute, latestReturnFraction: 0, plotBaseline: { kind: "previous-close", value: 10 },
+      points: calculatedMinute.points.map(point => ({ ...point, previousCloseReturnFraction: 0 })),
+    } },
+  }] }} />);
+  expect(zero).toContain("<dt>基于实际昨收的涨跌幅</dt><dd>0%</dd>");
+  const empty = renderToStaticMarkup(<ObservationListResult result={{ ...minuteResult, rows: [{
+    ...minuteRow,
+    observations: { ...minuteRow.observations, intraday: { ...observedMinute, rows: [], rowCount: 0 } },
+    metrics: { ...minuteRow.metrics, intraday: { ...calculatedMinute, points: [], plotBaseline: null } },
+  }] }} />);
+  expect(empty).toContain("归档没有可显示的已完成分钟");
   const candleRows: NonNullable<ObservationListRowsPreview["rows"][number]["observations"]["dailyCandles"]> = {
     ref: { version: 2, revision: dailyRevision }, source: "tickflow", endpoint: "/v1/klines", symbol,
     observedAt, calendarTimeZone: "Asia/Shanghai", adjustment: "forward", requestedBars: 12,
