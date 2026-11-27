@@ -23,13 +23,15 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
   const providerCalls: string[] = [];
   const timestamp = Date.now();
   let failQuotes = false;
-  let turnover: number | undefined = 0.01;
+  let reported: { turnover_rate?: number; change_amount?: number; change_pct?: number; amplitude?: number } = {
+    turnover_rate: 0.01, change_amount: -0.5, change_pct: -0.05, amplitude: 0.3,
+  };
   const provider = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
     const url = new URL(request.url);
     providerCalls.push(url.pathname + "?" + url.searchParams.get("symbols"));
     if (failQuotes) return new Response("fixture unavailable", { status: 403 });
     return Response.json({ data: [{ symbol, region: "CN", timestamp, last_price: 12, prev_close: 10,
-      open: 10, high: 12, low: 9, volume: 0, amount: null, ext: { turnover_rate: turnover } }] });
+      open: 10, high: 12, low: 9, volume: 0, amount: null, ext: reported }] });
   } });
   saveSettings({ ...DEFAULT_SETTINGS, preferences: { ...DEFAULT_SETTINGS.preferences, source: "tickflow" },
     env: { WHYJ_QUANT_TICKFLOW_API_KEY: "fixture-tickflow", TICKFLOW_BASE_URL: provider.url.origin } });
@@ -118,18 +120,21 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
       status: "observed", source: "tickflow", endpoint: "/v1/quotes", units: "unknown", rows: [
         { symbol: empty, status: "missing" },
         { symbol, status: "available", sourceTimestamp: timestamp,
-          snapshot: { lastPrice: 12, volume: 0, reportedTurnoverFraction: 0.01 },
+          snapshot: { lastPrice: 12, volume: 0, reportedTurnoverFraction: 0.01,
+            reportedChangeAmount: -0.5, reportedChangeFraction: -0.05, reportedAmplitudeFraction: 0.3 },
           change: { producer: "whyj", changeAmount: 2, changeFraction: 0.2 } },
       ],
     });
     expect(providerCalls).toEqual(["/v1/quotes?" + empty + "," + symbol]);
     for (const expected of [0, undefined]) {
-      turnover = expected;
+      reported = { turnover_rate: expected, change_amount: expected, change_pct: expected, amplitude: expected };
       const { quotes } = await client.readObservationListQuotes!(requestNow);
       const quotedRow = quotes.status === "observed" ? quotes.rows.find(row => row.symbol === symbol) : undefined;
       if (quotedRow?.status !== "available") throw new Error("Expected an available quote");
-      expect(quotedRow.snapshot.reportedTurnoverFraction).toBe(expected);
-      expect(Object.hasOwn(quotedRow.snapshot, "reportedTurnoverFraction")).toBe(expected !== undefined);
+      for (const field of ["reportedTurnoverFraction", "reportedChangeAmount", "reportedChangeFraction", "reportedAmplitudeFraction"] as const) {
+        expect(quotedRow.snapshot[field]).toBe(expected);
+        expect(Object.hasOwn(quotedRow.snapshot, field)).toBe(expected !== undefined);
+      }
       expect(quotedRow.change).toEqual({ producer: "whyj", changeAmount: 2, changeFraction: 0.2 });
     }
     failQuotes = true;
