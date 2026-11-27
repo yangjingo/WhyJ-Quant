@@ -9,6 +9,7 @@ const marketRevision = "a".repeat(64), dailyRevision = "b".repeat(64);
 const limitsRevision = "c".repeat(64), rawRevision = "d".repeat(64);
 const reportRevision = "e".repeat(64), disclosureRevision = "f".repeat(64);
 const minuteRevision = "1".repeat(64);
+const watchlistMembershipRevision = "2".repeat(64);
 const minuteRequest = { minuteRevision, interpretation: {
   timestampLabel: "minute-end", priceBasis: "caller-confirmed-unadjusted-CNY", volumeUnit: "hand",
 } } as const;
@@ -29,6 +30,13 @@ test("builds a bounded ordered Host request from the CLI manifest", () => {
   });
   expect(listRowsManifest({ ...manifest, stocks: [{ ...manifest.stocks[0], candleBars: 12 }] }).stocks[0]?.history)
     .toMatchObject({ ref: { revision: dailyRevision }, candleBars: 12 });
+  expect(listRowsManifest({ ...manifest, watchlistMembershipRevision, stocks: [{ symbol, watchlistHistoryRevision: dailyRevision }] }))
+    .toMatchObject({ watchlistMembershipRevision, stocks: [{ symbol, watchlistHistoryRef: { version: 2, revision: dailyRevision } }] });
+  for (const invalidWatchlist of [{ watchlistMembershipRevision: "../private" },
+    { stocks: [{ symbol, watchlistHistoryRevision: dailyRevision }] },
+    { watchlistMembershipRevision, stocks: [{ symbol, watchlistHistoryRevision: 1 }] }]) {
+    expect(() => listRowsManifest({ ...manifest, ...invalidWatchlist })).toThrow("自选");
+  }
   for (const stock of [{ symbol, candleBars: 12 }, { symbol, dailyRevision, candleBars: 61 },
     { symbol, dailyRevision, candleBars: "12" }]) {
     expect(() => listRowsManifest({ ...manifest, stocks: [stock] })).toThrow("日 K");
@@ -106,6 +114,28 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).toContain("供应商行情与估值");
   expect(html).not.toContain("供应商日 K");
   expect(html).not.toContain("WHYJ 分时走势");
+  expect(html).not.toContain("加入以来涨跌幅");
+  const membership = { producer: "workspace", revision: watchlistMembershipRevision, code: "600000", addedAt: "2024-03-03T17:00:00Z" } as const;
+  const watchlistReturn = {
+    producer: "whyj", formulaVersion: "tsp-watchlist-return-v1", referenceRevision: "tsp", status: "available", asOf: date,
+    addedAt: membership.addedAt, addedDate: date, returnUnit: "fraction", pctSinceAdded: 0,
+    baseline: { tradeDate: date, close: 11 }, latest: { tradeDate: date, close: 11 },
+    history: { ref: { version: 2, revision: dailyRevision }, symbol, source: "tickflow", endpoint: "/v1/klines", observedAt,
+      requested: { startDate: date, endDate: date }, adjustment: "forward", coverage: "unknown", calendarTimeZone: "Asia/Shanghai" },
+  } as const;
+  const withMembership = (returns: ObservationListRowsPreview["rows"][number]["metrics"]["watchlistReturn"]) =>
+    renderToStaticMarkup(<ObservationListResult result={{ ...result, rows: result.rows.map(row => ({
+      ...row, membership, metrics: { ...row.metrics, watchlistReturn: returns },
+    })) }} />);
+  const available = withMembership(watchlistReturn);
+  expect(available).toContain(membership.addedAt);
+  expect(available).toContain(watchlistMembershipRevision);
+  expect(available).toContain(dailyRevision);
+  expect(available).toContain("tsp-watchlist-return-v1");
+  expect(available).toContain("<dt>加入以来涨跌幅</dt><dd>0%</dd>");
+  expect(available).toContain("2024-03-04 · 11 元");
+  expect(withMembership({ ...watchlistReturn, status: "missing-baseline", baseline: null, pctSinceAdded: null })).toContain("缺少加入日或之前的前复权收盘价");
+  expect(withMembership(null)).toContain("清单未绑定用于计算收益率的前复权历史");
   const minuteResult: ObservationListRowsPreview = { ...result, rows: result.rows.map(row => ({
     ...row,
     observations: { ...row.observations, intraday: {
