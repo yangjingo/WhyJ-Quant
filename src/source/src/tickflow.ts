@@ -157,9 +157,16 @@ export async function fetchTickFlowFactors(inputs: readonly string[], window: Ti
   return result;
 }
 
-export function tickFlowReportedTurnover(ext: unknown): Pick<Quote, "reportedTurnoverFraction"> {
-  const fraction = record(ext) ? ext.turnover_rate : undefined;
-  return number(fraction) && fraction >= 0 ? { reportedTurnoverFraction: fraction } : {};
+export function tickFlowReportedQuoteMetrics(ext: unknown):
+  Pick<Quote, "reportedChangeAmount" | "reportedChangeFraction" | "reportedAmplitudeFraction" | "reportedTurnoverFraction"> {
+  if (!record(ext)) return {};
+  const { change_amount: amount, change_pct: change, amplitude, turnover_rate: turnover } = ext;
+  return {
+    ...(number(amount) ? { reportedChangeAmount: amount } : {}),
+    ...(number(change) ? { reportedChangeFraction: change } : {}),
+    ...(number(amplitude) && amplitude >= 0 ? { reportedAmplitudeFraction: amplitude } : {}),
+    ...(number(turnover) && turnover >= 0 ? { reportedTurnoverFraction: turnover } : {}),
+  };
 }
 
 /** A snapshot retains its source timestamp; an old tick is not relabeled as a current quote. */
@@ -175,7 +182,7 @@ export async function fetchTickFlowQuotes(inputs: readonly string[], options: Ti
       || row.amount !== null && (!number(row.amount) || row.amount < 0)) throw invalid();
     return { symbol: row.symbol, timestamp: row.timestamp, lastPrice: row.last_price as number, previousClose: row.prev_close as number,
       open: row.open as number, high: row.high as number, low: row.low as number, volume: row.volume as number, amount: row.amount as number | null,
-      ...tickFlowReportedTurnover(row.ext) };
+      ...tickFlowReportedQuoteMetrics(row.ext) };
   });
   return { quotes, missingSymbols: symbols.filter(symbol => !seen.has(symbol)) };
 }
