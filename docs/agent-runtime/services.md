@@ -954,6 +954,8 @@ CLI 使用 `whyj --json observation read-current-etf-minutes --manifest PATH`，
 
 已认证的 `readObservationCurrentStockMinutes` 和 `readObservationCurrentEtfMinutes` 也接受可选的 `quoteTail`。Host 在读取供应商前校验分时口径、同口径确认和毫秒上限，配置错误返回 `INPUT_INVALID`。`input.quoteTail` 保留供应商报价观测和读取状态，`rows[].quoteTail` 保留 WHYJ 对尾点的判断，应用报价的点标为 `priceSource: "quote"`。
 
+Web 和 Desktop 的「当日分时」接受含 `quoteTail` 的股票或 ETF 清单。界面分别展示所选标的的 TickFlow 原始分钟帧和报价观测，并用「报价临时续写」标记 WHYJ 采用报价生成的尾点。报价过期、缺失或不可用时，已有分钟曲线保留在图表中。
+
 `readTspListAuctionOverlay` 为自选和选股读取指定日期的竞价数据。调用方指定同一 TSP 扩展表、标的、价格字段及可选的匹配量和未匹配量字段，并用 `caller-confirmed-shanghai-wall-clock` 确认时间口径。各字段的原始时刻、观测值、单位状态和内容修订保留在 `input`。WHYJ 在 `overlay` 中对齐 09:15:00 至 09:25:00 的实际观测，重复时刻单独标记并留空。未匹配量保持符号，分别标为买方、卖方或平衡。缺少价格时仍返回已观察的量字段。各字段独立读取，回执记录每次读取的内容。 [TSP 集合竞价读取](https://github.com/shy3130/tick-stock-panel/blob/f9cb383c5918c6a88a412f3ce43d59fe81b94ccc/frontend/src/lib/intraday-auction.ts#L35)
 
 运行 `whyj --json observation read-list-auction-overlay --manifest PATH` 读取竞价数据。清单字段为 `version: 1`、`datasetId`、`date`、`symbols`、`fields: { price, matchedQuantity?, unmatchedQuantity? }` 和 `timeBasis: "caller-confirmed-shanghai-wall-clock"`。TSP 连接读取 `WHYJ_QUANT_TSP_BASE_URL` 与 `WHYJ_QUANT_TSP_READ_EXT_TOKEN`。清单无效时返回 `invalid_arguments`，供应商读取失败时返回 `observation_collection_failed`。命令等待输出写完并自然退出。
