@@ -2,6 +2,9 @@ import { isDailyDate } from "../../market/bars.ts";
 import { isAIndexSymbol, normalizeSymbol } from "../../market/symbols.ts";
 import { loadFinancialObservationArchive, type FinancialObservationArchiveRef, type StoredFinancialDisclosureDate,
   type StoredReportFinancialIndicator } from "../../storage/index.ts";
+import type { FinancialInputCaptureEvidence, FinancialInputReplayRow, FinancialInputUnavailableReason } from "../../types/observation.ts";
+
+export type { FinancialInputReplayRow } from "../../types/observation.ts";
 
 export interface FinancialInputReplayRequest {
   symbol: string;
@@ -9,27 +12,13 @@ export interface FinancialInputReplayRequest {
   references: readonly FinancialObservationArchiveRef[];
 }
 
-type CaptureEvidence = { ref: FinancialObservationArchiveRef; observedAt: string };
-type Capture<Row> = CaptureEvidence & { instant: number; observedDate: string; rows: Row[] };
-type UnavailableReason = "missing-report" | "missing-disclosure" | "ambiguous-report" | "ambiguous-disclosure" | "inconsistent-timing";
-
-export type FinancialInputReplayRow = { tradingDate: string } & (
-  | { status: "unavailable"; reason: UnavailableReason }
-  | {
-    status: "available";
-    periodEnd: string;
-    actualDisclosureDate: string;
-    report: StoredReportFinancialIndicator;
-    reportEvidence: CaptureEvidence[];
-    disclosureEvidence: CaptureEvidence[];
-  }
-);
+type Capture<Row> = FinancialInputCaptureEvidence & { instant: number; observedDate: string; rows: Row[] };
 
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 
 function latestPeriod<Row extends { periodEnd: string }>(captures: readonly Capture<Row>[], periodEnd: string, cutoff: string) {
   const rows: Row[] = [];
-  const evidence: CaptureEvidence[] = [];
+  const evidence: FinancialInputCaptureEvidence[] = [];
   let observedDate = "";
   let instant: number | undefined;
   for (const capture of captures) {
@@ -74,14 +63,14 @@ export async function replayFinancialResearchInputs(request: FinancialInputRepla
     } else disclosures.push({ ...capture, rows: batch.rows });
   }
 
-  const newestCapture = (left: CaptureEvidence & { instant: number }, right: CaptureEvidence & { instant: number }) =>
+  const newestCapture = (left: FinancialInputCaptureEvidence & { instant: number }, right: FinancialInputCaptureEvidence & { instant: number }) =>
     right.instant - left.instant || left.ref.revision.localeCompare(right.ref.revision);
   reports.sort(newestCapture);
   disclosures.sort(newestCapture);
   const newestPeriods = [...periods].sort().reverse();
   return tradingDates.map((tradingDate): FinancialInputReplayRow => {
     signal?.throwIfAborted();
-    let reason: UnavailableReason | undefined;
+    let reason: FinancialInputUnavailableReason | undefined;
     for (const periodEnd of newestPeriods) {
       const report = latestPeriod(reports, periodEnd, tradingDate);
       if (!report.rows.length) continue;

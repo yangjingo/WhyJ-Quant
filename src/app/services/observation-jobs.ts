@@ -11,7 +11,7 @@ import { isDailyDate } from "../../market/bars.ts";
 import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
   ObservationJobRequest, ObservationJobView, ObservationListQuotesPreview, ObservationListRowsPreview,
   ObservationListRowsRequest, ObservationMarketRegimePreview } from "../../types/workbench.ts";
-import type { TradingDateArchiveRef } from "../../types/observation.ts";
+import type { FinancialObservationArchiveRef, TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
 
 const invalid = () => new WorkbenchError("INPUT_INVALID", "采集参数无效。", 400);
@@ -30,7 +30,8 @@ function dailyReference(value: unknown): TradingDateArchiveRef {
   return { version: 2, revision: value.revision };
 }
 
-function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars" | "market-cross-section" | "market-regime-manifest">(
+function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars" | "market-cross-section" |
+  "market-regime-manifest" | FinancialObservationArchiveRef["kind"]>(
   value: unknown, kind: Kind, error: () => WorkbenchError,
 ) {
   if (!object(value) || Object.keys(value).length !== 3 || !["version", "kind", "revision"].every(key => Object.hasOwn(value, key)) ||
@@ -53,19 +54,34 @@ export async function readObservationIndicators(value: unknown): Promise<Observa
 
 const invalidListRows = () => new WorkbenchError("INPUT_INVALID", "股票列表范围或归档引用无效。", 400);
 
+function listFinancialReferences(value: unknown): FinancialObservationArchiveRef[] {
+  if (!Array.isArray(value)) throw invalidListRows();
+  const references = value.map((ref: unknown) => {
+    if (!object(ref) || (ref.kind !== "report-financial-indicators" && ref.kind !== "financial-disclosure-dates")) {
+      throw invalidListRows();
+    }
+    return fixedReference(ref, ref.kind, invalidListRows);
+  });
+  if (new Set(references.map(ref => ref.revision)).size !== references.length) throw invalidListRows();
+  return references;
+}
+
 function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][number] {
-  if (!object(value) || Object.keys(value).some(key => key !== "symbol" && key !== "history") ||
+  if (!object(value) || Object.keys(value).some(key => key !== "symbol" && key !== "history" && key !== "financialArchives") ||
     typeof value.symbol !== "string" || !datedStock.test(value.symbol)) throw invalidListRows();
   const { symbol, history } = value;
-  if (!Object.hasOwn(value, "history")) return { symbol };
+  const stock = { symbol, ...(Object.hasOwn(value, "financialArchives") && {
+    financialArchives: listFinancialReferences(value.financialArchives),
+  }) };
+  if (!Object.hasOwn(value, "history")) return stock;
   if (!object(history) || Object.keys(history).some(key => key !== "ref" && key !== "exchange")) throw invalidListRows();
   const ref = dailyReference(history.ref);
-  if (!Object.hasOwn(history, "exchange")) return { symbol, history: { ref } };
+  if (!Object.hasOwn(history, "exchange")) return { ...stock, history: { ref } };
   const exchange = history.exchange;
   if (!object(exchange) || Object.keys(exchange).some(key => key !== "rawArchiveRef" && key !== "tradingLimitArchiveRef")) {
     throw invalidListRows();
   }
-  return { symbol, history: { ref, exchange: {
+  return { ...stock, history: { ref, exchange: {
     tradingLimitArchiveRef: fixedReference(exchange.tradingLimitArchiveRef, "daily-trading-limits", invalidListRows),
     ...(Object.hasOwn(exchange, "rawArchiveRef") && { rawArchiveRef: dailyReference(exchange.rawArchiveRef) }),
   } } };

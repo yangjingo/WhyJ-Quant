@@ -162,6 +162,22 @@ export interface FinancialObservationArchiveRef {
   revision: string;
 }
 
+export type FinancialInputCaptureEvidence = { ref: FinancialObservationArchiveRef; observedAt: string };
+export type FinancialInputUnavailableReason =
+  "missing-report" | "missing-disclosure" | "ambiguous-report" | "ambiguous-disclosure" | "inconsistent-timing";
+
+export type FinancialInputReplayRow = { tradingDate: string } & (
+  | { status: "unavailable"; reason: FinancialInputUnavailableReason }
+  | {
+    status: "available";
+    periodEnd: string;
+    actualDisclosureDate: string;
+    report: StoredReportFinancialIndicator;
+    reportEvidence: FinancialInputCaptureEvidence[];
+    disclosureEvidence: FinancialInputCaptureEvidence[];
+  }
+);
+
 interface StoredMarketSlice<Endpoint extends string> {
   endpoint: Endpoint;
   tradeDate: string;

@@ -1,6 +1,7 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
 import type {
-  BenchmarkIndexArchiveRef, HistoricalMinuteArchiveRef, MarketCrossSectionArchiveRef, MarketRegimeManifestRef,
+  BenchmarkIndexArchiveRef, FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
+  MarketCrossSectionArchiveRef, MarketRegimeManifestRef,
   ObservationArchiveRef, SectorObservationArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
   StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
 } from "./observation.ts";
@@ -422,10 +423,11 @@ export interface ObservationExchangePreviewRequest {
 export interface ObservationListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
-  stocks: readonly { symbol: string; history?: {
-    ref: TradingDateArchiveRef;
-    exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef">;
-  } }[];
+  stocks: readonly {
+    symbol: string;
+    history?: { ref: TradingDateArchiveRef; exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef"> };
+    financialArchives?: readonly FinancialObservationArchiveRef[];
+  }[];
 }
 
 export interface ObservationIntradayRequest {
@@ -516,6 +518,7 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
       bar: StoredMarketCrossSection["bars"]["rows"][number] | null;
       basic: StoredMarketCrossSection["basics"]["rows"][number] | null;
       quantities: { volumeShares: number | null; amountCny: number | null };
+      financial?: FinancialInputReplayRow;
     };
     metrics: {
       liquidity: {

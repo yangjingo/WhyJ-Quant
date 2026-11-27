@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveDailyTradingLimits, archiveMarketCrossSection, archiveTradingDateObservations,
+import { archiveDailyTradingLimits, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
   loadMarketCrossSectionArchive, saveSettings } from "../../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../../types/config.ts";
 import type { ObservationListRowsRequest } from "../../../types/workbench.ts";
@@ -79,11 +79,45 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
             exchangeInputs: { raw: { ref }, limits: { ref: tradingLimitArchiveRef } } } } },
     ] });
     expect(await client.readObservationListRows!(request)).toEqual(result);
+    expect(result.rows.every(row => !Object.hasOwn(row.observations, "financial"))).toBe(true);
+    const periodEnd = "2023-12-31", actualDisclosureDate = "2024-02-26";
+    const capturedAt = "2024-03-01T02:00:00Z";
+    const financeScope = { symbol, source: "tushare", market: "A", coverage: "unknown", observedAt: capturedAt } as const;
+    const reportRef = await archiveFinancialObservations({
+      ...financeScope, endpoint: "fina_indicator", requested: { startPeriod: periodEnd, endPeriod: periodEnd }, rows: [{
+        periodEnd, announcementDate: actualDisclosureDate, updateFlag: null,
+        basicEarningsPerShare: 0, earningsPerShareCurrency: "unknown", bookValuePerShare: 12, bookValueCurrency: "unknown",
+        roe: -2, grossProfitMargin: null, netProfitMargin: null, operatingRevenueYoyPct: null,
+        totalOperatingRevenueYoyPct: null, parentNetProfitYoyPct: null, debtToAssets: 42, ratioUnit: "provider-native",
+      }],
+    });
+    const disclosureRef = await archiveFinancialObservations({
+      ...financeScope, endpoint: "disclosure_date", requested: { periodEnd }, rows: [{
+        periodEnd, actualDisclosureDate, plannedDisclosureDate: null, planAnnouncementDate: null, modificationRecord: null,
+      }],
+    });
+    const financialArchives = [reportRef, disclosureRef];
+    const withFinance = { ...request, stocks: [{ symbol: empty }, { ...stock, financialArchives }] };
+    expect((await send(withFinance, false)).status).toBe(401);
+    const financial = await client.readObservationListRows!(withFinance);
+    expect(financial.rows[1]!.observations.financial).toMatchObject({
+      tradingDate: tradeDate, status: "available", periodEnd, actualDisclosureDate,
+      report: { basicEarningsPerShare: 0, roe: -2, ratioUnit: "provider-native" },
+      reportEvidence: [{ ref: reportRef, observedAt: capturedAt }],
+      disclosureEvidence: [{ ref: disclosureRef, observedAt: capturedAt }],
+    });
+    expect(financial.rows[0]).toEqual(result.rows[0]);
+    expect(await client.readObservationListQuotes!(withFinance)).toEqual({
+      fixed: financial, quotes: { status: "outside-current-day" },
+    });
     for (const invalid of [
       { ...request, marketRef: { ...marketRef, revision: "../private" } },
       { ...request, stocks: [stock, stock] },
       { ...request, stocks: Array.from({ length: 101 }, (_, i) => ({ symbol: `600${String(i).padStart(3, "0")}.SH` })) },
       { ...request, stocks: [{ ...stock, history: { ref, exchange: { rawArchiveRef: ref } } }] },
+      { ...request, stocks: [{ symbol, financialArchives: [{ ...reportRef, revision: "../private" }] }] },
+      { ...request, stocks: [{ symbol, financialArchives: [tradingLimitArchiveRef] }] },
+      { ...request, stocks: [{ symbol, financialArchives: [reportRef, reportRef] }] },
     ]) {
       const response = await send(invalid);
       expect(response.status).toBe(400);
@@ -94,6 +128,12 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     expect(unavailable.status).toBe(404);
     expect(await unavailable.json()).toMatchObject({ error: { code: "OBSERVATION_ARCHIVE_UNAVAILABLE" } });
     await expect(client.readObservationListRows!(missing)).rejects.toMatchObject({ code: "OBSERVATION_ARCHIVE_UNAVAILABLE" });
+    await expect(client.readObservationListRows!({
+      ...request, stocks: [{ symbol, financialArchives: [{ ...reportRef, revision: "f".repeat(64) }] }],
+    })).rejects.toMatchObject({ code: "OBSERVATION_ARCHIVE_UNAVAILABLE" });
+    await expect(client.readObservationListRows!({
+      ...request, stocks: [{ symbol: empty, financialArchives }],
+    })).rejects.toMatchObject({ code: "OBSERVATION_ARCHIVE_UNAVAILABLE" });
     await expect(client.readObservationListRows!({ ...request, stocks: [stock, stock] })).rejects.toMatchObject({ code: "INPUT_INVALID" });
     expect(providerCalls).toEqual([]);
 
@@ -107,12 +147,13 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
       universe: { ...market.universe, ...currentFields }, bars: { ...market.bars, ...currentFields },
       basics: { ...market.basics, ...currentFields },
     });
-    const requestNow = { ...request, marketRef: currentRef, stocks: [{ symbol: empty }, { symbol }] };
+    const requestNow = { ...request, marketRef: currentRef, stocks: [{ symbol: empty }, { symbol, financialArchives }] };
     expect((await send(requestNow, false, "readObservationListQuotes")).status).toBe(401);
     await expect(client.readObservationListQuotes!({ ...requestNow, stocks: [{ symbol }, { symbol }] }))
       .rejects.toMatchObject({ code: "INPUT_INVALID" });
     expect(await client.readObservationListQuotes!(request)).toEqual({ fixed: result, quotes: { status: "outside-current-day" } });
     const fixedNow = await client.readObservationListRows!(requestNow);
+    expect(fixedNow.rows[1]!.observations.financial).toMatchObject({ status: "available", tradingDate: current });
     expect(providerCalls).toEqual([]);
     const quoteResponse = await client.readObservationListQuotes!(requestNow);
     expect(quoteResponse.fixed).toEqual(fixedNow);

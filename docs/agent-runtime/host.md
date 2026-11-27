@@ -160,6 +160,8 @@ Windows 开发版使用独立的 `io.github.yangjingo.whyj-quant.dev` 任务栏�
 
 工作台的认证 RPC `readObservationListRows` 接收一个 `ObservationListRowsRequest`。请求包含市场截面 `marketRef`、日线复权口径及最多 100 个不同的股票代码，可为每个代码附上日线和限价归档引用。Host 离线返回按请求顺序排列的 [历史列表行](./services.md#自选与选股的历史列表行)，保留各项来源、日期、单位以及缺值。无效请求返回 `INPUT_INVALID`，无法读取或不匹配的归档返回 `OBSERVATION_ARCHIVE_UNAVAILABLE`。较旧 Host 缺少此读取方法时返回 `METHOD_NOT_FOUND`。
 
+股票项可通过 `financialArchives` 附上报告和披露归档的固定引用。Host 校验引用类型、版本和修订号，然后按截面交易日离线解析。符合条件的报告及其归档证据随该股的 `observations.financial` 返回。无符合条件的报告时返回相应的不可用状态。
+
 另一个可选 RPC `readObservationListQuotes` 接收相同请求。它只在用户主动调用且截面对应当前上海日期时向当前选定的 Source 读取单批报价，提供 10 秒的供应商请求超时。响应分别返回 `fixed` 与 `quotes`，提供历史跳过、报价不可用和逐股状态。已有 `readObservationListRows` 继续离线读取，供应商失败时也可从新方法取得固定归档。
 
 认证 RPC `readObservationMarketRegime` 接收一个版本 1 的 `market-regime-manifest` 引用。通过 CLI 导入清单后，工作台只传修订号，Host 重新校验清单并离线回放，服务端计算时限为 50 秒。响应包含显示窗口内的逐日状态、成交与涨跌覆盖、梯队、阶段及概念排名，以及完整预热日历的日期范围和清单修订号。CLI 回放仍返回逐股归档证据。无效引用和不可用归档沿用工作台的对应错误结构。 [清单导入与回放](./services.md#显式行情采集任务)
