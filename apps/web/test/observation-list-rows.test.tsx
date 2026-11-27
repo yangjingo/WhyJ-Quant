@@ -23,6 +23,12 @@ test("builds a bounded ordered Host request from the CLI manifest", () => {
       rawArchiveRef: { version: 2, revision: rawRevision },
     } } }, { symbol: missing }],
   });
+  expect(listRowsManifest({ ...manifest, stocks: [{ ...manifest.stocks[0], candleBars: 12 }] }).stocks[0]?.history)
+    .toMatchObject({ ref: { revision: dailyRevision }, candleBars: 12 });
+  for (const stock of [{ symbol, candleBars: 12 }, { symbol, dailyRevision, candleBars: 61 },
+    { symbol, dailyRevision, candleBars: "12" }]) {
+    expect(() => listRowsManifest({ ...manifest, stocks: [stock] })).toThrow("日 K");
+  }
   const finance = { financialReportRevisions: [reportRevision], financialDisclosureRevisions: [disclosureRevision] };
   expect(listRowsManifest({ ...manifest, stocks: [
     { ...manifest.stocks[0], ...finance }, { symbol: missing, ...finance },
@@ -82,6 +88,24 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).toContain(date);
   expect(html).toContain(observedAt);
   expect(html).toContain("供应商行情与估值");
+  expect(html).not.toContain("供应商日 K");
+  const candleRows: NonNullable<ObservationListRowsPreview["rows"][number]["observations"]["dailyCandles"]> = {
+    ref: { version: 2, revision: dailyRevision }, source: "tickflow", endpoint: "/v1/klines", symbol,
+    observedAt, calendarTimeZone: "Asia/Shanghai", adjustment: "forward", requestedBars: 12,
+    firstTradeDate: date, lastTradeDate: date, requested: { startDate: date, endDate: date },
+    coverage: "unknown", finality: "unknown", volumeUnit: "unknown", amountUnit: "unknown",
+    rows: [{ tradeDate: date, sourceTimestamp: 1709535600000, open: 10, high: 12, low: 9, close: 11, volume: 0, amount: null }],
+  };
+  const candleResult = { ...result, rows: result.rows.map(row => ({
+    ...row, observations: { ...row.observations, dailyCandles: candleRows },
+  })) };
+  const candles = renderToStaticMarkup(<ObservationListResult result={candleResult} />);
+  expect(candles).toContain("供应商日 K");
+  expect(candles).toContain("前复权");
+  expect(candles).toContain("查看交易日");
+  expect(candles).toContain(dailyRevision);
+  expect(candles).toContain("<dt>成交量（单位未知）</dt><dd>0</dd>");
+  expect(candles).toContain("<dt>成交额（单位未知）</dt><dd>暂无</dd>");
   expect(html).not.toContain("供应商财务报告");
   expect(html).not.toContain("供应商交易所限价");
   expect(html).not.toContain("WHYJ 连板计数");
