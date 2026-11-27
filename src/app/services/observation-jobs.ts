@@ -9,7 +9,7 @@ import { replayTspMarketRegimeSummary } from "../../runtime/data/market-regime-s
 import { loadMarketRegimeManifest } from "../../storage/index.ts";
 import { isDailyDate } from "../../market/bars.ts";
 import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
-  ObservationJobRequest, ObservationJobView, ObservationListQuotesPreview, ObservationListRowsPreview,
+  ObservationJobRequest, ObservationJobView, ObservationListIntradayRequest, ObservationListQuotesPreview, ObservationListRowsPreview,
   ObservationListRowsRequest, ObservationMarketRegimePreview } from "../../types/workbench.ts";
 import type { ArchiveAnalyticsSupplements, FinancialObservationArchiveRef, TradingDateArchiveRef } from "../../types/observation.ts";
 import { WorkbenchError } from "../workbench/errors.ts";
@@ -30,7 +30,7 @@ function dailyReference(value: unknown): TradingDateArchiveRef {
   return { version: 2, revision: value.revision };
 }
 
-function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars" | "market-cross-section" |
+function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars" | "dated-stock-minute" | "market-cross-section" |
   "market-regime-manifest" | FinancialObservationArchiveRef["kind"]>(
   value: unknown, kind: Kind, error: () => WorkbenchError,
 ) {
@@ -54,6 +54,29 @@ export async function readObservationIndicators(value: unknown): Promise<Observa
 
 const invalidListRows = () => new WorkbenchError("INPUT_INVALID", "股票列表范围或归档引用无效。", 400);
 
+function previousCloseReference(input: unknown, error: () => WorkbenchError): NonNullable<ObservationIntradayRequest["previousClose"]> {
+  if (!object(input) || Object.keys(input).length !== 2 || !Object.hasOwn(input, "ref") ||
+    !Object.hasOwn(input, "priceBasis") || input.priceBasis !== "caller-confirmed-same-basis") throw error();
+  return { ref: fixedReference(input.ref, "daily-trading-limits", error), priceBasis: input.priceBasis };
+}
+
+function listRowIntraday(value: unknown): ObservationListIntradayRequest {
+  if (!object(value) || Object.keys(value).some(key => !["ref", "interpretation", "previousClose"].includes(key))) throw invalidListRows();
+  const { interpretation } = value;
+  if (!object(interpretation) || Object.keys(interpretation).some(key => !["timestampLabel", "priceBasis", "volumeUnit", "amountUnit"].includes(key))) {
+    throw invalidListRows();
+  }
+  const { timestampLabel, priceBasis, volumeUnit, amountUnit } = interpretation;
+  if ((timestampLabel !== "minute-start" && timestampLabel !== "minute-end") || priceBasis !== "caller-confirmed-unadjusted-CNY" ||
+    (volumeUnit !== undefined && volumeUnit !== "share" && volumeUnit !== "hand") ||
+    (amountUnit !== undefined && amountUnit !== "CNY" && amountUnit !== "CNY-thousand")) throw invalidListRows();
+  return {
+    ref: fixedReference(value.ref, "dated-stock-minute", invalidListRows),
+    interpretation: { timestampLabel, priceBasis, volumeUnit, amountUnit },
+    ...(Object.hasOwn(value, "previousClose") && { previousClose: previousCloseReference(value.previousClose, invalidListRows) }),
+  };
+}
+
 function financialReferences(value: unknown, error: () => WorkbenchError): FinancialObservationArchiveRef[] {
   if (!Array.isArray(value)) throw error();
   const references = value.map((ref: unknown) => {
@@ -67,7 +90,7 @@ function financialReferences(value: unknown, error: () => WorkbenchError): Finan
 }
 
 function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][number] {
-  if (!object(value) || Object.keys(value).some(key => !["symbol", "history", "financialArchives", "tradingLimitsRef"].includes(key)) ||
+  if (!object(value) || Object.keys(value).some(key => !["symbol", "history", "financialArchives", "tradingLimitsRef", "intraday"].includes(key)) ||
     typeof value.symbol !== "string" || !datedStock.test(value.symbol)) throw invalidListRows();
   const { symbol, history } = value;
   const hasTradingLimits = Object.hasOwn(value, "tradingLimitsRef");
@@ -75,6 +98,8 @@ function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][numb
     financialArchives: financialReferences(value.financialArchives, invalidListRows),
   }), ...(hasTradingLimits && {
     tradingLimitsRef: fixedReference(value.tradingLimitsRef, "daily-trading-limits", invalidListRows),
+  }), ...(Object.hasOwn(value, "intraday") && {
+    intraday: listRowIntraday(value.intraday),
   }) };
   if (!Object.hasOwn(value, "history")) return stock;
   if (!object(history) || Object.keys(history).some(key => key !== "ref" && key !== "exchange" && key !== "candleBars")) throw invalidListRows();
@@ -231,13 +256,9 @@ export async function readObservationIntraday(value: unknown): Promise<Observati
     typeof value.tradeDate !== "string" || !isDailyDate(value.tradeDate)) throw invalidIntraday();
   const tradeDate = value.tradeDate;
   const ref = fixedReference(value.archiveRef, "historical-minute-bars", invalidIntraday);
-  let previousClose: ObservationIntradayRequest["previousClose"];
-  if (Object.hasOwn(value, "previousClose")) {
-    const input = value.previousClose;
-    if (!object(input) || Object.keys(input).length !== 2 || !Object.hasOwn(input, "ref") ||
-      !Object.hasOwn(input, "priceBasis") || input.priceBasis !== "caller-confirmed-same-basis") throw invalidIntraday();
-    previousClose = { ref: fixedReference(input.ref, "daily-trading-limits", invalidIntraday), priceBasis: input.priceBasis };
-  }
+  const previousClose = Object.hasOwn(value, "previousClose")
+    ? previousCloseReference(value.previousClose, invalidIntraday)
+    : undefined;
   let replay: Awaited<ReturnType<typeof deriveTspArchiveIntraday>>;
   try {
     replay = await deriveTspArchiveIntraday(ref, { previousClose, signal: AbortSignal.timeout(30_000) });
