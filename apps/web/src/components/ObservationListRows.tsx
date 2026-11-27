@@ -64,6 +64,8 @@ function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][
           ["最新价（元）", display(quote.snapshot.lastPrice)], ["报价昨收（元）", display(quote.snapshot.previousClose)],
           ["开盘（元）", display(quote.snapshot.open)], ["最高（元）", display(quote.snapshot.high)], ["最低（元）", display(quote.snapshot.low)],
           ["原始成交量", display(quote.snapshot.volume)], ["原始成交额", display(quote.snapshot.amount)],
+          ["供应商报价换手率", display(quote.snapshot.reportedTurnoverFraction == null
+            ? null : quote.snapshot.reportedTurnoverFraction * 100, "%")],
           ["WHYJ 报价涨跌额（元）", display(quote.change.changeAmount)],
           ["WHYJ 报价涨跌幅", display(quote.change.changeFraction === null ? null : quote.change.changeFraction * 100, "%")],
         ]} /> : <p className="supporting">{quoteRowStatus[quote.status]}</p>}

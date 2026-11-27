@@ -69,12 +69,17 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(renderToStaticMarkup(<ObservationListRows read={undefined} />)).toContain("当前服务不支持历史股票列表");
 
   const timestamp = Date.parse(observedAt);
-  const quoted = renderToStaticMarkup(<ObservationListResult result={result} quotes={{
+  const renderQuote = (reportedTurnoverFraction?: number) => renderToStaticMarkup(<ObservationListResult result={result} quotes={{
     status: "observed", source: "tickflow", endpoint: "/v1/quotes", observedAt, units: "unknown",
     rows: [{ symbol, status: "available", sourceTimestamp: timestamp,
-      snapshot: { symbol, timestamp, lastPrice: 12, previousClose: 10, open: 10, high: 12, low: 10, volume: 0, amount: null },
+      snapshot: { symbol, timestamp, lastPrice: 12, previousClose: 10, open: 10, high: 12, low: 10, volume: 0, amount: null,
+        ...(reportedTurnoverFraction === undefined ? {} : { reportedTurnoverFraction }) },
       change: { producer: "whyj", changeAmount: 2, changeFraction: 0.2 } }],
   }} />);
+  const quoted = renderQuote(0.01);
+  expect(quoted).toContain("<dt>供应商报价换手率</dt><dd>1%</dd>");
+  expect(renderQuote(0)).toContain("<dt>供应商报价换手率</dt><dd>0%</dd>");
+  expect(renderQuote()).toContain("<dt>供应商报价换手率</dt><dd>暂无</dd>");
   expect(quoted).toContain("收盘 10 元");
   expect(quoted).toContain("报价 12 元");
   expect(quoted).toContain("tickflow · /v1/quotes");
