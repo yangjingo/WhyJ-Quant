@@ -3,11 +3,12 @@ import { deriveTspArchiveAnalytics } from "../../runtime/data/archive-analytics.
 import { collectObservations, collectTradingDateObservations, collectTradingLimitObservations, deriveTspArchiveIndicators,
   type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
-import { replayTspListRows, replayTspListRowsWithLiveQuotes } from "../../runtime/data/list-rows.ts";
+import { replayTspListRows, replayTspListRowsWithLiveQuotes, type TspListRowsRequest } from "../../runtime/data/list-rows.ts";
 import { parseRegimeSummaryManifest } from "../../runtime/data/market-regime-manifest.ts";
 import { replayTspMarketRegimeSummary } from "../../runtime/data/market-regime-summary-replay.ts";
 import { loadMarketRegimeManifest } from "../../storage/index.ts";
 import { isDailyDate } from "../../market/bars.ts";
+import { TSP_DAILY_SIGNAL_FIELDS } from "../../quant/index.ts";
 import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
   ObservationJobRequest, ObservationJobView, ObservationListIntradayRequest, ObservationListQuotesPreview, ObservationListRowsPreview,
   ObservationListRowsRequest, ObservationMarketRegimePreview } from "../../types/workbench.ts";
@@ -89,6 +90,14 @@ function financialReferences(value: unknown, error: () => WorkbenchError): Finan
   return references;
 }
 
+function listExchangeReferences(value: unknown): DailySignalExchangeRefs {
+  if (!object(value) || Object.keys(value).some(key => key !== "rawArchiveRef" && key !== "tradingLimitArchiveRef")) throw invalidListRows();
+  return {
+    tradingLimitArchiveRef: fixedReference(value.tradingLimitArchiveRef, "daily-trading-limits", invalidListRows),
+    ...(Object.hasOwn(value, "rawArchiveRef") && { rawArchiveRef: dailyReference(value.rawArchiveRef) }),
+  };
+}
+
 function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][number] {
   if (!object(value) || Object.keys(value).some(key => !["symbol", "history", "financialArchives", "tradingLimitsRef", "intraday",
     "watchlistHistoryRef"].includes(key)) ||
@@ -111,14 +120,58 @@ function listRowStock(value: unknown): ObservationListRowsRequest["stocks"][numb
     candleBars < 5 || candleBars > 60)) throw invalidListRows();
   const fixedHistory = { ref: dailyReference(history.ref), ...(candleBars !== undefined && { candleBars }) };
   if (!Object.hasOwn(history, "exchange")) return { ...stock, history: fixedHistory };
-  const exchange = history.exchange;
-  if (hasTradingLimits || !object(exchange) || Object.keys(exchange).some(key => key !== "rawArchiveRef" && key !== "tradingLimitArchiveRef")) {
+  if (hasTradingLimits) throw invalidListRows();
+  return { ...stock, history: { ...fixedHistory, exchange: listExchangeReferences(history.exchange) } };
+}
+
+type ListScreenerScope = NonNullable<TspListRowsRequest["screener"]>;
+
+function listScreenerStrategy(value: unknown): ListScreenerScope["strategies"][number] {
+  if (!object(value) || Object.keys(value).some(key => !["strategy", "signalGate", "weights", "orderBy", "descending"].includes(key))) {
     throw invalidListRows();
   }
-  return { ...stock, history: { ...fixedHistory, exchange: {
-    tradingLimitArchiveRef: fixedReference(exchange.tradingLimitArchiveRef, "daily-trading-limits", invalidListRows),
-    ...(Object.hasOwn(exchange, "rawArchiveRef") && { rawArchiveRef: dailyReference(exchange.rawArchiveRef) }),
-  } } };
+  const { strategy, signalGate, weights, orderBy, descending } = value;
+  if (!object(strategy) || Object.keys(strategy).some(key => key !== "id" && key !== "revision") ||
+    typeof strategy.id !== "string" || !strategy.id.trim() || strategy.id !== strategy.id.trim() ||
+    typeof strategy.revision !== "string" || !revision.test(strategy.revision) || !Array.isArray(weights) ||
+    (orderBy !== undefined && (typeof orderBy !== "string" || !orderBy.trim() || orderBy !== orderBy.trim())) ||
+    (descending !== undefined && typeof descending !== "boolean")) throw invalidListRows();
+  let gate: ListScreenerScope["strategies"][number]["signalGate"];
+  if (signalGate !== undefined) {
+    if (!object(signalGate) || Object.keys(signalGate).some(key => key !== "mode" && key !== "signals") ||
+      (signalGate.mode !== "any" && signalGate.mode !== "all") || !Array.isArray(signalGate.signals) ||
+      !signalGate.signals.length || new Set(signalGate.signals).size !== signalGate.signals.length) throw invalidListRows();
+    gate = { mode: signalGate.mode, signals: signalGate.signals.map((value: unknown) => {
+      const signal = TSP_DAILY_SIGNAL_FIELDS.find(id => id === value);
+      if (!signal) throw invalidListRows();
+      return signal;
+    }) };
+  }
+  return {
+    strategy: { id: strategy.id, revision: strategy.revision }, orderBy, descending, signalGate: gate,
+    weights: weights.map((entry: unknown) => {
+      if (!object(entry) || Object.keys(entry).some(key => !["field", "weight", "direction"].includes(key)) ||
+        typeof entry.field !== "string" || !entry.field.trim() || entry.field !== entry.field.trim() ||
+        typeof entry.weight !== "number" || !Number.isFinite(entry.weight) || entry.weight < 0 ||
+        (entry.direction !== undefined && entry.direction !== "low" && entry.direction !== "high")) throw invalidListRows();
+      return { field: entry.field, weight: entry.weight, direction: entry.direction };
+    }),
+  };
+}
+
+function listScreenerScope(value: unknown): ListScreenerScope {
+  if (!object(value) || Object.keys(value).some(key => key !== "histories" && key !== "strategies") ||
+    !Array.isArray(value.histories) || !Array.isArray(value.strategies) || !value.strategies.length) throw invalidListRows();
+  const histories = value.histories.map((entry: unknown) => {
+    if (!object(entry) || Object.keys(entry).some(key => !["symbol", "ref", "exchange"].includes(key)) ||
+      typeof entry.symbol !== "string" || !datedStock.test(entry.symbol)) throw invalidListRows();
+    return { symbol: entry.symbol, ref: dailyReference(entry.ref),
+      ...(Object.hasOwn(entry, "exchange") && { exchange: listExchangeReferences(entry.exchange) }) };
+  });
+  const strategies = value.strategies.map(listScreenerStrategy);
+  if (new Set(histories.map(row => row.symbol)).size !== histories.length ||
+    new Set(strategies.map(row => row.strategy.id)).size !== strategies.length) throw invalidListRows();
+  return { histories, strategies };
 }
 
 function listLimitCalendar(value: unknown): NonNullable<ObservationListRowsRequest["limitCalendar"]> {
@@ -134,22 +187,24 @@ function listLimitCalendar(value: unknown): NonNullable<ObservationListRowsReque
 }
 
 async function readListArchive<T>(
-  value: unknown, read: (request: ObservationListRowsRequest, signal: AbortSignal) => Promise<T>,
+  value: unknown, read: (request: TspListRowsRequest, signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  if (!object(value) || Object.keys(value).some(key => !["marketRef", "adjustment", "stocks", "limitCalendar", "watchlistMembershipRevision"].includes(key)) ||
+  if (!object(value) || Object.keys(value).some(key => !["marketRef", "adjustment", "stocks", "limitCalendar", "watchlistMembershipRevision",
+    "screener"].includes(key)) ||
     !["marketRef", "adjustment", "stocks"].every(key => Object.hasOwn(value, key)) ||
     (value.adjustment !== "none" && value.adjustment !== "forward") ||
     !Array.isArray(value.stocks) || value.stocks.length > 100) throw invalidListRows();
   const marketRef = fixedReference(value.marketRef, "market-cross-section", invalidListRows);
   const stocks = value.stocks.map(listRowStock);
   const limitCalendar = Object.hasOwn(value, "limitCalendar") ? listLimitCalendar(value.limitCalendar) : undefined;
+  const screener = Object.hasOwn(value, "screener") ? listScreenerScope(value.screener) : undefined;
   const { watchlistMembershipRevision } = value;
   if (watchlistMembershipRevision !== undefined &&
     (typeof watchlistMembershipRevision !== "string" || !revision.test(watchlistMembershipRevision))) throw invalidListRows();
   if (watchlistMembershipRevision === undefined && stocks.some(stock => stock.watchlistHistoryRef !== undefined)) throw invalidListRows();
   if (new Set(stocks.map(stock => stock.symbol)).size !== stocks.length) throw invalidListRows();
   try {
-    return await read({ marketRef, adjustment: value.adjustment, stocks, limitCalendar, watchlistMembershipRevision }, AbortSignal.timeout(25_000));
+    return await read({ marketRef, adjustment: value.adjustment, stocks, limitCalendar, watchlistMembershipRevision, screener }, AbortSignal.timeout(25_000));
   } catch {
     throw new WorkbenchError("OBSERVATION_ARCHIVE_UNAVAILABLE", "无法读取指定的股票列表归档。请核对归档引用后重试。", 404);
   }

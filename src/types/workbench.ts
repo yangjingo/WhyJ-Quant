@@ -433,10 +433,26 @@ export interface ObservationListIntradayRequest {
   previousClose?: ObservationIntradayRequest["previousClose"];
 }
 
+export interface ObservationListScreenerScope {
+  histories: readonly {
+    symbol: string;
+    ref: TradingDateArchiveRef;
+    exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef">;
+  }[];
+  strategies: readonly {
+    strategy: { id: string; revision: string };
+    weights: readonly { field: string; weight: number; direction?: "low" | "high" }[];
+    signalGate?: { mode: "any" | "all"; signals: readonly string[] };
+    orderBy?: string;
+    descending?: boolean;
+  }[];
+}
+
 export interface ObservationListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
   watchlistMembershipRevision?: string;
+  screener?: ObservationListScreenerScope;
   limitCalendar?: { revision: string; sessions: readonly string[] };
   stocks: readonly {
     symbol: string;
@@ -526,6 +542,17 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: ObservationListRowsRequest["adjustment"];
   limitCalendar?: NonNullable<ObservationListRowsRequest["limitCalendar"]> & { zone: "Asia/Shanghai" };
+  screener?: {
+    scoped: number;
+    matched: number;
+    strategies: {
+      strategy: { id: string; revision: string };
+      formula: { id: "tsp_screener_score"; version: number; revision: string };
+      candidateRevision: string;
+      coverage: { scoped: number; matched: number; notMatched: number; unavailable: number };
+      fieldSources: Record<string, { producer: string; endpoint?: string; formula?: string; unit?: string; nativeUnit?: string }>;
+    }[];
+  };
   observations: {
     roster: Omit<StoredMarketCrossSection["universe"], "members">;
     daily: Omit<StoredMarketCrossSection["bars"], "rows">;
@@ -559,6 +586,14 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
       };
     };
     metrics: {
+      screener?: {
+        producer: "whyj";
+        position: number | null;
+        score: number | null;
+        scoreStrategyId: string | null;
+        hits: { strategyId: string; score: number | null }[];
+        evaluations: { strategyId: string; status: "matched" | "not-matched" | "unavailable" | "outside-scope" }[];
+      };
       watchlistReturn?: {
         producer: "whyj";
         formulaVersion: string;

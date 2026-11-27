@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveDailyTradingLimits, archiveDatedStockMinutes, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
-  loadMarketCrossSectionArchive, loadPanelPortfolio, savePanelPortfolio, saveSettings } from "../../../storage/index.ts";
+  loadMarketCrossSectionArchive, loadPanelPortfolio, loadTradingDateArchive, savePanelPortfolio, saveSettings } from "../../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../../types/config.ts";
 import type { ObservationListRowsRequest } from "../../../types/workbench.ts";
 import { createHostClient } from "../../host/client.ts";
@@ -80,6 +80,43 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     ] });
     expect(await client.readObservationListRows!(request)).toEqual(result);
     expect(result.rows.every(row => !Object.hasOwn(row.observations, "financial"))).toBe(true);
+    const siblingRef = await archiveTradingDateObservations((await loadTradingDateArchive(ref)).map(row => ({ ...row, symbol: empty })));
+    const screener = {
+      histories: [{ symbol: empty, ref: siblingRef }, { symbol, ref, exchange: { tradingLimitArchiveRef } }],
+      strategies: [{ strategy: { id: "no-score", revision: "1".repeat(64) }, weights: [] },
+        { strategy: { id: "amount", revision: "2".repeat(64) }, weights: [{ field: "amount", weight: 1 }],
+          signalGate: { mode: "all" as const, signals: ["signal_limit_up"] } }],
+    };
+    const scoredRequest = { ...request, stocks: [{ symbol }], screener };
+    expect((await send(scoredRequest, false)).status).toBe(401);
+    const scored = await client.readObservationListRows!(scoredRequest);
+    expect(scored.screener).toMatchObject({ scoped: 2, matched: 2, strategies: [
+      { strategy: screener.strategies[0]!.strategy, formula: { id: "tsp_screener_score", version: 1 },
+        candidateRevision: expect.stringMatching(/^[a-f0-9]{64}$/), coverage: { scoped: 2, matched: 2 } },
+      { strategy: screener.strategies[1]!.strategy, fieldSources: { amount: { producer: "tushare", nativeUnit: "CNY-thousand" } } },
+    ] });
+    expect(scored.rows).toMatchObject([{ instrument: { symbol }, observations: { bar: { close: 10, amount: 1.2 } }, metrics: {
+      screener: { producer: "whyj", position: 2, score: null, scoreStrategyId: "no-score",
+        hits: [{ strategyId: "no-score", score: null }, { strategyId: "amount", score: 50 }],
+        evaluations: [{ strategyId: "no-score", status: "matched" }, { strategyId: "amount", status: "matched" }],
+      },
+    } }]);
+    expect(await client.readObservationListQuotes!(scoredRequest)).toEqual({ fixed: scored, quotes: { status: "outside-current-day" } });
+    expect(result).not.toHaveProperty("screener");
+    expect(result.rows.every(row => !Object.hasOwn(row.metrics, "screener"))).toBe(true);
+    for (const [scope, status, code] of [
+      [{ ...screener, histories: [screener.histories[0], screener.histories[0]] }, 400, "INPUT_INVALID"],
+      [{ ...screener, strategies: [screener.strategies[0], screener.strategies[0]] }, 400, "INPUT_INVALID"],
+      [{ ...screener, strategies: [{ ...screener.strategies[0], signalGate: { mode: "all", signals: ["invented"] } }] }, 400, "INPUT_INVALID"],
+      [{ ...screener, histories: [{ symbol, ref: { ...ref, revision: "f".repeat(64) } }] }, 404, "OBSERVATION_ARCHIVE_UNAVAILABLE"],
+      [{ ...screener, histories: [{ symbol: empty, ref }] }, 404, "OBSERVATION_ARCHIVE_UNAVAILABLE"],
+    ] as const) {
+      for (const method of ["readObservationListRows", "readObservationListQuotes"]) {
+        const response = await send({ ...scoredRequest, screener: scope }, true, method);
+        expect(response.status).toBe(status);
+        expect(await response.json()).toMatchObject({ error: { code } });
+      }
+    }
     const saved = loadPanelPortfolio();
     saved.symbols = [{ code: "600000", name: "fixture", added: tradeDate }, { code: empty, name: "no history", added: "" }];
     savePanelPortfolio(saved);
