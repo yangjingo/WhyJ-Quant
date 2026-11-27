@@ -4,12 +4,15 @@ import { collectObservations, collectTradingDateObservations, collectTradingLimi
   type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes, type TspListRowsRequest } from "../../runtime/data/list-rows.ts";
+import { previewCurrentTspListIntraday } from "../../runtime/data/tickflow-stock-minute-replay.ts";
 import { parseRegimeSummaryManifest } from "../../runtime/data/market-regime-manifest.ts";
 import { replayTspMarketRegimeSummary } from "../../runtime/data/market-regime-summary-replay.ts";
 import { loadMarketRegimeManifest } from "../../storage/index.ts";
 import { isDailyDate } from "../../market/bars.ts";
+import { isAIndexSymbol } from "../../market/symbols.ts";
 import { TSP_DAILY_SIGNAL_FIELDS } from "../../quant/index.ts";
-import type { ObservationAnalyticsPreview, ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
+import type { ObservationAnalyticsPreview, ObservationCurrentStockMinutesPreview, ObservationCurrentStockMinutesRequest,
+  ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
   ObservationJobRequest, ObservationJobView, ObservationListIntradayRequest, ObservationListQuotesPreview, ObservationListRowsPreview,
   ObservationListRowsRequest, ObservationMarketRegimePreview } from "../../types/workbench.ts";
 import type { ArchiveAnalyticsSupplements, FinancialObservationArchiveRef, TradingDateArchiveRef } from "../../types/observation.ts";
@@ -227,6 +230,36 @@ export function readObservationListRows(value: unknown): Promise<ObservationList
 
 export function readObservationListQuotes(value: unknown): Promise<ObservationListQuotesPreview> {
   return readListArchive(value, (request, signal) => replayTspListRowsWithLiveQuotes(request, { signal, timeoutMs: 10_000 }));
+}
+
+export async function readObservationCurrentStockMinutes(value: unknown): Promise<ObservationCurrentStockMinutesPreview> {
+  const error = () => new WorkbenchError("INPUT_INVALID", "当日股票分时范围或昨收引用无效。", 400);
+  if (!object(value) || Object.keys(value).some(key => !["tradeDate", "stocks", "interpretation"].includes(key)) ||
+    value.tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(value.stocks) ||
+    !value.stocks.length || value.stocks.length > 100) throw error();
+  let interpretation: ObservationCurrentStockMinutesRequest["interpretation"];
+  if (Object.hasOwn(value, "interpretation")) {
+    const input = value.interpretation;
+    if (!object(input) || Object.keys(input).some(key => !["timestampLabel", "priceBasis"].includes(key)) ||
+      (input.timestampLabel !== "minute-start" && input.timestampLabel !== "minute-end") ||
+      input.priceBasis !== "caller-confirmed-unadjusted-CNY") throw error();
+    interpretation = { timestampLabel: input.timestampLabel, priceBasis: input.priceBasis };
+  }
+  const seen = new Set<string>();
+  const stocks = value.stocks.map((stock: unknown) => {
+    if (!object(stock) || Object.keys(stock).some(key => !["symbol", "previousClose"].includes(key))) throw error();
+    const code = typeof stock.symbol === "string" ? stock.symbol.trim().toUpperCase() : "";
+    if (!datedStock.test(code) || isAIndexSymbol(code) || seen.has(code) ||
+      (Object.hasOwn(stock, "previousClose") && !interpretation)) throw error();
+    seen.add(code);
+    return { symbol: code, ...(Object.hasOwn(stock, "previousClose") && { previousClose: previousCloseReference(stock.previousClose, error) }) };
+  });
+  try {
+    return await previewCurrentTspListIntraday({ tradeDate: value.tradeDate, stocks, interpretation },
+      { signal: AbortSignal.timeout(25_000), timeoutMs: 10_000 });
+  } catch {
+    throw new WorkbenchError("OBSERVATION_COLLECTION_FAILED", "无法读取指定的当日股票分时。请核对数据源和昨收引用后重试。", 502);
+  }
 }
 
 export async function readObservationMarketRegime(value: unknown): Promise<ObservationMarketRegimePreview> {
