@@ -709,10 +709,16 @@ export interface ObservationListQuotesPreview {
   };
 }
 
+export interface ObservationCurrentMinuteQuoteTailOptions {
+  maxAgeMs: number;
+  priceBasis: "caller-confirmed-same-basis";
+}
+
 export interface ObservationCurrentStockMinutesRequest {
   tradeDate: string;
   stocks: readonly { symbol: string; previousClose?: ObservationIntradayRequest["previousClose"] }[];
   interpretation?: Pick<ObservationListIntradayRequest["interpretation"], "timestampLabel" | "priceBasis">;
+  quoteTail?: ObservationCurrentMinuteQuoteTailOptions;
 }
 
 type CurrentStockMinuteStatus = "observed" | "empty" | "missing" | "different-session" | "future-timestamp";
@@ -720,8 +726,47 @@ type ListObservationRow = ObservationListRowsPreview["rows"][number];
 type FixedListIntraday = NonNullable<ListObservationRow["observations"]["intraday"]>;
 type ListIntradayMetrics = NonNullable<ListObservationRow["metrics"]["intraday"]>;
 
+type CurrentMinuteQuoteReceipt = ObservationCurrentMinuteQuoteTailOptions & { asOf: number } & (
+  { status: "unavailable" } | {
+    status: "observed" | "empty";
+    source: string;
+    endpoint: string;
+    units: "unknown";
+    observedAt: string;
+    missingSymbols: string[];
+    data: {
+      symbol: string;
+      timestamp: number;
+      lastPrice: number;
+      previousClose: number;
+      open: number;
+      high: number;
+      low: number;
+      volume: number;
+      amount: number | null;
+      reportedChangeAmount?: number;
+      reportedChangeFraction?: number;
+      reportedAmplitudeFraction?: number;
+      reportedTurnoverFraction?: number;
+    }[];
+  }
+);
+
+type CurrentMinuteQuoteProjection = {
+  producer: "whyj";
+  formula: { id: "tsp_list_quote_tail"; version: number; revision: string };
+  symbol: string;
+  tradeDate: string;
+  frameObservedAt: number;
+  asOf: number;
+} & (
+  { status: "unchanged"; reason: "empty" | "out-of-session" | "missing-quote" | "mismatched-quote" | "stale-quote" | "covered"; applied: null } |
+  { status: "updated" | "appended"; applied: { quoteTimestamp: number; price: number; minute: string; finality: "provisional" } }
+);
+
 export interface ObservationCurrentStockMinutesPreview {
   input: {
+    quoteTail?: CurrentMinuteQuoteReceipt;
     interpretation: NonNullable<ObservationCurrentStockMinutesRequest["interpretation"]> | null;
     minutes: Omit<StoredDatedStockMinuteBatch, "endpoint" | "symbol" | "adjustment" | "finality" | "rows"> & {
       endpoint: string;
@@ -736,8 +781,12 @@ export interface ObservationCurrentStockMinutesPreview {
     symbol: string;
     status: CurrentStockMinuteStatus;
     previousClose: FixedListIntraday["previousClose"];
-    metrics: (ListIntradayMetrics & { finality: "provisional" }) | null;
+    metrics: (Omit<ListIntradayMetrics, "points"> & {
+      finality: "provisional";
+      points: (ListIntradayMetrics["points"][number] & { priceSource?: "quote" })[];
+    }) | null;
     excluded: FixedListIntraday["excluded"];
+    quoteTail?: CurrentMinuteQuoteProjection;
   }[];
 }
 
@@ -749,6 +798,7 @@ export interface ObservationCurrentEtfMinutesRequest {
     priceBasis: "caller-confirmed-same-basis";
   } }[];
   interpretation?: ObservationCurrentStockMinutesRequest["interpretation"];
+  quoteTail?: ObservationCurrentMinuteQuoteTailOptions;
 }
 
 type EtfMinutePreviousClose = NonNullable<ObservationCurrentEtfMinutesRequest["etfs"][number]["previousClose"]>;

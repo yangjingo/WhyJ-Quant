@@ -244,12 +244,24 @@ function currentMinuteInterpretation(value: Record<string, unknown>, error: () =
   return { timestampLabel: input.timestampLabel, priceBasis: input.priceBasis };
 }
 
+function currentMinuteQuoteTail(
+  value: Record<string, unknown>, interpretation: ObservationCurrentStockMinutesRequest["interpretation"], error: () => WorkbenchError,
+): ObservationCurrentStockMinutesRequest["quoteTail"] {
+  if (!Object.hasOwn(value, "quoteTail")) return undefined;
+  const input = value.quoteTail;
+  if (!interpretation || !object(input) || Object.keys(input).some(key => !["maxAgeMs", "priceBasis"].includes(key)) ||
+    typeof input.maxAgeMs !== "number" || !Number.isSafeInteger(input.maxAgeMs) || input.maxAgeMs < 0 ||
+    input.priceBasis !== "caller-confirmed-same-basis") throw error();
+  return { maxAgeMs: input.maxAgeMs, priceBasis: input.priceBasis };
+}
+
 export async function readObservationCurrentStockMinutes(value: unknown): Promise<ObservationCurrentStockMinutesPreview> {
-  const error = () => new WorkbenchError("INPUT_INVALID", "当日股票分时范围或昨收引用无效。", 400);
-  if (!object(value) || Object.keys(value).some(key => !["tradeDate", "stocks", "interpretation"].includes(key)) ||
+  const error = () => new WorkbenchError("INPUT_INVALID", "当日股票分时范围、昨收引用或报价续写配置无效。", 400);
+  if (!object(value) || Object.keys(value).some(key => !["tradeDate", "stocks", "interpretation", "quoteTail"].includes(key)) ||
     value.tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(value.stocks) ||
     !value.stocks.length || value.stocks.length > 100) throw error();
   const interpretation = currentMinuteInterpretation(value, error);
+  const quoteTail = currentMinuteQuoteTail(value, interpretation, error);
   const seen = new Set<string>();
   const stocks = value.stocks.map((stock: unknown) => {
     if (!object(stock) || Object.keys(stock).some(key => !["symbol", "previousClose"].includes(key))) throw error();
@@ -260,7 +272,7 @@ export async function readObservationCurrentStockMinutes(value: unknown): Promis
     return { symbol: code, ...(Object.hasOwn(stock, "previousClose") && { previousClose: previousCloseReference(stock.previousClose, error) }) };
   });
   try {
-    return await previewCurrentTspListIntraday({ tradeDate: value.tradeDate, stocks, interpretation },
+    return await previewCurrentTspListIntraday({ tradeDate: value.tradeDate, stocks, interpretation, quoteTail },
       { signal: AbortSignal.timeout(25_000), timeoutMs: 10_000 });
   } catch {
     throw new WorkbenchError("OBSERVATION_COLLECTION_FAILED", "无法读取指定的当日股票分时。请核对数据源和昨收引用后重试。", 502);
@@ -281,11 +293,12 @@ function etfMinutePreviousClose(value: unknown, tradeDate: string, error: () => 
 }
 
 export async function readObservationCurrentEtfMinutes(value: unknown): Promise<ObservationCurrentEtfMinutesPreview> {
-  const error = () => new WorkbenchError("INPUT_INVALID", "当日 ETF 分时范围或昨收引用无效。", 400);
-  if (!object(value) || Object.keys(value).some(key => !["tradeDate", "etfs", "interpretation"].includes(key)) ||
+  const error = () => new WorkbenchError("INPUT_INVALID", "当日 ETF 分时范围、昨收引用或报价续写配置无效。", 400);
+  if (!object(value) || Object.keys(value).some(key => !["tradeDate", "etfs", "interpretation", "quoteTail"].includes(key)) ||
     value.tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(value.etfs) || !value.etfs.length || value.etfs.length > 100) throw error();
   const { tradeDate } = value;
   const interpretation = currentMinuteInterpretation(value, error);
+  const quoteTail = currentMinuteQuoteTail(value, interpretation, error);
   const seen = new Set<string>();
   const etfs = value.etfs.map((etf: unknown) => {
     if (!object(etf) || Object.keys(etf).some(key => !["symbol", "previousClose"].includes(key))) throw error();
@@ -297,7 +310,7 @@ export async function readObservationCurrentEtfMinutes(value: unknown): Promise<
     return { symbol, previousClose: etfMinutePreviousClose(etf.previousClose, tradeDate, error) };
   });
   try {
-    return await previewCurrentTspEtfIntraday({ tradeDate, etfs, interpretation },
+    return await previewCurrentTspEtfIntraday({ tradeDate, etfs, interpretation, quoteTail },
       { signal: AbortSignal.timeout(25_000), timeoutMs: 10_000 });
   } catch {
     throw new WorkbenchError("OBSERVATION_COLLECTION_FAILED", "无法读取指定的当日 ETF 分时。请核对数据源和昨收引用后重试。", 502);
