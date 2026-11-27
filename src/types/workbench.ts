@@ -3,7 +3,8 @@ import type {
   ArchiveAnalyticsBookValueBasis, ArchiveAnalyticsSupplements, ArchiveAnalyticsTurnoverInput, BenchmarkIndexArchiveRef,
   FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
   MarketCrossSectionArchiveRef, MarketRegimeManifestRef,
-  ObservationArchiveRef, SectorObservationArchiveRef, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
+  ObservationArchiveRef, SectorObservationArchiveRef, StoredDailyTradingLimit, StoredDailyTradingLimitBatch,
+  StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
   StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
 } from "./observation.ts";
 /**
@@ -424,10 +425,12 @@ export interface ObservationExchangePreviewRequest {
 export interface ObservationListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
+  limitCalendar?: { revision: string; sessions: readonly string[] };
   stocks: readonly {
     symbol: string;
     history?: { ref: TradingDateArchiveRef; exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef"> };
     financialArchives?: readonly FinancialObservationArchiveRef[];
+    tradingLimitsRef?: TradingLimitArchiveRef;
   }[];
 }
 
@@ -508,6 +511,7 @@ type DatedListSignals = NonNullable<ObservationIndicatorPreview["dailySignals"]>
 export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSection, "source" | "market" | "tradeDate"> {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: ObservationListRowsRequest["adjustment"];
+  limitCalendar?: NonNullable<ObservationListRowsRequest["limitCalendar"]> & { zone: "Asia/Shanghai" };
   observations: {
     roster: Omit<StoredMarketCrossSection["universe"], "members">;
     daily: Omit<StoredMarketCrossSection["bars"], "rows">;
@@ -520,6 +524,7 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
       basic: StoredMarketCrossSection["basics"]["rows"][number] | null;
       quantities: { volumeShares: number | null; amountCny: number | null };
       financial?: FinancialInputReplayRow;
+      tradingLimits?: Omit<StoredDailyTradingLimitBatch, "rows"> & { ref: TradingLimitArchiveRef; row: StoredDailyTradingLimit | null };
     };
     metrics: {
       liquidity: {
@@ -534,6 +539,12 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
       signals: (Pick<DatedListSignals, "producer" | "formula"> & DatedListSignals["rows"][number] & {
         exchangeInputs: NonNullable<DatedListSignals["exchangeInputs"]> | null;
       }) | null;
+      limitStreaks?: {
+        producer: "whyj";
+        formula: { id: "tsp_limit_streaks"; version: number; revision: string };
+        consecutiveLimitUps: number | null;
+        consecutiveLimitDowns: number | null;
+      };
     };
   }[];
 }
