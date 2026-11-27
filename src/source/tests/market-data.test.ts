@@ -50,25 +50,27 @@ test("neutral factors and quotes preserve requested identities and source time",
   expect(await source.fetchQuotes({ symbols: ["600000.SH", "000001.SZ"] })).toMatchObject({ source: "tickflow", data: [{ symbol: "600000.SH", timestamp: t, lastPrice: 10 }], missingSymbols: ["000001.SZ"] });
 });
 
-test("TickFlow quotes preserve reported turnover fractions and omit unusable fields", async () => {
+test("TickFlow quotes preserve signed and unsigned reported values independently", async () => {
   const quote = { symbol: "600000.SH", region: "CN", timestamp: t, last_price: 10, prev_close: 9,
     open: 9, high: 10, low: 9, volume: 100, amount: null };
   const source = client();
   for (const [ext, expected] of [
-    [{ turnover_rate: 0.01, extra: 1 }, 0.01],
-    [{ turnover_rate: 0 }, 0],
-    [{ turnover_rate: null }, undefined],
-    [{ turnover_rate: "0.01" }, undefined],
-    [{ turnover_rate: -1 }, undefined],
-    [null, undefined],
-    [undefined, undefined],
+    [{ change_amount: -0.12, change_pct: -0.01, amplitude: 0.02, turnover_rate: 0.03, extra: 1 },
+      { reportedChangeAmount: -0.12, reportedChangeFraction: -0.01, reportedAmplitudeFraction: 0.02, reportedTurnoverFraction: 0.03 }],
+    [{ change_amount: 0, change_pct: 0, amplitude: 0, turnover_rate: 0 },
+      { reportedChangeAmount: 0, reportedChangeFraction: 0, reportedAmplitudeFraction: 0, reportedTurnoverFraction: 0 }],
+    [{ change_amount: null, change_pct: "0.01", amplitude: -1, turnover_rate: 0.01 }, { reportedTurnoverFraction: 0.01 }],
+    [{ change_amount: 0.12, change_pct: 0.01, amplitude: null, turnover_rate: -1 },
+      { reportedChangeAmount: 0.12, reportedChangeFraction: 0.01 }],
+    [{ change_amount: "0.12", change_pct: null, amplitude: "0.02", turnover_rate: "0.01" }, {}],
+    [null, {}],
+    [undefined, {}],
   ] as const) {
     globalThis.fetch = (async () => Response.json({ data: [{ ...quote, ext }] })) as unknown as typeof fetch;
     const result = await source.fetchQuotes({ symbols: ["600000.SH", "000001.SZ"] });
     expect(result.missingSymbols).toEqual(["000001.SZ"]);
     expect(result.data).toEqual([{ symbol: "600000.SH", timestamp: t, lastPrice: 10, previousClose: 9,
-      open: 9, high: 10, low: 9, volume: 100, amount: null,
-      ...(expected === undefined ? {} : { reportedTurnoverFraction: expected }) }]);
+      open: 9, high: 10, low: 9, volume: 100, amount: null, ...expected }]);
   }
 });
 
