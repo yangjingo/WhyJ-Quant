@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { archiveDailyTradingLimits, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
+import { archiveDailyTradingLimits, archiveDatedStockMinutes, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
   loadMarketCrossSectionArchive, saveSettings } from "../../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../../types/config.ts";
 import type { ObservationListRowsRequest } from "../../../types/workbench.ts";
@@ -91,6 +91,53 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     });
     expect(await client.readObservationListQuotes!(withCandles)).toEqual({ fixed: candles, quotes: { status: "outside-current-day" } });
     expect(result.rows.every(row => !Object.hasOwn(row.observations, "dailyCandles"))).toBe(true);
+    const sourceTimestamp = Date.parse(`${tradeDate}T09:31:00+08:00`);
+    const bars = [{ sourceTimestamp, open: 9, high: 10, low: 9, close: 10, volume: 0, amount: null }];
+    const minuteRef = await archiveDatedStockMinutes({
+      source: "tickflow", endpoint: "/v1/klines", market: "A", symbol, assetType: "stock", ...meta,
+      interval: "1m", adjustment: "none", priceUnit: "provider-native", volumeUnit: "provider-native", amountUnit: "provider-native",
+      timeZone: "Asia/Shanghai", timestampLabel: "provider-native", finality: "unknown", rows: bars,
+    });
+    const intraday = {
+      ref: minuteRef,
+      interpretation: { timestampLabel: "minute-end", priceBasis: "caller-confirmed-unadjusted-CNY", volumeUnit: "hand" },
+    } as const;
+    const withIntraday = { ...request, stocks: [{ symbol, intraday }] };
+    expect((await send(withIntraday, false)).status).toBe(401);
+    const minutes = await client.readObservationListRows!(withIntraday);
+    expect(minutes.rows[0]?.observations).toMatchObject({ intraday: {
+      ref: minuteRef, source: "tickflow", endpoint: "/v1/klines", timestampLabel: "provider-native",
+      volumeUnit: "provider-native", rows: bars, interpretation: { ...intraday.interpretation, amountUnit: "unknown" }, previousClose: null,
+    } });
+    expect(minutes.rows[0]?.metrics).toMatchObject({ intraday: {
+      producer: "whyj", formula: { id: "tsp_list_intraday", version: 1 }, tradeDate, latestReturnFraction: null,
+      plotBaseline: { kind: "first-observed-open", value: 9 },
+      points: [{ minute: "09:30", sourceTimestamp, close: 10, averageClose: 10, previousCloseReturnFraction: null }],
+    } });
+    expect(await client.readObservationListQuotes!(withIntraday)).toEqual({ fixed: minutes, quotes: { status: "outside-current-day" } });
+    const withPreviousClose = await client.readObservationListRows!({ ...request, stocks: [{ symbol, intraday: {
+      ...intraday, previousClose: { ref: tradingLimitArchiveRef, priceBasis: "caller-confirmed-same-basis" },
+    } }] });
+    expect(withPreviousClose.rows[0]?.observations).toMatchObject({ intraday: {
+      previousClose: { archiveRef: tradingLimitArchiveRef, rows: [{ tradeDate, price: 9.09 }] },
+    } });
+    expect(withPreviousClose.rows[0]?.metrics).toMatchObject({ intraday: {
+      latestReturnFraction: 10 / 9.09 - 1, plotBaseline: { kind: "previous-close", value: 9.09 },
+    } });
+    expect(result.rows.every(row => !Object.hasOwn(row.observations, "intraday") && !Object.hasOwn(row.metrics, "intraday"))).toBe(true);
+    for (const [stocks, status, code] of [
+      [[{ symbol, intraday: { ...intraday, interpretation: { ...intraday.interpretation, timestampLabel: "guess" } } }], 400, "INPUT_INVALID"],
+      [[{ symbol, intraday: { ...intraday, ref: tradingLimitArchiveRef } }], 400, "INPUT_INVALID"],
+      [[{ symbol, intraday: { ...intraday, previousClose: { ref: tradingLimitArchiveRef, priceBasis: "guess" } } }], 400, "INPUT_INVALID"],
+      [[{ symbol, intraday: { ...intraday, ref: { ...minuteRef, revision: "f".repeat(64) } } }], 404, "OBSERVATION_ARCHIVE_UNAVAILABLE"],
+      [[{ symbol: empty, intraday }], 404, "OBSERVATION_ARCHIVE_UNAVAILABLE"],
+    ] as const) {
+      for (const method of ["readObservationListRows", "readObservationListQuotes"]) {
+        const response = await send({ ...request, stocks }, true, method);
+        expect(response.status).toBe(status);
+        expect(await response.json()).toMatchObject({ error: { code } });
+      }
+    }
     expect(result.limitCalendar).toBeUndefined();
     const limitCalendar = { revision: "fixture-list-sessions", sessions: [tradeDate] };
     const withExchange = { ...request, limitCalendar };

@@ -1,10 +1,10 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
 import type {
   ArchiveAnalyticsBookValueBasis, ArchiveAnalyticsSupplements, ArchiveAnalyticsTurnoverInput, BenchmarkIndexArchiveRef,
-  FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
+  DatedStockMinuteArchiveRef, FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
   MarketCrossSectionArchiveRef, MarketRegimeManifestRef,
   ObservationArchiveRef, SectorObservationArchiveRef, StoredDailyTradingLimit, StoredDailyTradingLimitBatch,
-  StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
+  StoredDatedStockMinuteBatch, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
   StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
 } from "./observation.ts";
 /**
@@ -422,6 +422,17 @@ export interface ObservationExchangePreviewRequest {
   tradingLimitArchiveRef: TradingLimitArchiveRef;
 }
 
+export interface ObservationListIntradayRequest {
+  ref: DatedStockMinuteArchiveRef;
+  interpretation: {
+    timestampLabel: "minute-start" | "minute-end";
+    priceBasis: "caller-confirmed-unadjusted-CNY";
+    volumeUnit?: "share" | "hand";
+    amountUnit?: "CNY" | "CNY-thousand";
+  };
+  previousClose?: ObservationIntradayRequest["previousClose"];
+}
+
 export interface ObservationListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
@@ -431,6 +442,7 @@ export interface ObservationListRowsRequest {
     history?: { ref: TradingDateArchiveRef; exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef">; candleBars?: number };
     financialArchives?: readonly FinancialObservationArchiveRef[];
     tradingLimitsRef?: TradingLimitArchiveRef;
+    intraday?: ObservationListIntradayRequest;
   }[];
 }
 
@@ -530,8 +542,28 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
         requestedBars: number;
         rows: (Pick<StoredTradingDateBarObservation, "tradeDate" | "sourceTimestamp"> & StoredTradingDateBarObservation["values"])[];
       };
+      intraday?: StoredDatedStockMinuteBatch & {
+        ref: DatedStockMinuteArchiveRef;
+        rowCount: number;
+        interpretation: Pick<ObservationListIntradayRequest["interpretation"], "timestampLabel" | "priceBasis"> & {
+          volumeUnit: NonNullable<ObservationListIntradayRequest["interpretation"]["volumeUnit"]> | "unknown";
+          amountUnit: NonNullable<ObservationListIntradayRequest["interpretation"]["amountUnit"]> | "unknown";
+        };
+        previousClose: (NonNullable<ObservationIntradayPreview["input"]["previousClose"]> & {
+          rows: { tradeDate: string; price: number | null }[];
+        }) | null;
+        excluded: { tradeDate: string; sourceTimestamp: number; reason: "opening-boundary" | "outside-session" | "unaligned" }[];
+      };
     };
     metrics: {
+      intraday?: {
+        producer: "whyj";
+        formula: { id: "tsp_list_intraday"; version: number; revision: string };
+        tradeDate: string;
+        latestReturnFraction: number | null;
+        plotBaseline: { kind: "previous-close" | "implied-from-last-return" | "first-observed-open" | "first-observed-close"; value: number } | null;
+        points: { minute: string; sourceTimestamp: number; close: number; averageClose: number; previousCloseReturnFraction: number | null }[];
+      };
       liquidity: {
         producer: "whyj";
         formula: { id: "tsp_list_liquidity"; version: number; revision: string };
