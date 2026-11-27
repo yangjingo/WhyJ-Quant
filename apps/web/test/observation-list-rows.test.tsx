@@ -10,6 +10,11 @@ const limitsRevision = "c".repeat(64), rawRevision = "d".repeat(64);
 const reportRevision = "e".repeat(64), disclosureRevision = "f".repeat(64);
 const minuteRevision = "1".repeat(64);
 const watchlistMembershipRevision = "2".repeat(64);
+const scoringStrategy = {
+  strategy: { id: "volume", revision: "3".repeat(64) },
+  weights: [{ field: "vol_ratio_5d", weight: 1, direction: "high" }],
+  signalGate: { mode: "any", signals: ["signal_volume_surge"] }, orderBy: "score", descending: true,
+} as const;
 const minuteRequest = { minuteRevision, interpretation: {
   timestampLabel: "minute-end", priceBasis: "caller-confirmed-unadjusted-CNY", volumeUnit: "hand",
 } } as const;
@@ -30,6 +35,20 @@ test("builds a bounded ordered Host request from the CLI manifest", () => {
   });
   expect(listRowsManifest({ ...manifest, stocks: [{ ...manifest.stocks[0], candleBars: 12 }] }).stocks[0]?.history)
     .toMatchObject({ ref: { revision: dailyRevision }, candleBars: 12 });
+  const screener = { histories: [{ symbol, dailyRevision, rawRevision, limitsRevision }], strategies: [scoringStrategy] };
+  expect(listRowsManifest({ ...manifest, screener, stocks: [{ symbol: missing }] })).toMatchObject({
+    screener: { histories: [{ symbol, ref: { version: 2, revision: dailyRevision }, exchange: {
+      rawArchiveRef: { version: 2, revision: rawRevision },
+      tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
+    } }], strategies: [scoringStrategy] },
+    stocks: [{ symbol: missing }],
+  });
+  for (const bad of [{ ...screener, strategies: [scoringStrategy, scoringStrategy] },
+    { ...screener, histories: [...screener.histories, ...screener.histories] },
+    { ...screener, histories: [{ symbol, dailyRevision, rawRevision }] },
+    { ...screener, strategies: [{ ...scoringStrategy, weights: [{ field: "amount", weight: -1 }] }] }]) {
+    expect(() => listRowsManifest({ ...manifest, screener: bad })).toThrow("选股");
+  }
   expect(listRowsManifest({ ...manifest, watchlistMembershipRevision, stocks: [{ symbol, watchlistHistoryRevision: dailyRevision }] }))
     .toMatchObject({ watchlistMembershipRevision, stocks: [{ symbol, watchlistHistoryRef: { version: 2, revision: dailyRevision } }] });
   for (const invalidWatchlist of [{ watchlistMembershipRevision: "../private" },
@@ -115,6 +134,32 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).not.toContain("供应商日 K");
   expect(html).not.toContain("WHYJ 分时走势");
   expect(html).not.toContain("加入以来涨跌幅");
+  expect(html).not.toContain("选股评分依据");
+  const screenerResult: ObservationListRowsPreview = { ...result,
+    screener: { scoped: 5, matched: 3, strategies: [{
+      strategy: scoringStrategy.strategy, formula: { id: "tsp_screener_score", version: 1, revision: "tsp" },
+      candidateRevision: limitsRevision, coverage: { scoped: 5, matched: 3, notMatched: 1, unavailable: 1 },
+      fieldSources: { amount: { producer: "tushare", endpoint: "daily", nativeUnit: "CNY-thousand" } },
+    }] },
+    rows: result.rows.map(row => ({ ...row, metrics: { ...row.metrics, screener: {
+      producer: "whyj", position: 3, score: 0, scoreStrategyId: scoringStrategy.strategy.id,
+      hits: [{ strategyId: "volume", score: 0 }, { strategyId: "no-score", score: null }],
+      evaluations: [{ strategyId: "volume", status: "matched" }, { strategyId: "no-score", status: "matched" },
+        { strategyId: "restricted", status: "not-matched" }, { strategyId: "data-gap", status: "unavailable" },
+        { strategyId: "unscoped", status: "outside-scope" }],
+    } } })),
+  };
+  const selected = renderToStaticMarkup(<ObservationListResult result={screenerResult} />);
+  expect(selected).toContain("选股评分依据");
+  expect(selected).toContain(limitsRevision);
+  expect(selected).toContain("候选 5");
+  expect(selected).toContain("tsp_screener_score");
+  expect(selected).toContain("<dt>展示分数</dt><dd>0</dd>");
+  expect(selected).toContain("<dt>汇总排名</dt><dd>3</dd>");
+  expect(selected).toContain("<dt>no-score</dt><dd>命中 · 缺分</dd>");
+  expect(selected).toContain("<dt>restricted</dt><dd>未命中</dd>");
+  expect(selected).toContain("<dt>data-gap</dt><dd>证据不足</dd>");
+  expect(selected).toContain("<dt>unscoped</dt><dd>未参与评估</dd>");
   const membership = { producer: "workspace", revision: watchlistMembershipRevision, code: "600000", addedAt: "2024-03-03T17:00:00Z" } as const;
   const watchlistReturn = {
     producer: "whyj", formulaVersion: "tsp-watchlist-return-v1", referenceRevision: "tsp", status: "available", asOf: date,

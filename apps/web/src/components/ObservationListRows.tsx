@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ObservationListIntradayRequest, ObservationListQuoteRow, ObservationListQuotesPreview, ObservationListRowsPreview,
-  ObservationListRowsRequest, WorkbenchClient } from "../client/contract";
+  ObservationListRowsRequest, ObservationListScreenerScope, WorkbenchClient } from "../client/contract";
 import { ObservationDailyValues } from "./ObservationCollection";
 import { ObservationCandleChart } from "./ObservationCandleChart";
 import { ObservationListIntradayChart } from "./ObservationListIntradayChart";
@@ -48,14 +48,70 @@ function intradayReference(value: unknown): ObservationListIntradayRequest {
   } };
 }
 
+function dailyHistory(dailyRevision: unknown, limitsRevision: unknown, rawRevision: unknown, error: () => Error) {
+  if (!isRevision(dailyRevision) || (limitsRevision !== undefined && !isRevision(limitsRevision)) ||
+    (rawRevision !== undefined && (!isRevision(rawRevision) || limitsRevision === undefined))) throw error();
+  return { ref: { version: 2, revision: dailyRevision } as const, ...(limitsRevision && { exchange: {
+    tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision } as const,
+    ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } as const }),
+  } }) };
+}
+
+const invalidScreener = () => new Error("选股范围需要有效的候选归档和策略，候选代码和策略 ID 各自不能重复。");
+
+function screenerStrategy(value: unknown): ObservationListScreenerScope["strategies"][number] {
+  if (!isObject(value) || Object.keys(value).some(key => !["strategy", "weights", "signalGate", "orderBy", "descending"].includes(key))) {
+    throw invalidScreener();
+  }
+  const { strategy, weights, signalGate, orderBy, descending } = value;
+  if (!isObject(strategy) || Object.keys(strategy).some(key => key !== "id" && key !== "revision") ||
+    typeof strategy.id !== "string" || !strategy.id.trim() || strategy.id !== strategy.id.trim() || !isRevision(strategy.revision) ||
+    !Array.isArray(weights) || (orderBy !== undefined && (typeof orderBy !== "string" || !orderBy.trim() || orderBy !== orderBy.trim())) ||
+    (descending !== undefined && typeof descending !== "boolean")) throw invalidScreener();
+  let gate: ObservationListScreenerScope["strategies"][number]["signalGate"];
+  if (signalGate !== undefined) {
+    if (!isObject(signalGate) || Object.keys(signalGate).some(key => key !== "mode" && key !== "signals") ||
+      (signalGate.mode !== "any" && signalGate.mode !== "all") || !Array.isArray(signalGate.signals) || !signalGate.signals.length ||
+      !signalGate.signals.every(signal => typeof signal === "string" && signal.length > 0) ||
+      new Set(signalGate.signals).size !== signalGate.signals.length) throw invalidScreener();
+    gate = { mode: signalGate.mode, signals: signalGate.signals };
+  }
+  return {
+    strategy: { id: strategy.id, revision: strategy.revision },
+    weights: weights.map((entry: unknown) => {
+      if (!isObject(entry) || Object.keys(entry).some(key => !["field", "weight", "direction"].includes(key)) ||
+        typeof entry.field !== "string" || !entry.field.trim() || entry.field !== entry.field.trim() ||
+        typeof entry.weight !== "number" || !Number.isFinite(entry.weight) || entry.weight < 0 ||
+        (entry.direction !== undefined && entry.direction !== "low" && entry.direction !== "high")) throw invalidScreener();
+      return { field: entry.field, weight: entry.weight, ...(entry.direction !== undefined && { direction: entry.direction }) };
+    }),
+    ...(gate && { signalGate: gate }), ...(orderBy !== undefined && { orderBy }), ...(descending !== undefined && { descending }),
+  };
+}
+
+function screenerScope(value: unknown): ObservationListScreenerScope {
+  if (!isObject(value) || Object.keys(value).some(key => key !== "histories" && key !== "strategies") ||
+    !Array.isArray(value.histories) || !Array.isArray(value.strategies) || !value.strategies.length) throw invalidScreener();
+  const histories = value.histories.map((entry: unknown) => {
+    if (!isObject(entry) || Object.keys(entry).some(key => !["symbol", "dailyRevision", "limitsRevision", "rawRevision"].includes(key)) ||
+      typeof entry.symbol !== "string" || !stockPattern.test(entry.symbol)) throw invalidScreener();
+    return { symbol: entry.symbol, ...dailyHistory(entry.dailyRevision, entry.limitsRevision, entry.rawRevision, invalidScreener) };
+  });
+  const strategies = value.strategies.map(screenerStrategy);
+  if (new Set(histories.map(item => item.symbol)).size !== histories.length ||
+    new Set(strategies.map(item => item.strategy.id)).size !== strategies.length) throw invalidScreener();
+  return { histories, strategies };
+}
+
 export function listRowsManifest(value: unknown): ObservationListRowsRequest {
   if (!isObject(value) || Object.keys(value).some(key => !["version", "marketRevision", "adjustment", "stocks", "limitCalendar",
-    "watchlistMembershipRevision"].includes(key)) ||
+    "watchlistMembershipRevision", "screener"].includes(key)) ||
     value.version !== 1 || !isRevision(value.marketRevision) || (value.adjustment !== "none" && value.adjustment !== "forward") ||
     !Array.isArray(value.stocks) || value.stocks.length > 100) throw invalid();
   const watchlistError = () => new Error("自选清单需要有效的成员修订。附上收益率历史时也要提供前复权日线归档修订。");
   const { watchlistMembershipRevision } = value;
   if (watchlistMembershipRevision !== undefined && !isRevision(watchlistMembershipRevision)) throw watchlistError();
+  const screener = value.screener === undefined ? undefined : screenerScope(value.screener);
   let limitCalendar: ObservationListRowsRequest["limitCalendar"];
   if (value.limitCalendar !== undefined) {
     const calendar = value.limitCalendar;
@@ -95,17 +151,12 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
       ...(watchlistHistoryRevision !== undefined && { watchlistHistoryRef: { version: 2, revision: watchlistHistoryRevision } as const }),
       ...(tradingLimitsRevision && { tradingLimitsRef: { version: 1, kind: "daily-trading-limits", revision: tradingLimitsRevision } as const }) };
     if (dailyRevision === undefined && limitsRevision === undefined && rawRevision === undefined) return stock;
-    if (!isRevision(dailyRevision) || (limitsRevision !== undefined && !isRevision(limitsRevision)) ||
-      (rawRevision !== undefined && (!isRevision(rawRevision) || limitsRevision === undefined))) throw invalid();
-    return { ...stock, history: { ref: { version: 2, revision: dailyRevision }, ...(candleBars !== undefined && { candleBars }),
-      ...(limitsRevision && { exchange: {
-      tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
-      ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
-    } }) } };
+    return { ...stock, history: { ...dailyHistory(dailyRevision, limitsRevision, rawRevision, invalid),
+      ...(candleBars !== undefined && { candleBars }) } };
   });
   return { marketRef: { version: 1, kind: "market-cross-section", revision: value.marketRevision }, adjustment: value.adjustment, stocks,
     ...(watchlistMembershipRevision !== undefined && { watchlistMembershipRevision }),
-    ...(limitCalendar && { limitCalendar }) };
+    ...(limitCalendar && { limitCalendar }), ...(screener && { screener }) };
 }
 
 const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 4 });
@@ -229,6 +280,12 @@ function StockListIntraday({ observation, metric }: { observation: ListIntradayO
 }
 
 type ListRow = ObservationListRowsPreview["rows"][number];
+const screenerStatus = {
+  matched: "命中",
+  "not-matched": "未命中",
+  unavailable: "证据不足",
+  "outside-scope": "未参与评估",
+} as const;
 const watchlistReturnReason = {
   "missing-baseline": "缺少加入日或之前的前复权收盘价。",
   "missing-added-date": "缺少可以用于计算的加入日期。",
@@ -262,13 +319,27 @@ function StockListMembership({ membership, result }: {
   </section>;
 }
 
+function StockListScreener({ metric }: { metric: NonNullable<ListRow["metrics"]["screener"]> }) {
+  const hits = new Map(metric.hits.map(hit => [hit.strategyId, hit.score]));
+  return <section aria-label="WHYJ 选股评分">
+    <h5>WHYJ 选股评分</h5>
+    <ListValues values={[
+      ["展示分数", display(metric.score)], ["汇总排名", display(metric.position)], ["评分来源策略", metric.scoreStrategyId ?? "暂无"],
+    ]} />
+    <ListValues values={metric.evaluations.map(({ strategyId, status }) => [
+      strategyId, status === "matched" ? `命中 · ${hits.get(strategyId) == null ? "缺分" : display(hits.get(strategyId))}` : screenerStatus[status],
+    ])} />
+  </section>;
+}
+
 function StockListRow({ row, quote }: { row: ListRow; quote?: ObservationListQuoteRow }) {
   const { instrument, membership, observations: { bar, basic, quantities, financial, tradingLimits, dailyCandles, intraday: minuteObservation },
-    metrics: { liquidity, history, daily, signals, limitStreaks, intraday: minuteMetric, watchlistReturn } } = row;
+    metrics: { liquidity, history, daily, signals, limitStreaks, intraday: minuteMetric, watchlistReturn, screener } } = row;
   return <details className="observation-list-stock">
     <summary>
       <span><strong>{instrument.name || instrument.symbol}</strong><span className="supporting">{instrument.symbol}</span></span>
       <span className="observation-list-price">收盘 {display(bar?.close, " 元")} · {display(bar?.returnPct, "%")}</span>
+      {screener?.position != null && <span className="observation-list-price">排名 {screener.position}</span>}
       {quote?.status === "available" && <span className="observation-list-price">报价 {display(quote.snapshot.lastPrice, " 元")}</span>}
     </summary>
     <div className="observation-list-detail">
@@ -307,6 +378,7 @@ function StockListRow({ row, quote }: { row: ListRow; quote?: ObservationListQuo
       {dailyCandles && <StockListCandles candles={dailyCandles} />}
       {financial && <StockListFinancial financial={financial} />}
       {membership && <StockListMembership membership={membership} result={watchlistReturn} />}
+      {screener && <StockListScreener metric={screener} />}
       <h5>WHYJ 计算</h5>
       <ListValues values={[
         ["流通市值（元）", display(liquidity.floatValueCny)], ["按流通股计算的换手率", display(liquidity.turnoverPct, "%")],
@@ -351,6 +423,18 @@ export function ObservationListResult({ result, quotes }: {
     <p className="supporting">{result.rows.length} 只股票 · {result.source} · 日线计算{result.adjustment === "forward" ? "前复权" : "未复权"}</p>
     <p className="supporting">日行情 {result.observations.daily.observedAt} · 估值 {result.observations.dailyBasic.observedAt}</p>
     <p className="supporting observation-ref">市场截面 <code>{result.marketRef.revision}</code></p>
+    {result.screener && <details>
+      <summary>选股评分依据 · 候选 {result.screener.scoped} · 命中 {result.screener.matched}</summary>
+      {result.screener.strategies.map(({ strategy, formula, candidateRevision, fieldSources, coverage }) =>
+        <div key={strategy.id}>
+          <p className="supporting observation-ref">{strategy.id} · <code>{strategy.revision}</code>
+            {" · "}{formula.id} v{formula.version} · <code>{formula.revision}</code></p>
+          <p className="supporting observation-ref">候选修订 <code>{candidateRevision}</code>
+            {" · "}命中 {coverage.matched} · 未命中 {coverage.notMatched} · 证据不足 {coverage.unavailable}</p>
+          {Object.keys(fieldSources).length > 0 && <ListValues values={Object.entries(fieldSources).map(([field, source]) =>
+            [field, [source.producer, source.endpoint ?? source.formula, source.unit ?? source.nativeUnit].filter(Boolean).join(" · ")])} />}
+        </div>)}
+    </details>}
     {result.limitCalendar && <p className="supporting observation-ref">连板日历 <code>{result.limitCalendar.revision}</code>
       {" · "}{result.limitCalendar.sessions[0]} 至 {result.limitCalendar.sessions.at(-1)}</p>}
     {quotes && <p className="supporting" role="status">{quotes.status === "observed"
