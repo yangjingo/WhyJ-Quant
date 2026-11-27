@@ -3,6 +3,7 @@ import type { Preferences, SessionSnapshot, WorkbenchClient } from "../client/co
 import { DataSourceSettings } from "./DataSourceSettings";
 import { ObservationCollection } from "./ObservationCollection";
 import { ObservationCurrentMinutes } from "./ObservationCurrentStockMinutes";
+import { ObservationListAuctionOverlay } from "./ObservationListAuctionOverlay";
 import { ObservationListRows } from "./ObservationListRows";
 import { ObservationMarketRegime } from "./ObservationMarketRegime";
 import { ModelSettings } from "./ModelSettings";
@@ -74,6 +75,8 @@ export function Settings(props: {
           read={props.client.readObservationListRows} readQuotes={props.client.readObservationListQuotes} />}
         {props.page === "source" && props.mode === "host" && props.client && <ObservationCurrentMinutes
           readStock={props.client.readObservationCurrentStockMinutes} readEtf={props.client.readObservationCurrentEtfMinutes} />}
+        {props.page === "source" && props.mode === "host" && props.client && <ObservationListAuctionOverlay
+          read={props.client.readObservationListAuctionOverlay} />}
         {props.page === "source" && props.mode === "host" && props.client && <ObservationMarketRegime
           read={props.client.readObservationMarketRegime} />}
         {props.page === "source" && <><h3 ref={portfolioHeading} tabIndex={-1}>观察组</h3><p>观察组用于行情概览，不代表真实持仓，也不改变已经保存的研究。</p>{props.preferences.availablePortfolios?.length ? <label className="field-row">观察组<select aria-label="投资组合" value={props.preferences.portfolio} disabled={pending} onChange={event => void savePreferences({ ...props.preferences, portfolio: event.target.value })}>{props.preferences.availablePortfolios.map(name => <option key={name}>{name}</option>)}</select></label> : <p className="notice">研究服务尚未提供观察组。</p>}</>}
