@@ -168,6 +168,8 @@ Windows 开发版使用独立的 `io.github.yangjingo.whyj-quant.dev` 任务栏�
 
 两个列表读取都支持 `watchlistMembershipRevision`，并可在股票项附上前复权日线的完整 `watchlistHistoryRef`。响应中的 `membership` 保留工作区修订和原始加入时间，`metrics.watchlistReturn` 保留 WHYJ 收益率及其历史证据。没有自选清单修订时，股票项不能提供自选历史引用。参数格式错误返回 `INPUT_INVALID`，清单修订变更或归档与股票不符返回 `OBSERVATION_ARCHIVE_UNAVAILABLE`。
 
+两个方法也接受可选的 `screener: { histories, strategies }`。候选历史填写 `symbol`、完整的日线 `ref` 和可选的 `exchange`，策略沿用[多策略回放](./services.md#从归档重建日线选股候选)的顺序和权重。列表行返回完整候选范围内的 WHYJ 排名、分数、策略命中和评估状态，列表级 `screener` 返回策略、公式和候选修订。
+
 另一个可选 RPC `readObservationListQuotes` 接收相同请求。它只在用户主动调用且截面对应当前上海日期时向当前选定的 Source 读取单批报价，提供 10 秒的供应商请求超时。响应分别返回 `fixed` 与 `quotes`，提供历史跳过、报价不可用和逐股状态。已有 `readObservationListRows` 继续离线读取，供应商失败时也可从新方法取得固定归档。
 
 认证 RPC `readObservationMarketRegime` 接收一个版本 1 的 `market-regime-manifest` 引用。通过 CLI 导入清单后，工作台只传修订号，Host 重新校验清单并离线回放，服务端计算时限为 50 秒。响应包含显示窗口内的逐日状态、成交与涨跌覆盖、梯队、阶段及概念排名，以及完整预热日历的日期范围和清单修订号。CLI 回放仍返回逐股归档证据。无效引用和不可用归档沿用工作台的对应错误结构。 [清单导入与回放](./services.md#显式行情采集任务)
