@@ -2,32 +2,12 @@ import { isDailyDate } from "../../market/bars.ts";
 import { computeTspPriceLevels, computeTspResearchFactors, TSP_INDICATOR_REVISION,
   TSP_PRICE_LEVEL_FORMULA_VERSION, TSP_RESEARCH_FACTOR_FORMULA_VERSION, type TspResearchFactorBar } from "../../quant/index.ts";
 import {
-  loadMarketCrossSectionArchive, loadTradingDateArchive, type FinancialObservationArchiveRef, type MarketCrossSectionArchiveRef,
-  type StoredTradingDateBarObservation, type TradingDateArchiveRef,
+  loadMarketCrossSectionArchive, loadTradingDateArchive, type StoredTradingDateBarObservation, type TradingDateArchiveRef,
 } from "../../storage/index.ts";
+import type { ArchiveAnalyticsSupplements, ArchiveAnalyticsTurnoverInput } from "../../types/observation.ts";
 import { replayFinancialResearchInputs, type FinancialInputReplayRow } from "./financial-input-replay.ts";
 
-export interface ArchiveAnalyticsSupplements {
-  turnoverArchives?: readonly MarketCrossSectionArchiveRef[];
-  financialArchives?: readonly FinancialObservationArchiveRef[];
-  bookValueBasis?: {
-    reportRevision: string;
-    periodEnd: string;
-    basis: "caller-confirmed-unadjusted-CNY";
-  };
-}
-
-interface TurnoverInput {
-  archiveRef: MarketCrossSectionArchiveRef;
-  tradeDate: string;
-  source: "tushare";
-  endpoint: "daily_basic";
-  observedAt: string;
-  coverage: "unknown";
-  unit: "percentage-point";
-  value: number | null;
-  availability: "reported" | "unreported" | "missing-symbol";
-}
+export type { ArchiveAnalyticsSupplements } from "../../types/observation.ts";
 
 export function researchFactorBar(
   row: StoredTradingDateBarObservation,
@@ -83,7 +63,7 @@ export async function deriveTspArchiveAnalytics(
   rows.sort((left, right) => left.tradeDate.localeCompare(right.tradeDate));
   const first = rows[0]!;
   const asOf = rows.at(-1)!.tradeDate;
-  const turnover = new Map<string, TurnoverInput>();
+  const turnover = new Map<string, ArchiveAnalyticsTurnoverInput>();
   if (turnoverRefs.length) {
     const tradingDates = new Set(rows.map(row => row.tradeDate));
     for (const turnoverRef of turnoverRefs) {
