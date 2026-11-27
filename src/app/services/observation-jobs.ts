@@ -4,14 +4,15 @@ import { collectObservations, collectTradingDateObservations, collectTradingLimi
   type DailySignalExchangeRefs, type ObservationCollectionRequest } from "../../runtime/data/observation-collection.ts";
 import { collectHistoricalMinuteObservations, deriveTspArchiveIntraday } from "../../runtime/data/intraday-replay.ts";
 import { replayTspListRows, replayTspListRowsWithLiveQuotes, type TspListRowsRequest } from "../../runtime/data/list-rows.ts";
-import { previewCurrentTspListIntraday } from "../../runtime/data/tickflow-stock-minute-replay.ts";
+import { previewCurrentTspEtfIntraday, previewCurrentTspListIntraday } from "../../runtime/data/tickflow-stock-minute-replay.ts";
 import { parseRegimeSummaryManifest } from "../../runtime/data/market-regime-manifest.ts";
 import { replayTspMarketRegimeSummary } from "../../runtime/data/market-regime-summary-replay.ts";
 import { loadMarketRegimeManifest } from "../../storage/index.ts";
 import { isDailyDate } from "../../market/bars.ts";
-import { isAIndexSymbol } from "../../market/symbols.ts";
+import { isAIndexSymbol, isDatedEtfSymbol } from "../../market/symbols.ts";
 import { TSP_DAILY_SIGNAL_FIELDS } from "../../quant/index.ts";
-import type { ObservationAnalyticsPreview, ObservationCurrentStockMinutesPreview, ObservationCurrentStockMinutesRequest,
+import type { ObservationAnalyticsPreview, ObservationCurrentEtfMinutesPreview, ObservationCurrentEtfMinutesRequest,
+  ObservationCurrentStockMinutesPreview, ObservationCurrentStockMinutesRequest,
   ObservationIndicatorPreview, ObservationIntradayPreview, ObservationIntradayRequest,
   ObservationJobRequest, ObservationJobView, ObservationListIntradayRequest, ObservationListQuotesPreview, ObservationListRowsPreview,
   ObservationListRowsRequest, ObservationMarketRegimePreview } from "../../types/workbench.ts";
@@ -35,7 +36,7 @@ function dailyReference(value: unknown): TradingDateArchiveRef {
 }
 
 function fixedReference<Kind extends "daily-trading-limits" | "historical-minute-bars" | "dated-stock-minute" | "market-cross-section" | "benchmark-index" |
-  "market-regime-manifest" | FinancialObservationArchiveRef["kind"]>(
+  "market-regime-manifest" | "dated-etf-daily" | FinancialObservationArchiveRef["kind"]>(
   value: unknown, kind: Kind, error: () => WorkbenchError,
 ) {
   if (!object(value) || Object.keys(value).length !== 3 || !["version", "kind", "revision"].every(key => Object.hasOwn(value, key)) ||
@@ -232,19 +233,21 @@ export function readObservationListQuotes(value: unknown): Promise<ObservationLi
   return readListArchive(value, (request, signal) => replayTspListRowsWithLiveQuotes(request, { signal, timeoutMs: 10_000 }));
 }
 
+function currentMinuteInterpretation(value: Record<string, unknown>, error: () => WorkbenchError): ObservationCurrentStockMinutesRequest["interpretation"] {
+  if (!Object.hasOwn(value, "interpretation")) return undefined;
+  const input = value.interpretation;
+  if (!object(input) || Object.keys(input).some(key => !["timestampLabel", "priceBasis"].includes(key)) ||
+    (input.timestampLabel !== "minute-start" && input.timestampLabel !== "minute-end") ||
+    input.priceBasis !== "caller-confirmed-unadjusted-CNY") throw error();
+  return { timestampLabel: input.timestampLabel, priceBasis: input.priceBasis };
+}
+
 export async function readObservationCurrentStockMinutes(value: unknown): Promise<ObservationCurrentStockMinutesPreview> {
   const error = () => new WorkbenchError("INPUT_INVALID", "当日股票分时范围或昨收引用无效。", 400);
   if (!object(value) || Object.keys(value).some(key => !["tradeDate", "stocks", "interpretation"].includes(key)) ||
     value.tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(value.stocks) ||
     !value.stocks.length || value.stocks.length > 100) throw error();
-  let interpretation: ObservationCurrentStockMinutesRequest["interpretation"];
-  if (Object.hasOwn(value, "interpretation")) {
-    const input = value.interpretation;
-    if (!object(input) || Object.keys(input).some(key => !["timestampLabel", "priceBasis"].includes(key)) ||
-      (input.timestampLabel !== "minute-start" && input.timestampLabel !== "minute-end") ||
-      input.priceBasis !== "caller-confirmed-unadjusted-CNY") throw error();
-    interpretation = { timestampLabel: input.timestampLabel, priceBasis: input.priceBasis };
-  }
+  const interpretation = currentMinuteInterpretation(value, error);
   const seen = new Set<string>();
   const stocks = value.stocks.map((stock: unknown) => {
     if (!object(stock) || Object.keys(stock).some(key => !["symbol", "previousClose"].includes(key))) throw error();
@@ -259,6 +262,43 @@ export async function readObservationCurrentStockMinutes(value: unknown): Promis
       { signal: AbortSignal.timeout(25_000), timeoutMs: 10_000 });
   } catch {
     throw new WorkbenchError("OBSERVATION_COLLECTION_FAILED", "无法读取指定的当日股票分时。请核对数据源和昨收引用后重试。", 502);
+  }
+}
+
+function etfMinutePreviousClose(value: unknown, tradeDate: string, error: () => WorkbenchError):
+  NonNullable<ObservationCurrentEtfMinutesRequest["etfs"][number]["previousClose"]> {
+  if (!object(value) || Object.keys(value).some(key => !["dailyRef", "calendar", "priceBasis"].includes(key)) ||
+    value.priceBasis !== "caller-confirmed-same-basis" || !object(value.calendar)) throw error();
+  const { calendar, priceBasis } = value;
+  const { revision: calendarRevision, previousTradeDate, tradeDate: current } = calendar;
+  if (Object.keys(calendar).some(key => !["revision", "previousTradeDate", "tradeDate"].includes(key)) ||
+    typeof calendarRevision !== "string" || !calendarRevision.trim() || typeof previousTradeDate !== "string" ||
+    !isDailyDate(previousTradeDate) || current !== tradeDate || previousTradeDate >= tradeDate) throw error();
+  return { dailyRef: fixedReference(value.dailyRef, "dated-etf-daily", error),
+    calendar: { revision: calendarRevision, previousTradeDate, tradeDate }, priceBasis };
+}
+
+export async function readObservationCurrentEtfMinutes(value: unknown): Promise<ObservationCurrentEtfMinutesPreview> {
+  const error = () => new WorkbenchError("INPUT_INVALID", "当日 ETF 分时范围或昨收引用无效。", 400);
+  if (!object(value) || Object.keys(value).some(key => !["tradeDate", "etfs", "interpretation"].includes(key)) ||
+    value.tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(value.etfs) || !value.etfs.length || value.etfs.length > 100) throw error();
+  const { tradeDate } = value;
+  const interpretation = currentMinuteInterpretation(value, error);
+  const seen = new Set<string>();
+  const etfs = value.etfs.map((etf: unknown) => {
+    if (!object(etf) || Object.keys(etf).some(key => !["symbol", "previousClose"].includes(key))) throw error();
+    const symbol = typeof etf.symbol === "string" ? etf.symbol.trim().toUpperCase() : "";
+    if (!isDatedEtfSymbol(symbol) || seen.has(symbol)) throw error();
+    seen.add(symbol);
+    if (!Object.hasOwn(etf, "previousClose")) return { symbol };
+    if (!interpretation) throw error();
+    return { symbol, previousClose: etfMinutePreviousClose(etf.previousClose, tradeDate, error) };
+  });
+  try {
+    return await previewCurrentTspEtfIntraday({ tradeDate, etfs, interpretation },
+      { signal: AbortSignal.timeout(25_000), timeoutMs: 10_000 });
+  } catch {
+    throw new WorkbenchError("OBSERVATION_COLLECTION_FAILED", "无法读取指定的当日 ETF 分时。请核对数据源和昨收引用后重试。", 502);
   }
 }
 
