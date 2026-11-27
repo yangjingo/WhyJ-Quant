@@ -908,6 +908,8 @@ whyj --json observation replay-list-rows --manifest ./list-rows.json
 
 已认证的 `readObservationListRows` 和 `readObservationListQuotes` 接受可选的 `limitCalendar`。单独的限价归档在股票项用完整的 `tradingLimitsRef` 引用。两个接口均在固定列表中保留原始阈值、归档和计数。当日报价另列。无效参数返回 `INPUT_INVALID`，归档缺失或范围不符返回 `OBSERVATION_ARCHIVE_UNAVAILABLE`。
 
+工作台「设置 → 数据 → 历史股票列表」可上传同一份列表清单。展开股票行可分别查看供应商涨跌停价和 WHYJ 连板次数，包括归档修订和公式版本。列表顶部显示计数所用的日历范围。计数为 0 表示已知未触板，缺少判定证据显示「暂无」。
+
 每项也可以提供 `financialReportRevisions` 与 `financialDisclosureRevisions` 两组归档版本。报告回放以市场截面的交易日为准，支持单独请求财务证据。历史列表与当日报价命令读取相同的清单字段。
 
 `replayTspListRowsWithLiveQuotes` 可为同一列表读一批最多 100 只股票的当日报价。市场截面必须对应当前上海日期，报价时间和获取时间也要属于该日。历史列表与空列表不发起报价请求。批次获取失败仍返回固定列表，缺报价、日期不匹配、时间晚于获取时间与缺有效价格分别标记。

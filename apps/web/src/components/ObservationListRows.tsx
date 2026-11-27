@@ -22,18 +22,38 @@ function financialReferences(reports: unknown, disclosures: unknown) {
 }
 
 export function listRowsManifest(value: unknown): ObservationListRowsRequest {
-  if (!isObject(value) || Object.keys(value).some(key => !["version", "marketRevision", "adjustment", "stocks"].includes(key)) ||
+  if (!isObject(value) || Object.keys(value).some(key => !["version", "marketRevision", "adjustment", "stocks", "limitCalendar"].includes(key)) ||
     value.version !== 1 || !isRevision(value.marketRevision) || (value.adjustment !== "none" && value.adjustment !== "forward") ||
     !Array.isArray(value.stocks) || value.stocks.length > 100) throw invalid();
+  let limitCalendar: ObservationListRowsRequest["limitCalendar"];
+  if (value.limitCalendar !== undefined) {
+    const calendar = value.limitCalendar;
+    const error = () => new Error("交易日历须包含修订号和升序且互异的有效交易日。");
+    if (!isObject(calendar) || Object.keys(calendar).some(key => key !== "revision" && key !== "sessions") ||
+      typeof calendar.revision !== "string" || !calendar.revision.trim() || calendar.revision.length > 256 ||
+      !Array.isArray(calendar.sessions) || !calendar.sessions.length) throw error();
+    const sessions: string[] = [];
+    for (const date of calendar.sessions) {
+      if (typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(date) || date < "0001-01-01" ||
+        date <= (sessions.at(-1) ?? "")) throw error();
+      const time = Date.parse(date + "T00:00:00Z");
+      if (!Number.isFinite(time) || new Date(time).toISOString().slice(0, 10) !== date) throw error();
+      sessions.push(date);
+    }
+    limitCalendar = { revision: calendar.revision, sessions };
+  }
   const seen = new Set<string>();
   const stocks: ObservationListRowsRequest["stocks"] = value.stocks.map(entry => {
     if (!isObject(entry) || Object.keys(entry).some(key => !["symbol", "dailyRevision", "limitsRevision", "rawRevision",
-      "financialReportRevisions", "financialDisclosureRevisions"].includes(key))) throw invalid();
-    const { symbol, dailyRevision, limitsRevision, rawRevision, financialReportRevisions, financialDisclosureRevisions } = entry;
+      "financialReportRevisions", "financialDisclosureRevisions", "tradingLimitsRevision"].includes(key))) throw invalid();
+    const { symbol, dailyRevision, limitsRevision, rawRevision, financialReportRevisions, financialDisclosureRevisions, tradingLimitsRevision } = entry;
     if (typeof symbol !== "string" || !stockPattern.test(symbol) || seen.has(symbol)) throw invalid();
     seen.add(symbol);
     const financialArchives = financialReferences(financialReportRevisions, financialDisclosureRevisions);
-    const stock = { symbol, ...(financialArchives !== undefined && { financialArchives }) };
+    if (tradingLimitsRevision !== undefined && !isRevision(tradingLimitsRevision)) throw invalid();
+    if (tradingLimitsRevision !== undefined && limitsRevision !== undefined) throw new Error("每只股票只能指定一种限价归档引用。");
+    const stock = { symbol, ...(financialArchives !== undefined && { financialArchives }),
+      ...(tradingLimitsRevision && { tradingLimitsRef: { version: 1, kind: "daily-trading-limits", revision: tradingLimitsRevision } as const }) };
     if (dailyRevision === undefined && limitsRevision === undefined && rawRevision === undefined) return stock;
     if (!isRevision(dailyRevision) || (limitsRevision !== undefined && !isRevision(limitsRevision)) ||
       (rawRevision !== undefined && (!isRevision(rawRevision) || limitsRevision === undefined))) throw invalid();
@@ -42,7 +62,8 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
       ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
     } }) } };
   });
-  return { marketRef: { version: 1, kind: "market-cross-section", revision: value.marketRevision }, adjustment: value.adjustment, stocks };
+  return { marketRef: { version: 1, kind: "market-cross-section", revision: value.marketRevision }, adjustment: value.adjustment, stocks,
+    ...(limitCalendar && { limitCalendar }) };
 }
 
 const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 4 });
@@ -100,7 +121,8 @@ function StockListFinancial({ financial }: { financial: ListFinancial }) {
 }
 
 function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][number]; quote?: ObservationListQuoteRow }) {
-  const { instrument, observations: { bar, basic, quantities, financial }, metrics: { liquidity, history, daily, signals } } = row;
+  const { instrument, observations: { bar, basic, quantities, financial, tradingLimits },
+    metrics: { liquidity, history, daily, signals, limitStreaks } } = row;
   return <details className="observation-list-stock">
     <summary>
       <span><strong>{instrument.name || instrument.symbol}</strong><span className="supporting">{instrument.symbol}</span></span>
@@ -132,12 +154,28 @@ function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][
         ["成交量（股）", display(quantities.volumeShares)], ["成交额（元）", display(quantities.amountCny)],
         ["换手率", display(basic?.turnoverPct, "%")], ["PE TTM", display(basic?.peTtm)], ["PB", display(basic?.pb)],
       ]} />
+      {tradingLimits && <section aria-label="供应商交易所限价">
+        <h5>供应商交易所限价</h5>
+        {tradingLimits.row ? <ListValues values={[
+          ["涨停价（元）", display(tradingLimits.row.limitUp)], ["跌停价（元）", display(tradingLimits.row.limitDown)],
+        ]} /> : <p className="supporting">归档未返回该交易日的限价。</p>}
+        <p className="supporting observation-ref">{tradingLimits.source} · {tradingLimits.endpoint} · <code>{tradingLimits.ref.revision}</code>
+          {" · "}<time dateTime={tradingLimits.observedAt}>{tradingLimits.observedAt}</time></p>
+      </section>}
       {financial && <StockListFinancial financial={financial} />}
       <h5>WHYJ 计算</h5>
       <ListValues values={[
         ["流通市值（元）", display(liquidity.floatValueCny)], ["按流通股计算的换手率", display(liquidity.turnoverPct, "%")],
       ]} />
       <p className="supporting observation-ref">{liquidity.formula.id} v{liquidity.formula.version} · <code>{liquidity.formula.revision}</code></p>
+      {limitStreaks && <section aria-label="WHYJ 连板计数">
+        <h5>WHYJ 连板计数</h5>
+        <ListValues values={[
+          ["连续涨停（交易日）", display(limitStreaks.consecutiveLimitUps)],
+          ["连续跌停（交易日）", display(limitStreaks.consecutiveLimitDowns)],
+        ]} />
+        <p className="supporting observation-ref">{limitStreaks.formula.id} v{limitStreaks.formula.version} · <code>{limitStreaks.formula.revision}</code></p>
+      </section>}
       {history && <p className="supporting observation-ref">日线归档 {history.source} · {history.endpoint} · {history.observedAt}
         {" · "}{history.firstTradeDate} 至 {history.lastTradeDate} · <code>{history.ref.revision}</code></p>}
       {daily ? <details>
@@ -168,6 +206,8 @@ export function ObservationListResult({ result, quotes }: {
     <p className="supporting">{result.rows.length} 只股票 · {result.source} · 日线计算{result.adjustment === "forward" ? "前复权" : "未复权"}</p>
     <p className="supporting">日行情 {result.observations.daily.observedAt} · 估值 {result.observations.dailyBasic.observedAt}</p>
     <p className="supporting observation-ref">市场截面 <code>{result.marketRef.revision}</code></p>
+    {result.limitCalendar && <p className="supporting observation-ref">连板日历 <code>{result.limitCalendar.revision}</code>
+      {" · "}{result.limitCalendar.sessions[0]} 至 {result.limitCalendar.sessions.at(-1)}</p>}
     {quotes && <p className="supporting" role="status">{quotes.status === "observed"
       ? <>报价 {quotes.source} · {quotes.endpoint} · 获取于 <time dateTime={quotes.observedAt}>{quoteTime.format(new Date(quotes.observedAt))}</time>（上海）· 原始数量单位未知</>
       : quoteBatchStatus[quotes.status]}</p>}
@@ -225,7 +265,7 @@ export function ObservationListRows({ read, readQuotes }: {
   return <div className="settings-group observation-list" aria-busy={!!busy}>
     <h4>历史股票列表</h4>
     {!read ? <p role="status">当前服务不支持历史股票列表，请更新并重新连接。</p> : <>
-      <p className="supporting">选择与 CLI 回放通用的 list-rows.json，读取当前工作区的市场截面和可选日线、财务归档。</p>
+      <p className="supporting">上传与 CLI 通用的 list-rows.json，读取当前工作区的市场截面以及可选的日线、限价和财务归档。</p>
       <label className="field-row">列表清单<input type="file" accept=".json,application/json" disabled={!!busy} onChange={event => {
         setFile(event.currentTarget.files?.[0] ?? null); setResult(null); setQuotes(undefined); setError("");
       }} /></label>

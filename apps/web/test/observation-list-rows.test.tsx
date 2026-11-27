@@ -41,6 +41,16 @@ test("builds a bounded ordered Host request from the CLI manifest", () => {
     { ...manifest, stocks: [{ symbol, ...finance, limitsRevision }] },
     { ...manifest, stocks: Array.from({ length: 101 }, (_, i) => ({ symbol: `600${String(i).padStart(3, "0")}.SH` })) },
   ]) expect(() => listRowsManifest(value)).toThrow("清单需要有效");
+
+  const limitCalendar = { revision: "fixture-exchange", sessions: ["2024-03-01", date] };
+  expect(listRowsManifest({ ...manifest, limitCalendar, stocks: [{ symbol, tradingLimitsRevision: limitsRevision }] })).toMatchObject({
+    limitCalendar, stocks: [{ symbol, tradingLimitsRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision } }],
+  });
+  for (const sessions of [[date, date], [date, "2024-03-01"], ["2024-02-30", date], []]) {
+    expect(() => listRowsManifest({ ...manifest, limitCalendar: { ...limitCalendar, sessions } })).toThrow("交易日历");
+  }
+  expect(() => listRowsManifest({ ...manifest, stocks: [{ symbol, dailyRevision, limitsRevision, tradingLimitsRevision: limitsRevision }] }))
+    .toThrow("一种限价归档");
 });
 
 test("presents provider data and WHYJ metrics with distinct zero and missing values", () => {
@@ -73,6 +83,8 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).toContain(observedAt);
   expect(html).toContain("供应商行情与估值");
   expect(html).not.toContain("供应商财务报告");
+  expect(html).not.toContain("供应商交易所限价");
+  expect(html).not.toContain("WHYJ 连板计数");
   expect(html).toContain("WHYJ 计算");
   expect(html).toContain("<dt>成交量（股）</dt><dd>0</dd>");
   expect(html).toContain("<dt>成交额（元）</dt><dd>暂无</dd>");
@@ -106,6 +118,27 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(financed).toContain("比率沿用供应商原始口径");
   expect(financeMarkup({ status: "unavailable", reason: "missing-disclosure", tradingDate: date }))
     .toContain("暂无可确认报告披露日期的归档");
+
+  const tradingLimits = {
+    ref: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
+    symbol, market: "A", source: "tushare", endpoint: "stk_limit", priceUnit: "CNY", coverage: "unknown", observedAt,
+    requested: { startDate: date, endDate: date },
+    row: { tradeDate: date, previousClose: 10, limitUp: 11, limitDown: 9 },
+  } as const;
+  const withLimits: ObservationListRowsPreview = { ...result, limitCalendar: { revision: "fixture-exchange", zone: "Asia/Shanghai", sessions: [date] },
+    rows: result.rows.map(row => ({ ...row, observations: { ...row.observations, tradingLimits },
+      metrics: { ...row.metrics, limitStreaks: { producer: "whyj", formula: { id: "tsp_limit_streaks", version: 1, revision: "ref-tsp" },
+        consecutiveLimitUps: 0, consecutiveLimitDowns: null } } })) };
+  const limitsMarkup = renderToStaticMarkup(<ObservationListResult result={withLimits} />);
+  expect(limitsMarkup).toContain("<dt>涨停价（元）</dt><dd>11</dd>");
+  expect(limitsMarkup).toContain("<dt>跌停价（元）</dt><dd>9</dd>");
+  expect(limitsMarkup).toContain("<dt>连续涨停（交易日）</dt><dd>0</dd>");
+  expect(limitsMarkup).toContain("<dt>连续跌停（交易日）</dt><dd>暂无</dd>");
+  expect(limitsMarkup).toContain("fixture-exchange");
+  expect(limitsMarkup).toContain(limitsRevision);
+  expect(renderToStaticMarkup(<ObservationListResult result={{ ...withLimits, rows: withLimits.rows.map(row => ({
+    ...row, observations: { ...row.observations, tradingLimits: { ...tradingLimits, row: null } },
+  })) }} />)).toContain("归档未返回该交易日的限价");
 
   const timestamp = Date.parse(observedAt);
   const renderQuote = (reported: {
