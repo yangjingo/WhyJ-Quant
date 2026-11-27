@@ -428,7 +428,7 @@ export interface ObservationListRowsRequest {
   limitCalendar?: { revision: string; sessions: readonly string[] };
   stocks: readonly {
     symbol: string;
-    history?: { ref: TradingDateArchiveRef; exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef"> };
+    history?: { ref: TradingDateArchiveRef; exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef">; candleBars?: number };
     financialArchives?: readonly FinancialObservationArchiveRef[];
     tradingLimitsRef?: TradingLimitArchiveRef;
   }[];
@@ -525,6 +525,11 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
       quantities: { volumeShares: number | null; amountCny: number | null };
       financial?: FinancialInputReplayRow;
       tradingLimits?: Omit<StoredDailyTradingLimitBatch, "rows"> & { ref: TradingLimitArchiveRef; row: StoredDailyTradingLimit | null };
+      dailyCandles?: ObservationIndicatorPreview["input"] & Pick<StoredTradingDateBarObservation, "volumeUnit" | "amountUnit"> & {
+        ref: TradingDateArchiveRef;
+        requestedBars: number;
+        rows: (Pick<StoredTradingDateBarObservation, "tradeDate" | "sourceTimestamp"> & StoredTradingDateBarObservation["values"])[];
+      };
     };
     metrics: {
       liquidity: {
