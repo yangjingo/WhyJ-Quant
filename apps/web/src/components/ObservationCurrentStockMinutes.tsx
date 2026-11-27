@@ -1,20 +1,35 @@
 import { useEffect, useRef, useState } from "react";
-import type { ObservationCurrentStockMinutesPreview, ObservationCurrentStockMinutesRequest, WorkbenchClient } from "../client/contract";
+import type { ObservationCurrentEtfMinutesPreview, ObservationCurrentEtfMinutesRequest,
+  ObservationCurrentStockMinutesPreview, ObservationCurrentStockMinutesRequest, WorkbenchClient } from "../client/contract";
 import { ObservationListIntradayChart } from "./ObservationListIntradayChart";
 
 const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" });
 const shanghaiTime = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const stockPattern = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
-const invalid = () => new Error("清单需要上海当天日期、最多 100 只不同的 A 股，以及有效的可选分时口径和昨收引用。");
+const etfPattern = /^(?:(?:51[0-35-8]|526|530|551|56[0-35-7]|58[1789])\d{3}\.SH|520[5-9]\d{2}\.SH|15[89]\d{3}\.SZ)$/;
+const invalid = () => new Error("清单需要上海当天日期、最多 100 只不同的同类标的，以及有效的可选分时口径和昨收引用。");
+
+function previousSession(value: unknown, tradeDate: string) {
+  const { revision, previousTradeDate, tradeDate: current } = fields(value, ["revision", "previousTradeDate", "tradeDate"]);
+  if (typeof revision !== "string" || !revision.trim() || current !== tradeDate ||
+    typeof previousTradeDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(previousTradeDate) || previousTradeDate >= tradeDate) throw invalid();
+  const day = new Date(previousTradeDate);
+  if (!Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== previousTradeDate) throw invalid();
+  return { revision, previousTradeDate, tradeDate };
+}
 
 function fields(value: unknown, allowed: string[]): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).some(key => !allowed.includes(key))) throw invalid();
   return value as Record<string, unknown>;
 }
 
-export function currentStockMinutesManifest(value: unknown): ObservationCurrentStockMinutesRequest {
-  const { version, tradeDate, stocks, interpretation: rawInterpretation } = fields(value, ["version", "tradeDate", "stocks", "interpretation"]);
-  if (version !== 1 || tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(stocks) || !stocks.length || stocks.length > 100) throw invalid();
+export function currentMinutesManifest(value: unknown): ObservationCurrentStockMinutesRequest | ObservationCurrentEtfMinutesRequest {
+  const input = fields(value, ["version", "tradeDate", "stocks", "etfs", "interpretation"]);
+  const { version, tradeDate, stocks, etfs, interpretation: rawInterpretation } = input;
+  const isEtf = Object.hasOwn(input, "etfs");
+  if (isEtf && Object.hasOwn(input, "stocks")) throw invalid();
+  const scope = isEtf ? etfs : stocks;
+  if (version !== 1 || tradeDate !== shanghaiDate.format(Date.now()) || !Array.isArray(scope) || !scope.length || scope.length > 100) throw invalid();
   let interpretation: ObservationCurrentStockMinutesRequest["interpretation"];
   if (rawInterpretation !== undefined) {
     const { timestampLabel, priceBasis } = fields(rawInterpretation, ["timestampLabel", "priceBasis"]);
@@ -22,17 +37,30 @@ export function currentStockMinutesManifest(value: unknown): ObservationCurrentS
     interpretation = { timestampLabel, priceBasis };
   }
   const seen = new Set<string>();
-  const targets = stocks.map((item: unknown) => {
+  const entries = scope.map((item: unknown) => {
     const { symbol, previousClose } = fields(item, ["symbol", "previousClose"]);
     const code = typeof symbol === "string" ? symbol.trim().toUpperCase() : "";
-    if (!stockPattern.test(code) || seen.has(code)) throw invalid();
+    const valid = isEtf ? etfPattern.test(code) && code !== "159900.SZ" : stockPattern.test(code);
+    if (!valid || seen.has(code) || (previousClose !== undefined && !interpretation)) throw invalid();
     seen.add(code);
-    if (previousClose === undefined) return { symbol: code };
-    const { revision, priceBasis } = fields(previousClose, ["revision", "priceBasis"]);
-    if (!interpretation || typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision) || priceBasis !== "caller-confirmed-same-basis") throw invalid();
-    return { symbol: code, previousClose: { ref: { version: 1, kind: "daily-trading-limits", revision }, priceBasis } } as const;
+    return { symbol: code, previousClose };
   });
-  return { tradeDate, stocks: targets, ...(interpretation && { interpretation }) };
+  const common = { tradeDate, ...(interpretation && { interpretation }) };
+  if (isEtf) {
+    return { ...common, etfs: entries.map(({ symbol, previousClose }) => {
+      if (previousClose === undefined) return { symbol };
+      const { dailyRevision, calendar, priceBasis } = fields(previousClose, ["dailyRevision", "calendar", "priceBasis"]);
+      if (typeof dailyRevision !== "string" || !/^[a-f0-9]{64}$/.test(dailyRevision) || priceBasis !== "caller-confirmed-same-basis") throw invalid();
+      return { symbol, previousClose: { dailyRef: { version: 1, kind: "dated-etf-daily", revision: dailyRevision },
+        calendar: previousSession(calendar, tradeDate), priceBasis } } as const;
+    }) };
+  }
+  return { ...common, stocks: entries.map(({ symbol, previousClose }) => {
+    if (previousClose === undefined) return { symbol };
+    const { revision, priceBasis } = fields(previousClose, ["revision", "priceBasis"]);
+    if (typeof revision !== "string" || !/^[a-f0-9]{64}$/.test(revision) || priceBasis !== "caller-confirmed-same-basis") throw invalid();
+    return { symbol, previousClose: { ref: { version: 1, kind: "daily-trading-limits", revision }, priceBasis } } as const;
+  }) };
 }
 
 const statuses = {
@@ -44,7 +72,9 @@ const number = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 4 });
 const percent = new Intl.NumberFormat("zh-CN", { style: "percent", maximumFractionDigits: 2 });
 const show = (value: number | null) => value === null ? "暂无" : number.format(value);
 
-export function CurrentStockMinuteResult({ result }: { result: ObservationCurrentStockMinutesPreview }) {
+type CurrentMinutePreview = ObservationCurrentStockMinutesPreview | ObservationCurrentEtfMinutesPreview;
+
+export function CurrentMinuteResult({ result }: { result: CurrentMinutePreview }) {
   const { minutes } = result.input;
   const [symbol, select] = useState(minutes.requestedSymbols[0]);
   const frame = minutes.frames.find(item => item.symbol === symbol);
@@ -54,7 +84,7 @@ export function CurrentStockMinuteResult({ result }: { result: ObservationCurren
   const lastPoint = chart?.points.at(-1);
   return <div className="observation-list-result">
     <p className="supporting">TickFlow · {minutes.tradeDate} · <time dateTime={minutes.observedAt}>{minutes.observedAt}</time></p>
-    <label className="field-row">查看股票<select value={symbol} onChange={event => select(event.currentTarget.value)}>
+    <label className="field-row">{minutes.assetType === "etf" ? "查看 ETF" : "查看股票"}<select value={symbol} onChange={event => select(event.currentTarget.value)}>
       {minutes.frames.map(item => <option key={item.symbol} value={item.symbol}>{item.symbol} · {statuses[item.status]}</option>)}
     </select></label>
     {frame && <details className="observation-list-stock">
@@ -76,41 +106,53 @@ export function CurrentStockMinuteResult({ result }: { result: ObservationCurren
   </div>;
 }
 
-export function ObservationCurrentStockMinutes({ read }: { read: WorkbenchClient["readObservationCurrentStockMinutes"] }) {
+export function ObservationCurrentMinutes({ readStock, readEtf }: {
+  readStock: WorkbenchClient["readObservationCurrentStockMinutes"];
+  readEtf?: WorkbenchClient["readObservationCurrentEtfMinutes"];
+}) {
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<ObservationCurrentStockMinutesPreview | null>(null);
+  const [result, setResult] = useState<CurrentMinutePreview | null>(null);
   const generation = useRef(0);
   useEffect(() => {
     setBusy(false); setError(""); setResult(null);
     return () => { generation.current++; };
-  }, [read]);
-  const unsupported = "当前服务不支持当日股票分时，请更新并重新连接。";
+  }, [readStock, readEtf]);
+  const unsupported = "当前服务不支持当日分时，请更新并重新连接。";
   const load = async () => {
-    if (!file || !read || busy) return;
+    if (!file || (!readStock && !readEtf) || busy) return;
+    let asset = "";
     const ticket = ++generation.current;
     setBusy(true); setError(""); setResult(null);
     try {
       if (file.size > 32 * 1024) throw new Error("清单文件不能超过 32 KB。");
       let value: unknown;
       try { value = JSON.parse(await file.text()); } catch { throw new Error("无法读取 JSON 清单。"); }
-      const request = currentStockMinutesManifest(value);
+      const request = currentMinutesManifest(value);
       if (ticket !== generation.current) return;
-      const preview = await read(request);
+      const etf = "etfs" in request;
+      asset = etf ? " ETF " : "股票";
+      const pending = etf ? readEtf?.(request) : readStock?.(request);
+      if (!pending) {
+        setError(`当前服务不支持当日${asset}分时，请更新并重新连接。`);
+        return;
+      }
+      const preview = await pending;
       if (ticket === generation.current) setResult(preview);
     } catch (cause) {
       if (ticket === generation.current)
-        setError(cause instanceof Error && "code" in cause && cause.code === "METHOD_NOT_FOUND" ? unsupported
-          : cause instanceof Error ? cause.message : "无法读取当日股票分时，请检查数据源后重试。");
+        setError(cause instanceof Error && "code" in cause && cause.code === "METHOD_NOT_FOUND"
+          ? `当前服务不支持当日${asset}分时，请更新并重新连接。`
+          : cause instanceof Error ? cause.message : "无法读取当日分时，请检查数据源后重试。");
     } finally {
       if (ticket === generation.current) setBusy(false);
     }
   };
   return <div className="settings-group observation-list" aria-busy={busy}>
-    <h4>当日股票分时</h4>
-    {!read ? <p role="status">{unsupported}</p> : <>
-      <p className="supporting">上传与 CLI 通用的当日股票分时 JSON 清单。声明分时口径后可查看 WHYJ 临时指标。</p>
+    <h4>当日分时</h4>
+    {!readStock && !readEtf ? <p role="status">{unsupported}</p> : <>
+      <p className="supporting">上传股票或 ETF 的 CLI 分时清单。声明分时口径后可查看 WHYJ 临时指标。</p>
       <label className="field-row">当日分时清单<input type="file" accept=".json,application/json" disabled={busy} onChange={event => {
         setFile(event.currentTarget.files?.[0] ?? null); setResult(null); setError("");
       }} /></label>
@@ -118,7 +160,7 @@ export function ObservationCurrentStockMinutes({ read }: { read: WorkbenchClient
         {busy ? "正在读取分时…" : "读取当日分时"}
       </button>
       {error && <p role="alert" className="operation-feedback error-feedback">{error}</p>}
-      {result && <CurrentStockMinuteResult result={result} />}
+      {result && <CurrentMinuteResult result={result} />}
     </>}
   </div>;
 }
