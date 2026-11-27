@@ -3,7 +3,7 @@ import type {
   ArchiveAnalyticsBookValueBasis, ArchiveAnalyticsSupplements, ArchiveAnalyticsTurnoverInput, BenchmarkIndexArchiveRef,
   DatedStockMinuteArchiveRef, FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
   MarketCrossSectionArchiveRef, MarketRegimeManifestRef,
-  ObservationArchiveRef, SectorObservationArchiveRef, StoredDailyTradingLimit, StoredDailyTradingLimitBatch,
+  ObservationArchiveRef, SectorObservationArchiveRef, StoredBenchmarkIndexBatch, StoredDailyTradingLimit, StoredDailyTradingLimitBatch,
   StoredDatedStockMinuteBatch, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
   StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
 } from "./observation.ts";
@@ -454,6 +454,7 @@ export interface ObservationListRowsRequest {
   watchlistMembershipRevision?: string;
   screener?: ObservationListScreenerScope;
   limitCalendar?: { revision: string; sessions: readonly string[] };
+  deviationCalendar?: { revision: string; sessions: readonly string[] };
   stocks: readonly {
     symbol: string;
     history?: { ref: TradingDateArchiveRef; exchange?: Omit<ObservationExchangePreviewRequest, "archiveRef">; candleBars?: number };
@@ -461,6 +462,7 @@ export interface ObservationListRowsRequest {
     tradingLimitsRef?: TradingLimitArchiveRef;
     intraday?: ObservationListIntradayRequest;
     watchlistHistoryRef?: TradingDateArchiveRef;
+    deviation?: { stockRef: TradingDateArchiveRef; benchmarkRef?: BenchmarkIndexArchiveRef };
   }[];
 }
 
@@ -538,10 +540,46 @@ export interface ObservationIndicatorPreview {
 type DatedListDaily = NonNullable<ObservationIndicatorPreview["daily"]>;
 type DatedListSignals = NonNullable<ObservationIndicatorPreview["dailySignals"]>;
 
+type DeviationWindow = 3 | 10 | 30;
+export interface ObservationListDeviationPreview {
+  producer: "whyj";
+  date: string;
+  symbol: string;
+  board: "SH" | "SZ" | "STAR" | "GEM" | "BJ";
+  formula: { id: "tsp_price_deviation"; version: number; revision: string };
+  outputUnit: "fraction";
+  values: Record<`deviate_${DeviationWindow}d`, number | null>;
+  comparisonDates: Record<DeviationWindow, string | null>;
+  benchmark: string | null;
+  benchmarkCandidates: readonly string[];
+  input: {
+    stock: Pick<StoredTradingDateBarObservation, "symbol" | "source" | "endpoint" | "observedAt" | "requested" | "adjustment" | "coverage"> & {
+      ref: TradingDateArchiveRef;
+      rowsUsed: number;
+    };
+    benchmark: (Pick<StoredBenchmarkIndexBatch, "symbol" | "source" | "endpoint" | "observedAt" | "requested" | "priceUnit" | "coverage"> & {
+      ref: BenchmarkIndexArchiveRef;
+      rowsUsed: number;
+    }) | null;
+  };
+  proximity: {
+    producer: "whyj";
+    date: string;
+    formula: { id: "tsp_deviation_proximity"; version: number; revision: string };
+    basis: "completed-session";
+    unit: "fraction";
+    dominantWindow: DeviationWindow | null;
+    maxCloseness: number | null;
+    tier: "unavailable" | "below-watch" | "watch" | "edge" | "triggered";
+    windows: { window: DeviationWindow; deviation: number | null; direction: "up" | "down" | null; threshold: number | null; closeness: number | null }[];
+  };
+}
+
 export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSection, "source" | "market" | "tradeDate"> {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: ObservationListRowsRequest["adjustment"];
   limitCalendar?: NonNullable<ObservationListRowsRequest["limitCalendar"]> & { zone: "Asia/Shanghai" };
+  deviationCalendar?: NonNullable<ObservationListRowsRequest["deviationCalendar"]> & { zone: "Asia/Shanghai" };
   screener?: {
     scoped: number;
     matched: number;
@@ -586,6 +624,7 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
       };
     };
     metrics: {
+      deviation?: ObservationListDeviationPreview;
       screener?: {
         producer: "whyj";
         position: number | null;
