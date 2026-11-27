@@ -1,4 +1,4 @@
-import { symbolsFor, DEFAULT_TICKFLOW_BASE_URL } from "./tickflow.ts";
+import { symbolsFor, tickFlowReportedTurnover, DEFAULT_TICKFLOW_BASE_URL } from "./tickflow.ts";
 import type { Quote, QuoteSubscription, QuoteSubscriptionHandlers, QuoteSubscriptionRequest, SourceConnection, SourceRequestOptions } from "./market-data.ts";
 
 /** No automatic retry: a closed subscription must be explicitly recreated by its owner. */
@@ -61,7 +61,8 @@ export async function subscribeTickFlowQuotes(input: QuoteSubscriptionRequest, h
             if (typeof row[field] !== "number" || !Number.isFinite(row[field]) || (row[field] as number) < 0) throw new Error();
           }
           return { symbol, timestamp: row.timestamp as number, lastPrice: row.last_price as number, previousClose: row.prev_close as number,
-            open: row.open as number, high: row.high as number, low: row.low as number, volume: row.volume as number, amount: row.amount as number | null };
+            open: row.open as number, high: row.high as number, low: row.low as number, volume: row.volume as number, amount: row.amount as number | null,
+            ...tickFlowReportedTurnover(row.ext) };
         });
         handlers.onQuotes({ source: "tickflow", observedAt: new Date().toISOString(), data });
       } catch { fail("Quote stream response invalid or consumer failed"); }

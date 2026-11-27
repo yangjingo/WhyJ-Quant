@@ -16,6 +16,8 @@ TickFlow 原生 HTTP 适配归 `src/source`，通过[供应商无关接口](../.
 
 统一 Source 还提供财务报表与行情订阅接口：财务记录保留报告期和公告日期，单位与币种未知时不推断；行情订阅须单独具备推送权限，断线后不自动重连。财务的报告期过滤不证明历史时点可获得，不能直接作为回测时点证据。当前尚未将推送接入界面或自动持久化。
 
+TickFlow 行情快照和订阅通过 `Quote.reportedTurnoverFraction` 保留供应商可选的 `ext.turnover_rate`。小数 `0.01` 对应 `1%`，零值照常返回，缺失或无效的字段省略。WHYJ 的列表派生指标另行计算。[TickFlow OpenAPI](https://docs.tickflow.org/zh-Hans/api-reference/openapi.json)。
+
 Source 可通过 `getMarketDataCapabilities` 查询当前选定供应商在统一接口中实现了哪些操作。此查询不访问网络，账号权限和连接状态始终为未知；它不证明某个标的、周期或历史数据可用，也不描述旧取数接口的能力。设置界面仍需独立的连接测试和凭据管理接口。
 
 统一 `fetchKlines` 增加显式交易日模式：Tushare 不复权 A 股日线返回交易日及供应商原始单位，不生成虚构时间戳；TickFlow 依据上海时区确定交易日并保留供应商时间戳。按日期窗口和股票代码范围的限制、不同复权能力与未知覆盖语义见 [Source 模块](../../src/source/README.md#provider-neutral-market-data-facade)。此模式不读取缓存、不切换供应商；不等于真实权限或完整历史已验证。

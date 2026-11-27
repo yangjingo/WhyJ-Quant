@@ -41,7 +41,12 @@ export interface OrderBookLevel { price: number; volume: number }
 export interface OrderBook { symbol: string; timestamp: number; bids: OrderBookLevel[]; asks: OrderBookLevel[] }
 export interface Kline { timestamp: number; open: number; high: number; low: number; close: number; volume: number; amount: number | null }
 export interface AdjustmentFactor { timestamp: number; factor: number }
-export interface Quote { symbol: string; timestamp: number; lastPrice: number; previousClose: number; open: number; high: number; low: number; volume: number; amount: number | null }
+export interface Quote {
+  symbol: string; timestamp: number; lastPrice: number; previousClose: number; open: number; high: number; low: number;
+  volume: number; amount: number | null;
+  /** Optional provider-reported turnover ratio, where 0.01 denotes 1%. */
+  reportedTurnoverFraction?: number;
+}
 export interface ObservationResult<T> { data: T; source: ProviderSource; endpoint: string; observedAt: string; units: "unknown" }
 export interface KlineResult extends ObservationResult<Kline[]> { symbol: string; interval: KlineInterval; adjustment: KlineAdjustment }
 export interface QuoteResult extends ObservationResult<Quote[]> { missingSymbols: string[] }
