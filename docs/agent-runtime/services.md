@@ -940,7 +940,7 @@ CLI 使用 `whyj --json observation read-current-stock-minutes --manifest PATH` 
 
 已认证的工作台客户端可调用 `readObservationCurrentStockMinutes({ tradeDate, stocks, interpretation? })`。昨收证据用 `previousClose.ref` 的完整归档引用和已确认的 `priceBasis` 提供。Host 使用自身的数据源配置。参数错误返回 `INPUT_INVALID`，读取失败返回 `OBSERVATION_COLLECTION_FAILED`，未提供该方法的 Host 返回 `METHOD_NOT_FOUND`。读取结果与完成的股票分时归档分开。
 
-Web 和 Desktop 的「设置 → 数据 → 当日股票分时」接受同一份 CLI 清单。手动读取后，界面显示各股票的报价状态、分钟帧和最新原始数量。指定分时口径时，图表显示 WHYJ 临时计算的收盘价和累计均价。缺少昨收的收益显示「暂无」，已观测的零收益显示为 0%。
+Web 和 Desktop 的「设置 → 数据 → 当日分时」接受股票或 ETF 的 CLI 清单。点击「读取当日分时」后，工作台调用对应的 Host 方法，显示各标的的分钟帧状态和最新原始数量。指定分时口径时，图表显示 WHYJ 临时计算的收盘价和累计均价。缺少昨收的收益显示「暂无」，已观测的零收益显示为 0%。
 
 Runtime 的 `previewCurrentTspEtfIntraday` 对沪深 ETF 支持同一套临时价格线与累计均价。请求用 `etfs` 指定目标。可选昨收包含同一 TickFlow ETF 的日线归档 `dailyRef`、调用方提供的 `calendar: { revision, previousTradeDate, tradeDate }`，以及 `priceBasis: "caller-confirmed-same-basis"`。读不到该日已归档收盘价时保留分时图和空收益；交易日期或来源不符会使请求失败。临时帧仍保留 ETF 身份和原生行情字段。
 
