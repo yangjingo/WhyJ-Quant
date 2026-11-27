@@ -541,7 +541,8 @@ export type ObservationListQuoteRow = { symbol: string } & (
     status: "available";
     sourceTimestamp: number;
     snapshot: { symbol: string; timestamp: number; lastPrice: number; previousClose: number;
-      open: number; high: number; low: number; volume: number; amount: number | null };
+      open: number; high: number; low: number; volume: number; amount: number | null;
+      reportedTurnoverFraction?: number };
     change: { producer: "whyj"; changeAmount: number | null; changeFraction: number | null };
   }
 );
