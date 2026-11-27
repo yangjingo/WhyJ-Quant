@@ -6,7 +6,20 @@ import { ObservationDailyValues } from "./ObservationCollection";
 const stockPattern = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 const isRevision = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
-const invalid = () => new Error("清单需要有效的市场截面修订、复权口径和最多 100 只不同的 A 股。");
+const invalid = () => new Error("清单需要有效的市场截面、归档修订和复权口径，股票范围最多 100 只不同的 A 股。");
+
+function financialReferences(reports: unknown, disclosures: unknown) {
+  if (reports === undefined && disclosures === undefined) return undefined;
+  const reportRevisions = reports === undefined ? [] : reports;
+  const disclosureRevisions = disclosures === undefined ? [] : disclosures;
+  if (!Array.isArray(reportRevisions) || !reportRevisions.every(isRevision) ||
+    !Array.isArray(disclosureRevisions) || !disclosureRevisions.every(isRevision) ||
+    new Set([...reportRevisions, ...disclosureRevisions]).size !== reportRevisions.length + disclosureRevisions.length) throw invalid();
+  return [
+    ...reportRevisions.map(revision => ({ version: 1, kind: "report-financial-indicators", revision }) as const),
+    ...disclosureRevisions.map(revision => ({ version: 1, kind: "financial-disclosure-dates", revision }) as const),
+  ];
+}
 
 export function listRowsManifest(value: unknown): ObservationListRowsRequest {
   if (!isObject(value) || Object.keys(value).some(key => !["version", "marketRevision", "adjustment", "stocks"].includes(key)) ||
@@ -14,14 +27,17 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
     !Array.isArray(value.stocks) || value.stocks.length > 100) throw invalid();
   const seen = new Set<string>();
   const stocks: ObservationListRowsRequest["stocks"] = value.stocks.map(entry => {
-    if (!isObject(entry) || Object.keys(entry).some(key => !["symbol", "dailyRevision", "limitsRevision", "rawRevision"].includes(key))) throw invalid();
-    const { symbol, dailyRevision, limitsRevision, rawRevision } = entry;
+    if (!isObject(entry) || Object.keys(entry).some(key => !["symbol", "dailyRevision", "limitsRevision", "rawRevision",
+      "financialReportRevisions", "financialDisclosureRevisions"].includes(key))) throw invalid();
+    const { symbol, dailyRevision, limitsRevision, rawRevision, financialReportRevisions, financialDisclosureRevisions } = entry;
     if (typeof symbol !== "string" || !stockPattern.test(symbol) || seen.has(symbol)) throw invalid();
     seen.add(symbol);
-    if (Object.keys(entry).length === 1) return { symbol };
+    const financialArchives = financialReferences(financialReportRevisions, financialDisclosureRevisions);
+    const stock = { symbol, ...(financialArchives !== undefined && { financialArchives }) };
+    if (dailyRevision === undefined && limitsRevision === undefined && rawRevision === undefined) return stock;
     if (!isRevision(dailyRevision) || (limitsRevision !== undefined && !isRevision(limitsRevision)) ||
       (rawRevision !== undefined && (!isRevision(rawRevision) || limitsRevision === undefined))) throw invalid();
-    return { symbol, history: { ref: { version: 2, revision: dailyRevision }, ...(limitsRevision && { exchange: {
+    return { ...stock, history: { ref: { version: 2, revision: dailyRevision }, ...(limitsRevision && { exchange: {
       tradingLimitArchiveRef: { version: 1, kind: "daily-trading-limits", revision: limitsRevision },
       ...(rawRevision && { rawArchiveRef: { version: 2, revision: rawRevision } }),
     } }) } };
@@ -40,6 +56,13 @@ const quoteBatchStatus = {
   "outside-current-day": "列表日期并非当前上海日期，已跳过报价请求。",
   empty: "清单没有报价标的。", unavailable: "当前数据源未能返回报价，仍可查看固定归档。",
 } as const;
+const financialStatus = {
+  "missing-report": "目标交易日前暂无可用的报告归档。",
+  "missing-disclosure": "暂无可确认报告披露日期的归档。",
+  "ambiguous-report": "报告版本存在冲突。",
+  "ambiguous-disclosure": "归档中的实际披露日存在冲突。",
+  "inconsistent-timing": "披露与归档时间不一致。",
+} as const;
 
 function ListValues({ values }: { values: [string, string][] }) {
   return <dl className="observation-indicator-values">
@@ -47,8 +70,37 @@ function ListValues({ values }: { values: [string, string][] }) {
   </dl>;
 }
 
+type ListFinancial = NonNullable<ObservationListRowsPreview["rows"][number]["observations"]["financial"]>;
+
+function StockListFinancial({ financial }: { financial: ListFinancial }) {
+  return <section>
+    <h5>供应商财务报告</h5>
+    {financial.status === "available" ? <>
+      <p className="supporting">报告期 <time dateTime={financial.periodEnd}>{financial.periodEnd}</time>
+        {" · "}实际披露日 <time dateTime={financial.actualDisclosureDate}>{financial.actualDisclosureDate}</time></p>
+      <ListValues values={[
+        ["基本 EPS", display(financial.report.basicEarningsPerShare)],
+        ["每股净资产", display(financial.report.bookValuePerShare)],
+        ["ROE", display(financial.report.roe)],
+        ["毛利率", display(financial.report.grossProfitMargin)],
+        ["净利率", display(financial.report.netProfitMargin)],
+        ["营业收入同比", display(financial.report.operatingRevenueYoyPct)],
+        ["归母净利润同比", display(financial.report.parentNetProfitYoyPct)],
+        ["资产负债率", display(financial.report.debtToAssets)],
+      ]} />
+      <p className="supporting">每股数据币种未知，比率沿用供应商原始口径。</p>
+      {financial.reportEvidence.map(({ ref, observedAt }) => <p key={ref.revision} className="supporting observation-ref">
+        财报归档 <code>{ref.revision}</code> · <time dateTime={observedAt}>{observedAt}</time>
+      </p>)}
+      {financial.disclosureEvidence.map(({ ref, observedAt }) => <p key={ref.revision} className="supporting observation-ref">
+        披露归档 <code>{ref.revision}</code> · <time dateTime={observedAt}>{observedAt}</time>
+      </p>)}
+    </> : <p className="supporting">{financialStatus[financial.reason]}</p>}
+  </section>;
+}
+
 function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][number]; quote?: ObservationListQuoteRow }) {
-  const { instrument, observations: { bar, basic, quantities }, metrics: { liquidity, history, daily, signals } } = row;
+  const { instrument, observations: { bar, basic, quantities, financial }, metrics: { liquidity, history, daily, signals } } = row;
   return <details className="observation-list-stock">
     <summary>
       <span><strong>{instrument.name || instrument.symbol}</strong><span className="supporting">{instrument.symbol}</span></span>
@@ -80,6 +132,7 @@ function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][
         ["成交量（股）", display(quantities.volumeShares)], ["成交额（元）", display(quantities.amountCny)],
         ["换手率", display(basic?.turnoverPct, "%")], ["PE TTM", display(basic?.peTtm)], ["PB", display(basic?.pb)],
       ]} />
+      {financial && <StockListFinancial financial={financial} />}
       <h5>WHYJ 计算</h5>
       <ListValues values={[
         ["流通市值（元）", display(liquidity.floatValueCny)], ["按流通股计算的换手率", display(liquidity.turnoverPct, "%")],
@@ -172,7 +225,7 @@ export function ObservationListRows({ read, readQuotes }: {
   return <div className="settings-group observation-list" aria-busy={!!busy}>
     <h4>历史股票列表</h4>
     {!read ? <p role="status">当前服务不支持历史股票列表，请更新并重新连接。</p> : <>
-      <p className="supporting">选择与 CLI 回放通用的 list-rows.json，读取当前工作区的市场截面和可选日线归档。</p>
+      <p className="supporting">选择与 CLI 回放通用的 list-rows.json，读取当前工作区的市场截面和可选日线、财务归档。</p>
       <label className="field-row">列表清单<input type="file" accept=".json,application/json" disabled={!!busy} onChange={event => {
         setFile(event.currentTarget.files?.[0] ?? null); setResult(null); setQuotes(undefined); setError("");
       }} /></label>
