@@ -71,6 +71,8 @@ export type { TspPaperFill, TspPaperNavRow, TspPaperStatisticsInput } from "./ts
 export { computeTspPaperValuation, TSP_PAPER_VALUATION_FORMULA_VERSION } from "./tsp-paper-valuation.ts";
 export type { TspPaperValuationInput, TspPaperPositionObservation, TspPaperPriceMark } from "./tsp-paper-valuation.ts";
 export { computeTspPaperComparison, TSP_PAPER_COMPARISON_FORMULA_VERSION } from "./tsp-paper-comparison.ts";
+export { computeTspPaperNavBenchmark, TSP_PAPER_NAV_BENCHMARK_FORMULA_VERSION, TSP_PAPER_NAV_BENCHMARK_SYMBOL } from "./tsp-paper-nav-benchmark.ts";
+export type { TspPaperNavBenchmarkInput } from "./tsp-paper-nav-benchmark.ts";
 export type { TspPaperComparisonAccount, TspPaperComparisonInput } from "./tsp-paper-comparison.ts";
 export { computeTspExtensionGroups, TSP_EXTENSION_GROUPS_FORMULA_VERSION } from "./tsp-extension-groups.ts";
 export type { TspExtensionDataset, TspExtensionField, TspExtensionGroupsInput, TspExtensionMetric } from "./tsp-extension-groups.ts";
