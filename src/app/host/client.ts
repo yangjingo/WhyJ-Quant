@@ -29,7 +29,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     const timeout = method === "readObservationMarketRegime" ? 55_000 : method === "collectThesisSources" ? 45_000 : 30_000;
     try { const body = JSON.stringify({ method, args });
       response = await request(new URL("/api/workbench/rpc", baseUrl), { method: "POST", credentials: "omit", cache: "no-store", redirect: "error",
-      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources", "readObservationIndicators", "readObservationExchangeIndicators", "readObservationIntraday", "readObservationAnalytics", "readObservationListRows", "readObservationListQuotes", "readObservationMarketRegime", "readObservationCurrentStockMinutes", "readObservationCurrentEtfMinutes"].includes(method) ? { signal: AbortSignal.timeout(timeout) } : {}),
+      ...(options.connection || ["establishThesis", "saveThesisReview", "readThesis", "collectThesisTsp", "readThesisTsp", "collectThesisSources", "readThesisSources", "readObservationIndicators", "readObservationExchangeIndicators", "readObservationIntraday", "readObservationAnalytics", "readObservationListRows", "readObservationListQuotes", "readObservationMarketRegime", "readObservationCurrentStockMinutes", "readObservationCurrentEtfMinutes", "readObservationListAuctionOverlay"].includes(method) ? { signal: AbortSignal.timeout(timeout) } : {}),
       headers: { "Content-Type": "application/json", "x-workbench-token": capability,
         ...(options.connection ? { "x-host-instance-id": options.connection.instanceId } : {}) },
       ...(options.connection ? terminalRequestConnection(body) : {}), body }); }
@@ -53,7 +53,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
           Object.assign(error, { code });
         if (["readObservationListRows", "readObservationListQuotes", "readObservationMarketRegime"].includes(method) && ((response.status === 400 && code === "INPUT_INVALID") ||
           (response.status === 404 && code === "OBSERVATION_ARCHIVE_UNAVAILABLE"))) Object.assign(error, { code });
-        if (["readObservationCurrentStockMinutes", "readObservationCurrentEtfMinutes"].includes(method) && ((response.status === 400 && code === "INPUT_INVALID") ||
+        if (["readObservationCurrentStockMinutes", "readObservationCurrentEtfMinutes", "readObservationListAuctionOverlay"].includes(method) && ((response.status === 400 && code === "INPUT_INVALID") ||
           (response.status === 502 && code === "OBSERVATION_COLLECTION_FAILED"))) Object.assign(error, { code });
       }
       throw error;
@@ -131,6 +131,7 @@ export function createHostClient(options: { baseUrl: string; fetch?: HostFetch; 
     readObservationListQuotes: input => rpc("readObservationListQuotes", [input]),
     readObservationCurrentStockMinutes: input => rpc("readObservationCurrentStockMinutes", [input]),
     readObservationCurrentEtfMinutes: input => rpc("readObservationCurrentEtfMinutes", [input]),
+    readObservationListAuctionOverlay: input => rpc("readObservationListAuctionOverlay", [input]),
     readObservationMarketRegime: ref => rpc("readObservationMarketRegime", [ref]),
     readObservationAnalytics: ref => rpc("readObservationAnalytics", [ref]),
     identity: () => rpc("identity"), workspaces: () => rpc("workspaces"), preferences: () => rpc("preferences"),
