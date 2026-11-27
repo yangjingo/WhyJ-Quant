@@ -19,6 +19,8 @@ test("an unsupported optional RPC retains its fixed code without masking other f
   })).rejects.toMatchObject({ code: "METHOD_NOT_FOUND" });
   await expect(client(404, "METHOD_NOT_FOUND").readObservationCurrentStockMinutes!({ tradeDate: "2024-01-02", stocks: [{ symbol: "600000.SH" }] }))
     .rejects.toMatchObject({ code: "METHOD_NOT_FOUND" });
+  await expect(client(404, "METHOD_NOT_FOUND").readObservationCurrentEtfMinutes!({ tradeDate: "2024-01-02", etfs: [{ symbol: "510300.SH" }] }))
+    .rejects.toMatchObject({ code: "METHOD_NOT_FOUND" });
   const other = await client(503, "HOST_STOPPING").startDataDraft!().catch(error => error);
   expect(other.message).toBe("fixture failure"); expect(other.code).toBeUndefined();
 });

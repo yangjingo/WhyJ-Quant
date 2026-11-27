@@ -1,10 +1,10 @@
 import type { ThesisBaselineRequest, ThesisReviewRequest, ThesisView, ThesisTspRequest, ThesisTspView, ThesisSourcesRequest, ThesisSourcesReadRequest, ThesisSourcesView } from "./thesis-workbench.ts";
 import type {
   ArchiveAnalyticsBookValueBasis, ArchiveAnalyticsSupplements, ArchiveAnalyticsTurnoverInput, BenchmarkIndexArchiveRef,
-  DatedStockMinuteArchiveRef, FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
+  DatedEtfDailyArchiveRef, DatedStockMinuteArchiveRef, FinancialInputReplayRow, FinancialObservationArchiveRef, HistoricalMinuteArchiveRef,
   MarketCrossSectionArchiveRef, MarketRegimeManifestRef,
   ObservationArchiveRef, SectorObservationArchiveRef, StoredBenchmarkIndexBatch, StoredDailyTradingLimit, StoredDailyTradingLimitBatch,
-  StoredDatedStockMinuteBatch, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
+  StoredDatedEtfDailyBatch, StoredDatedStockMinuteBatch, StoredHistoricalMinuteBar, StoredHistoricalMinuteBatch, StoredMarketCrossSection,
   StoredTradingDateBarObservation, TradingDateArchiveRef, TradingLimitArchiveRef,
 } from "./observation.ts";
 /**
@@ -304,6 +304,7 @@ export interface WorkbenchClient {
   readObservationListRows?(input: ObservationListRowsRequest): Promise<ObservationListRowsPreview>;
   readObservationListQuotes?(input: ObservationListRowsRequest): Promise<ObservationListQuotesPreview>;
   readObservationCurrentStockMinutes?(input: ObservationCurrentStockMinutesRequest): Promise<ObservationCurrentStockMinutesPreview>;
+  readObservationCurrentEtfMinutes?(input: ObservationCurrentEtfMinutesRequest): Promise<ObservationCurrentEtfMinutesPreview>;
   readObservationAnalytics?(request: TradingDateArchiveRef | ObservationAnalyticsRequest): Promise<ObservationAnalyticsPreview>;
   readObservationMarketRegime?(ref: MarketRegimeManifestRef): Promise<ObservationMarketRegimePreview>;
   startModelDraft?(): Promise<ModelDraftView>;
@@ -737,6 +738,28 @@ export interface ObservationCurrentStockMinutesPreview {
     metrics: (ListIntradayMetrics & { finality: "provisional" }) | null;
     excluded: FixedListIntraday["excluded"];
   }[];
+}
+
+export interface ObservationCurrentEtfMinutesRequest {
+  tradeDate: string;
+  etfs: readonly { symbol: string; previousClose?: {
+    dailyRef: DatedEtfDailyArchiveRef;
+    calendar: { revision: string; previousTradeDate: string; tradeDate: string };
+    priceBasis: "caller-confirmed-same-basis";
+  } }[];
+  interpretation?: ObservationCurrentStockMinutesRequest["interpretation"];
+}
+
+type EtfMinutePreviousClose = NonNullable<ObservationCurrentEtfMinutesRequest["etfs"][number]["previousClose"]>;
+type StockMinuteInput = ObservationCurrentStockMinutesPreview["input"];
+type StockMinuteRow = ObservationCurrentStockMinutesPreview["rows"][number];
+
+export interface ObservationCurrentEtfMinutesPreview {
+  input: Omit<StockMinuteInput, "minutes"> & { minutes: Omit<StockMinuteInput["minutes"], "assetType"> & { assetType: "etf" } };
+  rows: (Omit<StockMinuteRow, "previousClose"> & {
+    previousClose: (EtfMinutePreviousClose & Pick<StoredDatedEtfDailyBatch, "source" | "endpoint" | "observedAt" | "priceUnit" | "requested"> &
+      { row: StoredDatedEtfDailyBatch["rows"][number] | null }) | null;
+  })[];
 }
 
 export type ObservationRegimeState = "strong" | "lean_strong" | "range" | "lean_weak" | "weak";
