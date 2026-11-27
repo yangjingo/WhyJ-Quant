@@ -144,7 +144,7 @@ Production decisions and outstanding requirements remain tracked in [#258](https
 
 ## Later path crosswalk
 
-The crosswalk inspects the WhyJ candidate through #785, tree `b5baefafda391ca1c8668d64697e8ce6a0a48899`. Use the linked issues to verify delivery status. Historical commands consume immutable references, while the two current index commands use explicit live reads with provisional outputs.
+The crosswalk inspects the WhyJ candidate through #785, tree `b5baefafda391ca1c8668d64697e8ce6a0a48899`. Use the linked issues to verify delivery status. Historical commands consume immutable references. Current index commands use explicit live reads with provisional outputs. The [current stock and ETF chapter](./tsp-list-field-coverage.md#current-quotes-minutes-and-auction) traces the later quote, minute and auction interfaces with their own evidence.
 
 | Panel | WhyJ input to output | Remaining decision or evidence |
 | --- | --- | --- |
