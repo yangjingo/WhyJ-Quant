@@ -50,6 +50,28 @@ test("neutral factors and quotes preserve requested identities and source time",
   expect(await source.fetchQuotes({ symbols: ["600000.SH", "000001.SZ"] })).toMatchObject({ source: "tickflow", data: [{ symbol: "600000.SH", timestamp: t, lastPrice: 10 }], missingSymbols: ["000001.SZ"] });
 });
 
+test("TickFlow quotes preserve reported turnover fractions and omit unusable fields", async () => {
+  const quote = { symbol: "600000.SH", region: "CN", timestamp: t, last_price: 10, prev_close: 9,
+    open: 9, high: 10, low: 9, volume: 100, amount: null };
+  const source = client();
+  for (const [ext, expected] of [
+    [{ turnover_rate: 0.01, extra: 1 }, 0.01],
+    [{ turnover_rate: 0 }, 0],
+    [{ turnover_rate: null }, undefined],
+    [{ turnover_rate: "0.01" }, undefined],
+    [{ turnover_rate: -1 }, undefined],
+    [null, undefined],
+    [undefined, undefined],
+  ] as const) {
+    globalThis.fetch = (async () => Response.json({ data: [{ ...quote, ext }] })) as unknown as typeof fetch;
+    const result = await source.fetchQuotes({ symbols: ["600000.SH", "000001.SZ"] });
+    expect(result.missingSymbols).toEqual(["000001.SZ"]);
+    expect(result.data).toEqual([{ symbol: "600000.SH", timestamp: t, lastPrice: 10, previousClose: 9,
+      open: 9, high: 10, low: 9, volume: 100, amount: null,
+      ...(expected === undefined ? {} : { reportedTurnoverFraction: expected }) }]);
+  }
+});
+
 test("unsupported providers fail every operation without attempting network or another provider", async () => {
   let requests = 0; globalThis.fetch = (async () => { requests++; return Response.json({}); }) as unknown as typeof fetch;
   for (const provider of ["tushare", "akshare", "llmquant-data", "financial-datasets"] as const) {

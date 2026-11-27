@@ -2,7 +2,7 @@ import { validateDateRange } from "../../market/bars.ts";
 import { isAIndexSymbol, normalizeSymbol } from "../../market/symbols.ts";
 import type { Bar, PriceAdjustment } from "../../types/data.ts";
 import { getText } from "./http.ts";
-import type { OrderBook, OrderBookLevel } from "./market-data.ts";
+import type { OrderBook, OrderBookLevel, Quote } from "./market-data.ts";
 
 export const DEFAULT_TICKFLOW_BASE_URL = "https://api.tickflow.org";
 export const TICKFLOW_SYMBOL_BATCH_SIZE = 100;
@@ -27,17 +27,6 @@ export interface TickFlowKlines {
   period: TickFlowPeriod;
   adjustment: TickFlowAdjustment;
   rows: TickFlowKline[];
-}
-export interface TickFlowQuote {
-  symbol: string;
-  timestamp: number;
-  lastPrice: number;
-  previousClose: number;
-  open: number;
-  high: number;
-  low: number;
-  volume: number;
-  amount: number | null;
 }
 export interface TickFlowFactor { timestamp: number; factor: number }
 
@@ -168,8 +157,13 @@ export async function fetchTickFlowFactors(inputs: readonly string[], window: Ti
   return result;
 }
 
+export function tickFlowReportedTurnover(ext: unknown): Pick<Quote, "reportedTurnoverFraction"> {
+  const fraction = record(ext) ? ext.turnover_rate : undefined;
+  return number(fraction) && fraction >= 0 ? { reportedTurnoverFraction: fraction } : {};
+}
+
 /** A snapshot retains its source timestamp; an old tick is not relabeled as a current quote. */
-export async function fetchTickFlowQuotes(inputs: readonly string[], options: TickFlowOptions = {}): Promise<{ quotes: TickFlowQuote[]; missingSymbols: string[] }> {
+export async function fetchTickFlowQuotes(inputs: readonly string[], options: TickFlowOptions = {}): Promise<{ quotes: Quote[]; missingSymbols: string[] }> {
   const symbols = symbolsFor(inputs), payload = await request("/v1/quotes", { symbols: symbols.join(",") }, options);
   if (!Array.isArray(payload.data) || payload.data.length > symbols.length) throw invalid();
   const seen = new Set<string>();
@@ -180,7 +174,8 @@ export async function fetchTickFlowQuotes(inputs: readonly string[], options: Ti
     if (![row.last_price, row.prev_close, row.open, row.high, row.low, row.volume].every(value => number(value) && value >= 0)
       || row.amount !== null && (!number(row.amount) || row.amount < 0)) throw invalid();
     return { symbol: row.symbol, timestamp: row.timestamp, lastPrice: row.last_price as number, previousClose: row.prev_close as number,
-      open: row.open as number, high: row.high as number, low: row.low as number, volume: row.volume as number, amount: row.amount as number | null };
+      open: row.open as number, high: row.high as number, low: row.low as number, volume: row.volume as number, amount: row.amount as number | null,
+      ...tickFlowReportedTurnover(row.ext) };
   });
   return { quotes, missingSymbols: symbols.filter(symbol => !seen.has(symbol)) };
 }

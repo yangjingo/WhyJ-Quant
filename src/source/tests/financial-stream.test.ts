@@ -39,13 +39,15 @@ test("quote stream waits for acknowledgement, maps ticks and closes on caller re
       return instance.upgrade(req) ? undefined : new Response("upgrade failed", { status: 400 }); },
     websocket: { message(ws, message) { const value = JSON.parse(String(message));
       ws.send(JSON.stringify({ op: "subscribed", channel: "quotes", symbols: value.symbols, total: 1 }));
-      ws.send(JSON.stringify({ op: "quotes", data: [quote] })); } },
+      ws.send(JSON.stringify({ op: "quotes", data: [{ ...quote, ext: { turnover_rate: 0 } }] })); } },
   });
   try {
     const source = createMarketDataSource({ source: "tickflow", apiKey: "fixture", baseUrl: server.url.origin });
-    let deliver!: (value: number) => void; const delivered = new Promise<number>(resolve => { deliver = resolve; });
-    const subscription = await source.subscribeQuotes({ symbols: ["600000.SH"] }, { onQuotes: event => deliver(event.data[0]!.lastPrice), onError: () => {} }, { timeoutMs: 3000 });
-    expect(await delivered).toBe(10); subscription.close(); await subscription.closed;
+    const delivered = Promise.withResolvers<unknown>();
+    const subscription = await source.subscribeQuotes({ symbols: ["600000.SH"] },
+      { onQuotes: event => delivered.resolve(event.data[0]), onError: delivered.reject }, { timeoutMs: 3000 });
+    expect(await delivered.promise).toMatchObject({ lastPrice: 10, reportedTurnoverFraction: 0 });
+    subscription.close(); await subscription.closed;
   } finally { server.stop(true); }
 });
 
