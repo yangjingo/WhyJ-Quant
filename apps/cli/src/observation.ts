@@ -24,6 +24,7 @@ import { deriveTspArchiveAnalytics } from "../../../src/runtime/data/archive-ana
 import { replayTspAbnormalSnapshot, type AbnormalSnapshotReplayRequest } from "../../../src/runtime/data/abnormal-snapshot-replay.ts";
 import { collectAuctionBenchmark, replayTspAuctionBenchmark, type AuctionBenchmarkReplayRequest } from "../../../src/runtime/data/auction-benchmark.ts";
 import { collectBenchmarkIndexObservations } from "../../../src/runtime/data/benchmark-index-collection.ts";
+import { replayTspPaperNavBenchmark, type PaperNavBenchmarkReplayRequest } from "../../../src/runtime/data/paper-nav-benchmark-replay.ts";
 import { replayTspDailyMonitorAlerts, TSP_DAILY_MONITOR_UNITS,
   type DailyMonitorAlertReplayRequest } from "../../../src/runtime/data/daily-monitor-alert-replay.ts";
 import { collectDepthSnapshot } from "../../../src/runtime/data/depth-snapshot-collection.ts";
@@ -735,6 +736,18 @@ function parsePaperNavRows(value: unknown): TspPaperStatisticsInput["finalizedNa
     if (typeof tradeDate !== "string" || typeof nav !== "number" || typeof currency !== "string") throw invalid();
     return { tradeDate, nav, currency };
   });
+}
+
+function parsePaperNavBenchmarkManifest(value: unknown): PaperNavBenchmarkReplayRequest {
+  const { schemaVersion, accountId, currency, finalizedNav: rawNav, benchmarkRevisions } =
+    observationManifestObject(value, ["schemaVersion", "accountId", "currency", "finalizedNav", "benchmarkRevisions"]);
+  if (schemaVersion !== 1 || typeof accountId !== "string" || !accountId.trim() ||
+    typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency) || !Array.isArray(benchmarkRevisions)) throw invalid();
+  const finalizedNav = parsePaperNavRows(rawNav);
+  if (finalizedNav.some((row, index) => row.currency !== currency || !Number.isFinite(row.nav) ||
+    !isDailyDate(row.tradeDate) || (index > 0 && row.tradeDate <= finalizedNav[index - 1]!.tradeDate))) throw invalid();
+  return { accountId, currency, finalizedNav, benchmarkRefs: validateRevisions(benchmarkRevisions)
+    .map(revision => ({ version: 1, kind: "benchmark-index", revision })) };
 }
 
 function parsePaperLedgerManifest(value: unknown): TspPaperLedgerInput {
@@ -2024,6 +2037,17 @@ export async function runObservationCommand(args: readonly string[], signal?: Ab
     catch {
       signal?.throwIfAborted();
       throw Object.assign(new Error("Could not replay paper valuation. Verify holdings and fixed market archive revisions."),
+        { code: "observation_archive_unavailable" });
+    }
+  }
+  if (action === "replay-paper-nav-benchmark") {
+    const path = parseOptions(options, ["--manifest"]).get("--manifest");
+    if (!path) throw invalid();
+    const request = parsePaperNavBenchmarkManifest(await readObservationJsonFile(path, maxObservationManifestBytes, signal));
+    try { return await replayTspPaperNavBenchmark(request, signal); }
+    catch {
+      signal?.throwIfAborted();
+      throw Object.assign(new Error("Could not replay the paper NAV chart. Verify fixed CSI 300 benchmark revisions."),
         { code: "observation_archive_unavailable" });
     }
   }

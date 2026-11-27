@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { computeTspBacktestPortfolio } from "../../../src/quant/index.ts";
-import { archiveQuotePollCapture, archiveTradingDateObservations } from "../../../src/storage/index.ts";
+import { archiveBenchmarkIndexObservations, archiveQuotePollCapture, archiveTradingDateObservations } from "../../../src/storage/index.ts";
 
 const entry = process.env.WHYJ_TEST_BUNDLED_CLI === "1"
   ? ["node", fileURLToPath(new URL("../../../dist/index.js", import.meta.url))]
@@ -166,6 +166,59 @@ test("actual CLI rebuilds paper ledger holdings and passes them unchanged into v
       { entries: [{ ...manifest.entries[2], price: 10 }] },
     ]) expect(await replay("replay-paper-ledger", { ...manifest, ...change })).toMatchObject(invalid);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test("actual CLI replays a paper NAV chart from exact CSI 300 archives", async () => {
+  const root = mkdtempSync(join(tmpdir(), "whyj-paper-nav-benchmark-cli-"));
+  const path = join(root, "manifest.json");
+  const dates = ["2026-03-02", "2026-03-03", "2026-03-04"] as const;
+  const previous = process.env.OHQUANT_DIR;
+  process.env.OHQUANT_DIR = root;
+  function replay(value: unknown) {
+    writeFileSync(path, JSON.stringify(value));
+    return runCli(root, "observation", "replay-paper-nav-benchmark", "--manifest", path);
+  }
+  try {
+    const batch = { symbol: "000300.SH", source: "tushare", endpoint: "index_daily", market: "A", observedAt: "2026-03-04T08:00:00Z",
+      priceUnit: "index-points", returnUnit: "percentage-points", coverage: "unknown",
+      requested: { start: dates[0], end: dates[2] }, rows: [
+        { tradeDate: dates[0], closePoints: 4000, previousClosePoints: null, changePoints: null, returnPct: null },
+        { tradeDate: dates[2], closePoints: 4200, previousClosePoints: null, changePoints: null, returnPct: null },
+      ],
+    } as const;
+    const ref = await archiveBenchmarkIndexObservations({ ...batch, rows: [...batch.rows] });
+    const wrong = await archiveBenchmarkIndexObservations({ ...batch, symbol: "000001.SH", rows: [...batch.rows] });
+    const help = (await runCli(root, "--help")).output.data.commands;
+    expect(help).toContainEqual({ command: "whyj --json observation replay-paper-nav-benchmark",
+      description: "Replay a single-account NAV chart against archived CSI 300 closes" });
+    const manifest = { schemaVersion: 1, accountId: "paper", currency: "CNY", benchmarkRevisions: [ref.revision],
+      finalizedNav: [0, 120, 114].map((nav, index) => ({ tradeDate: dates[index], currency: "CNY", nav })) };
+    const result = await replay(manifest);
+    expect(result).toMatchObject({ code: 0, output: { ok: true, data: {
+      producer: "whyj", formulaVersion: "tsp-paper-nav-benchmark-v1", benchmarkSymbol: "000300.SH",
+      baselines: { nav: { tradeDate: dates[1], value: 120 }, benchmark: { tradeDate: dates[0], value: 4000 } },
+      rows: [{ nav: 0, navBase100: null, benchmarkBase100: 100, benchmarkClosePoints: 4000 },
+        { navBase100: 100, benchmarkBase100: null, benchmarkClosePoints: null },
+        { navBase100: 95, benchmarkBase100: 105, benchmarkClosePoints: 4200 }],
+      inputs: { benchmark: { provider: "tushare", archives: [{ ref, priceUnit: "index-points", endpoint: "index_daily" }] } },
+    } } });
+    expect(await replay(manifest)).toEqual(result);
+    expect(await replay({ ...manifest, benchmarkRevisions: [] })).toMatchObject({ code: 0, output: { ok: true, data: {
+      coverage: { missingBenchmarkRows: 3, positiveBenchmarkRows: 0 }, baselines: { benchmark: null },
+    } } });
+    const invalid = { code: 1, output: { ok: false, error: { code: "invalid_arguments" } } };
+    for (const change of [
+      { schemaVersion: 2 }, { currency: "USD" }, { benchmarkRevisions: ["../wrong"] }, { benchmarkRevisions: [ref.revision, ref.revision] },
+      { finalizedNav: manifest.finalizedNav.toReversed() },
+    ]) expect(await replay({ ...manifest, ...change })).toMatchObject(invalid);
+    const unavailable = { code: 1, output: { ok: false, error: { code: "observation_archive_unavailable" } } };
+    expect(await replay({ ...manifest, benchmarkRevisions: [wrong.revision] })).toMatchObject(unavailable);
+    expect(await replay({ ...manifest, benchmarkRevisions: ["0".repeat(64)] })).toMatchObject(unavailable);
+  } finally {
+    if (previous === undefined) delete process.env.OHQUANT_DIR;
+    else process.env.OHQUANT_DIR = previous;
     rmSync(root, { recursive: true, force: true });
   }
 }, 120_000);

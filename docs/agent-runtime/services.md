@@ -711,6 +711,8 @@ JSON 响应中的 `panel` 是计算使用的正式区间截面，`information` �
 
 `replayTspPaperNavBenchmark` 将定版账户净值与固定的 `000300.SH` 指数归档按交易日对齐。可指定同一供应商的多份归档。匹配净值的日期若有重叠，收盘点数必须一致。缺行情日保留空值。结果附带归档版本、供应商、端点、原生单位、请求区间及匹配日期的收盘点数。 [模拟账户净值图](../quant-harness/tsp-panel-coverage.md#simulated-account-round-trip-and-nav-statistics)
 
+`whyj --json observation replay-paper-nav-benchmark --manifest nav-chart.json` 回放单账户定版净值与沪深 300 的对比。清单包含 `schemaVersion: 1`、`accountId`、`currency`、同币种且按交易日递增的 `finalizedNav` 和 `benchmarkRevisions`。通过 `whyj --json observation collect-benchmark --symbol 000300.SH --start DATE --end DATE` 获取同一供应商的归档版本。两条曲线分别按首个正值归一到 100。结果保留原始净值、指数收盘点数、日期缺口和归档证据。`benchmarkRevisions` 为空时只提供账户曲线。
+
 使用 `whyj --json observation collect-etf-daily --symbol 510330.SH --start 2025-06-17 --end 2025-06-18`，从显式选择的供应商采集未复权 ETF 日线。将回执的 `ref.revision` 放入收盘估值清单的 `etfDailyRevisions`，回放时读取估值日对应的收盘价。价格缺失会在回执中保留并使用成本估值。 [ETF 日线来源及归档](../quant-harness/source-data-providers.md)
 
 ```json
