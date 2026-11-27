@@ -958,6 +958,8 @@ CLI 使用 `whyj --json observation read-current-etf-minutes --manifest PATH`，
 
 已认证的工作台客户端可调用 `readObservationListAuctionOverlay`，传入 CLI 清单中除 `version` 外的字段。Host 使用自身配置的 TSP 连接。`input` 保留各字段修订、单位状态和逐标的序列状态，`overlay` 返回按秒对齐的数据点和歧义记录。完整源序列可通过 CLI 查询。
 
+在 Web 和 Desktop 的「设置 → 数据 → 集合竞价」上传同一份清单并点击「读取集合竞价」。选择标的和时刻后，可以查看价格曲线、该秒的原始匹配量和未匹配量，以及各字段的来源修订。界面区分零值、缺值和歧义。缺价时，价格曲线留空，源序列状态继续显示。
+
 CLI 和认证 Host 在 `quotes.rows[].snapshot` 保留 TickFlow 报告的 `reportedChangeAmount`、`reportedChangeFraction`、`reportedAmplitudeFraction` 和 `reportedTurnoverFraction`。涨跌额沿用价格单位，其余小数 `0.01` 表示 `1%`。供应商未提供的值逐项省略。WHYJ 依据报价前收计算的涨跌在逐股 `change` 字段。
 
 ### 流通市值与换手率回放
