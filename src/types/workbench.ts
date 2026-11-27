@@ -303,6 +303,7 @@ export interface WorkbenchClient {
   readObservationIntraday?(input: ObservationIntradayRequest): Promise<ObservationIntradayPreview>;
   readObservationListRows?(input: ObservationListRowsRequest): Promise<ObservationListRowsPreview>;
   readObservationListQuotes?(input: ObservationListRowsRequest): Promise<ObservationListQuotesPreview>;
+  readObservationCurrentStockMinutes?(input: ObservationCurrentStockMinutesRequest): Promise<ObservationCurrentStockMinutesPreview>;
   readObservationAnalytics?(request: TradingDateArchiveRef | ObservationAnalyticsRequest): Promise<ObservationAnalyticsPreview>;
   readObservationMarketRegime?(ref: MarketRegimeManifestRef): Promise<ObservationMarketRegimePreview>;
   startModelDraft?(): Promise<ModelDraftView>;
@@ -704,6 +705,38 @@ export interface ObservationListQuotesPreview {
     units: "unknown";
     rows: ObservationListQuoteRow[];
   };
+}
+
+export interface ObservationCurrentStockMinutesRequest {
+  tradeDate: string;
+  stocks: readonly { symbol: string; previousClose?: ObservationIntradayRequest["previousClose"] }[];
+  interpretation?: Pick<ObservationListIntradayRequest["interpretation"], "timestampLabel" | "priceBasis">;
+}
+
+type CurrentStockMinuteStatus = "observed" | "empty" | "missing" | "different-session" | "future-timestamp";
+type ListObservationRow = ObservationListRowsPreview["rows"][number];
+type FixedListIntraday = NonNullable<ListObservationRow["observations"]["intraday"]>;
+type ListIntradayMetrics = NonNullable<ListObservationRow["metrics"]["intraday"]>;
+
+export interface ObservationCurrentStockMinutesPreview {
+  input: {
+    interpretation: NonNullable<ObservationCurrentStockMinutesRequest["interpretation"]> | null;
+    minutes: Omit<StoredDatedStockMinuteBatch, "endpoint" | "symbol" | "adjustment" | "finality" | "rows"> & {
+      endpoint: string;
+      adjustment: "unknown";
+      finality: "provisional";
+      requestedSymbols: string[];
+      rowLimitPerSymbol: number;
+      frames: { symbol: string; status: CurrentStockMinuteStatus; sourceTradeDate: string | null; rows: StoredDatedStockMinuteBatch["rows"] }[];
+    };
+  };
+  rows: {
+    symbol: string;
+    status: CurrentStockMinuteStatus;
+    previousClose: FixedListIntraday["previousClose"];
+    metrics: (ListIntradayMetrics & { finality: "provisional" }) | null;
+    excluded: FixedListIntraday["excluded"];
+  }[];
 }
 
 export type ObservationRegimeState = "strong" | "lean_strong" | "range" | "lean_weak" | "weak";

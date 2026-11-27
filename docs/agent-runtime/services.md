@@ -938,6 +938,8 @@ whyj --json observation read-list-quotes --manifest ./list-rows.json
 
 CLI 使用 `whyj --json observation read-current-stock-minutes --manifest PATH` 读取这一预览。JSON 清单须提供 `version: 1`、上海当天的 `tradeDate` 和 1 至 100 只互异的沪深京股票 `stocks: [{ "symbol": "600001.SH" }]`。只需要原始行情时可省略 `interpretation`。要计算 WHYJ 图表指标，须提供 `interpretation: { timestampLabel, priceBasis: "caller-confirmed-unadjusted-CNY" }`，其中 `timestampLabel` 取 `minute-start` 或 `minute-end`。计算昨收收益时，在对应股票下附上 `previousClose: { revision, priceBasis: "caller-confirmed-same-basis" }`，引用当天的涨跌停归档。输出保留 `input.minutes`、逐股状态和可用的 `rows[].metrics`。供应商请求失败返回 `observation_collection_failed`。
 
+已认证的工作台客户端可调用 `readObservationCurrentStockMinutes({ tradeDate, stocks, interpretation? })`。昨收证据用 `previousClose.ref` 的完整归档引用和已确认的 `priceBasis` 提供。Host 使用自身的数据源配置。参数错误返回 `INPUT_INVALID`，读取失败返回 `OBSERVATION_COLLECTION_FAILED`，未提供该方法的 Host 返回 `METHOD_NOT_FOUND`。读取结果与完成的股票分时归档分开。
+
 Runtime 的 `previewCurrentTspEtfIntraday` 对沪深 ETF 支持同一套临时价格线与累计均价。请求用 `etfs` 指定目标。可选昨收包含同一 TickFlow ETF 的日线归档 `dailyRef`、调用方提供的 `calendar: { revision, previousTradeDate, tradeDate }`，以及 `priceBasis: "caller-confirmed-same-basis"`。读不到该日已归档收盘价时保留分时图和空收益；交易日期或来源不符会使请求失败。临时帧仍保留 ETF 身份和原生行情字段。
 
 CLI 使用 `whyj --json observation read-current-etf-minutes --manifest PATH`，清单包含 `version: 1`、上海当天的 `tradeDate` 和 1 至 100 只互异 ETF 的 `etfs: [{ "symbol": "510300.SH" }]`。配置 `interpretation` 后可查看 WHYJ 临时指标。对应 ETF 可提供 `previousClose: { dailyRevision, calendar, priceBasis }`，其中 `calendar` 的日期与 Runtime 契约一致，`dailyRevision` 引用同一 TickFlow ETF 的日线归档。输出保留原始帧和可用的逐标的指标。
