@@ -48,6 +48,25 @@ test("adapts the current ETF CLI manifest to the ETF Host method", () => {
   } finally { clock.mockRestore(); }
 });
 
+test("validates quote-tail opt-in for both stock and ETF manifests before dispatch", () => {
+  const clock = spyOn(Date, "now").mockReturnValue(timestamp);
+  try {
+    const quoteTail = { maxAgeMs: 0, priceBasis: "caller-confirmed-same-basis" } as const;
+    for (const target of [{ stocks: [{ symbol }] }, { etfs: [{ symbol: "510300.SH" }] }]) {
+      const manifest = { version: 1, tradeDate, ...target, interpretation, quoteTail };
+      expect(currentMinutesManifest(manifest)).toEqual({ tradeDate, ...target, interpretation, quoteTail });
+      for (const invalid of [
+        { ...manifest, interpretation: undefined },
+        { ...manifest, quoteTail: null },
+        { ...manifest, quoteTail: { ...quoteTail, maxAgeMs: -1 } },
+        { ...manifest, quoteTail: { ...quoteTail, maxAgeMs: 1.5 } },
+        { ...manifest, quoteTail: { ...quoteTail, priceBasis: "unknown" } },
+        { ...manifest, quoteTail: { ...quoteTail, extra: true } },
+      ]) expect(() => currentMinutesManifest(invalid)).toThrow("报价续写配置");
+    }
+  } finally { clock.mockRestore(); }
+});
+
 test("displays native frames and provisional chart evidence, including a zero return", () => {
   const missing = "000001.SZ", empty = "830799.BJ";
   const result: ObservationCurrentStockMinutesPreview = {
@@ -71,6 +90,44 @@ test("displays native frames and provisional chart evidence, including a zero re
   for (const text of ["TickFlow 原始分钟帧", "供应商返回空帧", "供应商未返回该标的", "供应商单位",
     "WHYJ 临时分时指标", "WHYJ 分时收盘和累计均价", "0%", "累计均价", "tsp_list_intraday"]) expect(markup).toContain(text);
   expect(markup).not.toContain("暂无昨收收益");
+  expect(markup).not.toContain("TickFlow 报价观测");
+  const age = { maxAgeMs: 60_000, priceBasis: "caller-confirmed-same-basis", asOf: timestamp + 45_000 } as const;
+  const price = { symbol, timestamp: timestamp + 30_000, lastPrice: 12, previousClose: 10, open: 10, high: 12, low: 10, volume: 123, amount: 1300 };
+  const receipt = { ...age, status: "observed", source: "tickflow", endpoint: "/v1/quotes", units: "unknown",
+    observedAt: "2024-04-08T01:31:45Z", data: [price], missingSymbols: [missing, empty] } as const;
+  const projection = { producer: "whyj", formula: { id: "tsp_list_quote_tail", version: 1, revision }, symbol, tradeDate,
+    frameObservedAt: timestamp, asOf: age.asOf } as const;
+  const row = result.rows[0]!;
+  const chart = row.metrics!;
+  const withReceipt = { ...result.input, quoteTail: { ...receipt, data: [price], missingSymbols: [missing, empty] } };
+  const fresh = renderToStaticMarkup(<CurrentMinuteResult result={{
+    input: withReceipt, rows: [{
+      ...row,
+      quoteTail: { ...projection, status: "appended", applied: {
+        quoteTimestamp: price.timestamp, price: price.lastPrice, minute: "09:31", finality: "provisional",
+      } },
+      metrics: { ...chart, points: [...chart.points, { minute: "09:31", sourceTimestamp: price.timestamp, priceSource: "quote",
+        close: 12, averageClose: 11, previousCloseReturnFraction: 0.2 }] },
+    }, ...result.rows.slice(1)],
+  }} />);
+  for (const text of ["TickFlow 原始分钟帧", "TickFlow 报价观测", "累计成交量 123", "收盘 12", "报价临时续写"]) {
+    expect(fresh).toContain(text);
+  }
+  const stale = renderToStaticMarkup(<CurrentMinuteResult result={{
+    input: withReceipt, rows: [{ ...row, quoteTail: { ...projection, status: "unchanged", reason: "stale-quote", applied: null } },
+      ...result.rows.slice(1)],
+  }} />);
+  expect(stale).toContain("报价已过期，沿用原始分钟帧");
+  expect(stale).toContain("收盘 10");
+  expect(stale).not.toContain("报价临时续写");
+  for (const quoteTail of [
+    { ...age, status: "unavailable" as const }, { ...withReceipt.quoteTail, status: "empty" as const, data: [] },
+  ]) {
+    const fallback = renderToStaticMarkup(<CurrentMinuteResult result={{ ...result, input: { ...result.input, quoteTail } }} />);
+    expect(fallback).toContain(quoteTail.status === "unavailable" ? "暂不可用" : "该标的无报价");
+    expect(fallback).toContain("WHYJ 临时分时指标");
+    expect(fallback).not.toContain("报价临时续写");
+  }
   const rawOnly = renderToStaticMarkup(<CurrentMinuteResult result={{ ...result, input: { ...result.input, interpretation: null },
     rows: result.rows.map(row => ({ ...row, metrics: null })) }} />);
   expect(rawOnly).toContain("TickFlow 原始分钟帧");

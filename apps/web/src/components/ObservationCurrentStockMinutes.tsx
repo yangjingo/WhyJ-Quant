@@ -7,7 +7,7 @@ const shanghaiDate = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Shanghai
 const shanghaiTime = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 const stockPattern = /^(?:6\d{5}\.SH|[03]\d{5}\.SZ|(?:4\d{5}|8(?!99)\d{5}|92\d{4})\.BJ)$/;
 const etfPattern = /^(?:(?:51[0-35-8]|526|530|551|56[0-35-7]|58[1789])\d{3}\.SH|520[5-9]\d{2}\.SH|15[89]\d{3}\.SZ)$/;
-const invalid = () => new Error("清单需要上海当天日期、最多 100 只不同的同类标的，以及有效的可选分时口径和昨收引用。");
+const invalid = () => new Error("清单需要上海当天日期、最多 100 只不同的同类标的，以及有效的可选分时口径、昨收引用和报价续写配置。");
 
 function previousSession(value: unknown, tradeDate: string) {
   const { revision, previousTradeDate, tradeDate: current } = fields(value, ["revision", "previousTradeDate", "tradeDate"]);
@@ -24,8 +24,8 @@ function fields(value: unknown, allowed: string[]): Record<string, unknown> {
 }
 
 export function currentMinutesManifest(value: unknown): ObservationCurrentStockMinutesRequest | ObservationCurrentEtfMinutesRequest {
-  const input = fields(value, ["version", "tradeDate", "stocks", "etfs", "interpretation"]);
-  const { version, tradeDate, stocks, etfs, interpretation: rawInterpretation } = input;
+  const input = fields(value, ["version", "tradeDate", "stocks", "etfs", "interpretation", "quoteTail"]);
+  const { version, tradeDate, stocks, etfs, interpretation: rawInterpretation, quoteTail: rawQuoteTail } = input;
   const isEtf = Object.hasOwn(input, "etfs");
   if (isEtf && Object.hasOwn(input, "stocks")) throw invalid();
   const scope = isEtf ? etfs : stocks;
@@ -36,6 +36,13 @@ export function currentMinutesManifest(value: unknown): ObservationCurrentStockM
     if ((timestampLabel !== "minute-start" && timestampLabel !== "minute-end") || priceBasis !== "caller-confirmed-unadjusted-CNY") throw invalid();
     interpretation = { timestampLabel, priceBasis };
   }
+  let quoteTail: ObservationCurrentStockMinutesRequest["quoteTail"];
+  if (rawQuoteTail !== undefined) {
+    const { maxAgeMs, priceBasis } = fields(rawQuoteTail, ["maxAgeMs", "priceBasis"]);
+    if (!interpretation || typeof maxAgeMs !== "number" || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 0 ||
+      priceBasis !== "caller-confirmed-same-basis") throw invalid();
+    quoteTail = { maxAgeMs, priceBasis };
+  }
   const seen = new Set<string>();
   const entries = scope.map((item: unknown) => {
     const { symbol, previousClose } = fields(item, ["symbol", "previousClose"]);
@@ -45,7 +52,7 @@ export function currentMinutesManifest(value: unknown): ObservationCurrentStockM
     seen.add(code);
     return { symbol: code, previousClose };
   });
-  const common = { tradeDate, ...(interpretation && { interpretation }) };
+  const common = { tradeDate, ...(interpretation && { interpretation }), ...(quoteTail && { quoteTail }) };
   if (isEtf) {
     return { ...common, etfs: entries.map(({ symbol, previousClose }) => {
       if (previousClose === undefined) return { symbol };
@@ -75,13 +82,15 @@ const show = (value: number | null) => value === null ? "暂无" : number.format
 type CurrentMinutePreview = ObservationCurrentStockMinutesPreview | ObservationCurrentEtfMinutesPreview;
 
 export function CurrentMinuteResult({ result }: { result: CurrentMinutePreview }) {
-  const { minutes } = result.input;
+  const { minutes, quoteTail } = result.input;
   const [symbol, select] = useState(minutes.requestedSymbols[0]);
   const frame = minutes.frames.find(item => item.symbol === symbol);
   const row = result.rows.find(item => item.symbol === symbol);
   const latest = frame?.rows.at(-1);
   const chart = row?.metrics;
   const lastPoint = chart?.points.at(-1);
+  const quote = quoteTail && quoteTail.status !== "unavailable" ? quoteTail.data.find(item => item.symbol === symbol) : undefined;
+  const projection = row?.quoteTail;
   return <div className="observation-list-result">
     <p className="supporting">TickFlow · {minutes.tradeDate} · <time dateTime={minutes.observedAt}>{minutes.observedAt}</time></p>
     <label className="field-row">{minutes.assetType === "etf" ? "查看 ETF" : "查看股票"}<select value={symbol} onChange={event => select(event.currentTarget.value)}>
@@ -93,10 +102,18 @@ export function CurrentMinuteResult({ result }: { result: CurrentMinutePreview }
       {latest && <p className="supporting">最新原始记录 {shanghaiTime.format(latest.sourceTimestamp)} · 收盘 {show(latest.close)}
         {" · "}成交量 {show(latest.volume)} · 成交额 {show(latest.amount)}（供应商单位）</p>}
     </details>}
+    {quoteTail && <details className="observation-list-stock">
+      <summary>TickFlow 报价观测 · {quoteTail.status === "unavailable" ? "暂不可用" : quote ? "已观测" : "该标的无报价"}</summary>
+      {quote && <p className="supporting">最新报价 {shanghaiTime.format(quote.timestamp)} · 价格 {show(quote.lastPrice)}
+        {" · "}累计成交量 {show(quote.volume)} · 累计成交额 {show(quote.amount)}（供应商单位）</p>}
+    </details>}
     {chart && <section aria-label="WHYJ 临时分时指标">
       <p><strong>WHYJ 临时分时指标</strong></p>
       {lastPoint ? <>
-        <p>最新分钟 {lastPoint.minute} · 收盘 {show(lastPoint.close)} 元 · 累计均价 {show(lastPoint.averageClose)} 元</p>
+        <p>最新分钟 {lastPoint.minute} · 收盘 {show(lastPoint.close)} 元 · 累计均价 {show(lastPoint.averageClose)} 元
+          {lastPoint.priceSource === "quote" && <span className="supporting"> · 报价临时续写</span>}</p>
+        {quote && projection?.status === "unchanged" &&
+          <p className="supporting">{projection.reason === "stale-quote" ? "报价已过期，沿用原始分钟帧。" : "当前报价未续写，沿用原始分钟帧。"}</p>}
         <p>较昨收 {chart.latestReturnFraction === null ? "暂无昨收收益" : percent.format(chart.latestReturnFraction)}</p>
         <ObservationListIntradayChart points={chart.points} baseline={chart.plotBaseline?.value} />
       </> : <p role="status">暂无符合声明口径的分钟点。</p>}
