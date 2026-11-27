@@ -436,6 +436,7 @@ export interface ObservationListIntradayRequest {
 export interface ObservationListRowsRequest {
   marketRef: MarketCrossSectionArchiveRef;
   adjustment: "none" | "forward";
+  watchlistMembershipRevision?: string;
   limitCalendar?: { revision: string; sessions: readonly string[] };
   stocks: readonly {
     symbol: string;
@@ -443,6 +444,7 @@ export interface ObservationListRowsRequest {
     financialArchives?: readonly FinancialObservationArchiveRef[];
     tradingLimitsRef?: TradingLimitArchiveRef;
     intraday?: ObservationListIntradayRequest;
+    watchlistHistoryRef?: TradingDateArchiveRef;
   }[];
 }
 
@@ -531,6 +533,7 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
   };
   rows: {
     instrument: StoredMarketCrossSection["universe"]["members"][number];
+    membership?: { producer: "workspace"; revision: string; code: string; addedAt: string | null };
     observations: {
       bar: StoredMarketCrossSection["bars"]["rows"][number] | null;
       basic: StoredMarketCrossSection["basics"]["rows"][number] | null;
@@ -556,6 +559,23 @@ export interface ObservationListRowsPreview extends Pick<StoredMarketCrossSectio
       };
     };
     metrics: {
+      watchlistReturn?: {
+        producer: "whyj";
+        formulaVersion: string;
+        referenceRevision: string;
+        status: "available" | "missing-baseline" | "missing-added-date" | "added-after-cutoff" | "unsupported-asset";
+        asOf: string;
+        addedAt: string | null;
+        addedDate: string | null;
+        returnUnit: "fraction";
+        pctSinceAdded: number | null;
+        baseline: { tradeDate: string; close: number } | null;
+        latest: { tradeDate: string; close: number } | null;
+        history: Pick<StoredTradingDateBarObservation,
+          "symbol" | "source" | "endpoint" | "observedAt" | "requested" | "adjustment" | "coverage" | "calendarTimeZone"> & {
+          ref: TradingDateArchiveRef;
+        };
+      } | null;
       intraday?: {
         producer: "whyj";
         formula: { id: "tsp_list_intraday"; version: number; revision: string };

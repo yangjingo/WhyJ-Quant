@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { archiveDailyTradingLimits, archiveDatedStockMinutes, archiveFinancialObservations, archiveMarketCrossSection, archiveTradingDateObservations,
-  loadMarketCrossSectionArchive, saveSettings } from "../../../storage/index.ts";
+  loadMarketCrossSectionArchive, loadPanelPortfolio, savePanelPortfolio, saveSettings } from "../../../storage/index.ts";
 import { DEFAULT_SETTINGS } from "../../../types/config.ts";
 import type { ObservationListRowsRequest } from "../../../types/workbench.ts";
 import { createHostClient } from "../../host/client.ts";
@@ -80,6 +80,46 @@ test("authenticated workbench reads bounded stock rows and exact archive evidenc
     ] });
     expect(await client.readObservationListRows!(request)).toEqual(result);
     expect(result.rows.every(row => !Object.hasOwn(row.observations, "financial"))).toBe(true);
+    const saved = loadPanelPortfolio();
+    saved.symbols = [{ code: "600000", name: "fixture", added: tradeDate }, { code: empty, name: "no history", added: "" }];
+    savePanelPortfolio(saved);
+    const watchlistHistoryRef = await archiveTradingDateObservations([{
+      ...meta, schemaVersion: 2, kind: "trading_date_daily_bar", symbol, market: "A", assetType: "stock",
+      interval: "1d", calendarTimeZone: "Asia/Shanghai", source: "tickflow", endpoint: "/v1/klines",
+      sourceTimestamp: Date.parse(tradeDate + "T15:00:00+08:00"),
+      requested, adjustment: "forward", volumeUnit: "unknown", amountUnit: "unknown",
+      values: { open: 9, high: 9, low: 9, close: 9, volume: 0, amount: null },
+    }]);
+    const withWatchlist = { ...request, watchlistMembershipRevision: saved.revision!, stocks: [
+      { symbol, watchlistHistoryRef }, { symbol: empty },
+    ] };
+    expect((await send(withWatchlist, false)).status).toBe(401);
+    const watchlist = await client.readObservationListRows!(withWatchlist);
+    expect(watchlist.rows[0]).toMatchObject({
+      membership: { producer: "workspace", revision: saved.revision, code: "600000", addedAt: tradeDate },
+      observations: { bar: { close: 10, returnPct: 10 } },
+      metrics: { watchlistReturn: {
+        producer: "whyj", formulaVersion: "tsp-watchlist-return-v1", pctSinceAdded: 0,
+        baseline: { tradeDate, close: 9 }, latest: { tradeDate, close: 9 },
+        history: { ref: watchlistHistoryRef, source: "tickflow", adjustment: "forward" },
+      } },
+    });
+    expect(watchlist.rows[1]).toMatchObject({ membership: { code: empty, addedAt: null }, metrics: { watchlistReturn: null } });
+    expect(await client.readObservationListQuotes!(withWatchlist)).toEqual({ fixed: watchlist, quotes: { status: "outside-current-day" } });
+    expect(result.rows.every(row => !Object.hasOwn(row, "membership") && !Object.hasOwn(row.metrics, "watchlistReturn"))).toBe(true);
+    for (const [input, status, code] of [
+      [{ ...withWatchlist, watchlistMembershipRevision: "../private" }, 400, "INPUT_INVALID"],
+      [{ ...withWatchlist, watchlistMembershipRevision: undefined }, 400, "INPUT_INVALID"],
+      [{ ...withWatchlist, stocks: [{ symbol, watchlistHistoryRef: { ...watchlistHistoryRef, version: 1 } }] }, 400, "INPUT_INVALID"],
+      [{ ...withWatchlist, watchlistMembershipRevision: "f".repeat(64) }, 404, "OBSERVATION_ARCHIVE_UNAVAILABLE"],
+      [{ ...withWatchlist, stocks: [{ symbol: empty, watchlistHistoryRef }] }, 404, "OBSERVATION_ARCHIVE_UNAVAILABLE"],
+    ] as const) {
+      for (const method of ["readObservationListRows", "readObservationListQuotes"]) {
+        const response = await send(input, true, method);
+        expect(response.status).toBe(status);
+        expect(await response.json()).toMatchObject({ error: { code } });
+      }
+    }
     const withCandles = { ...request, stocks: [{ ...stock, history: { ...stock.history, candleBars: 5 } }] };
     expect((await send(withCandles, false)).status).toBe(401);
     const candles = await client.readObservationListRows!(withCandles);
