@@ -7,6 +7,9 @@ const date = "2024-03-04";
 const observedAt = "2024-03-05T02:00:00Z";
 const marketRevision = "a".repeat(64), dailyRevision = "b".repeat(64);
 const limitsRevision = "c".repeat(64), rawRevision = "d".repeat(64);
+const reportRevision = "e".repeat(64), disclosureRevision = "f".repeat(64);
+const reportRef = { version: 1, kind: "report-financial-indicators", revision: reportRevision } as const;
+const disclosureRef = { version: 1, kind: "financial-disclosure-dates", revision: disclosureRevision } as const;
 const symbol = "600000.SH", missing = "000001.SZ";
 const manifest = { version: 1, marketRevision, adjustment: "forward", stocks: [
   { symbol, dailyRevision, limitsRevision, rawRevision }, { symbol: missing },
@@ -20,12 +23,22 @@ test("builds a bounded ordered Host request from the CLI manifest", () => {
       rawArchiveRef: { version: 2, revision: rawRevision },
     } } }, { symbol: missing }],
   });
+  const finance = { financialReportRevisions: [reportRevision], financialDisclosureRevisions: [disclosureRevision] };
+  expect(listRowsManifest({ ...manifest, stocks: [
+    { ...manifest.stocks[0], ...finance }, { symbol: missing, ...finance },
+  ] }).stocks).toEqual([
+    { ...listRowsManifest(manifest).stocks[0]!, financialArchives: [reportRef, disclosureRef] },
+    { symbol: missing, financialArchives: [reportRef, disclosureRef] },
+  ]);
   for (const value of [
     { ...manifest, marketRevision: "../data" }, { ...manifest, version: 2 },
     { ...manifest, stocks: [{ symbol, rawRevision }] },
     { ...manifest, stocks: [{ symbol, dailyRevision, rawRevision }] },
     { ...manifest, stocks: [{ symbol }, { symbol }] }, { ...manifest, stocks: [{ symbol: "000001.SH" }] },
     { ...manifest, stocks: [{ symbol, unknown: true }] },
+    { ...manifest, stocks: [{ symbol, ...finance, financialReportRevisions: ["../data"] }] },
+    { ...manifest, stocks: [{ symbol, ...finance, financialDisclosureRevisions: [reportRevision] }] },
+    { ...manifest, stocks: [{ symbol, ...finance, limitsRevision }] },
     { ...manifest, stocks: Array.from({ length: 101 }, (_, i) => ({ symbol: `600${String(i).padStart(3, "0")}.SH` })) },
   ]) expect(() => listRowsManifest(value)).toThrow("清单需要有效");
 });
@@ -59,6 +72,7 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).toContain(date);
   expect(html).toContain(observedAt);
   expect(html).toContain("供应商行情与估值");
+  expect(html).not.toContain("供应商财务报告");
   expect(html).toContain("WHYJ 计算");
   expect(html).toContain("<dt>成交量（股）</dt><dd>0</dd>");
   expect(html).toContain("<dt>成交额（元）</dt><dd>暂无</dd>");
@@ -67,6 +81,31 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(html).toContain("<dt>signal_limit_up</dt><dd>未命中</dd>");
   expect(renderToStaticMarkup(<ObservationListResult result={{ ...result, rows: [] }} />)).toContain("清单没有请求股票");
   expect(renderToStaticMarkup(<ObservationListRows read={undefined} />)).toContain("当前服务不支持历史股票列表");
+
+  const report = {
+    periodEnd: "2023-12-31", announcementDate: "2024-02-28", updateFlag: null, basicEarningsPerShare: 0,
+    earningsPerShareCurrency: "unknown", bookValuePerShare: 10, bookValueCurrency: "unknown", roe: -2, grossProfitMargin: 25,
+    netProfitMargin: null, operatingRevenueYoyPct: 12, totalOperatingRevenueYoyPct: null, parentNetProfitYoyPct: -3,
+    debtToAssets: 40, ratioUnit: "provider-native",
+  } as const;
+  const financeMarkup = (financial: ObservationListRowsPreview["rows"][number]["observations"]["financial"]) =>
+    renderToStaticMarkup(<ObservationListResult result={{ ...result, rows: result.rows.map(row => ({
+      ...row, observations: { ...row.observations, financial },
+    })) }} />);
+  const financed = financeMarkup({
+    status: "available", tradingDate: date, periodEnd: report.periodEnd, actualDisclosureDate: report.announcementDate, report,
+    reportEvidence: [{ ref: reportRef, observedAt }], disclosureEvidence: [{ ref: disclosureRef, observedAt }],
+  });
+  expect(financed).toContain("供应商财务报告");
+  expect(financed).toContain("<dt>基本 EPS</dt><dd>0</dd>");
+  expect(financed).toContain("<dt>ROE</dt><dd>-2</dd>");
+  expect(financed).toContain("<dt>净利率</dt><dd>暂无</dd>");
+  expect(financed).toContain(report.announcementDate);
+  expect(financed).toContain(reportRevision);
+  expect(financed).toContain(disclosureRevision);
+  expect(financed).toContain("比率沿用供应商原始口径");
+  expect(financeMarkup({ status: "unavailable", reason: "missing-disclosure", tradingDate: date }))
+    .toContain("暂无可确认报告披露日期的归档");
 
   const timestamp = Date.parse(observedAt);
   const renderQuote = (reported: {
