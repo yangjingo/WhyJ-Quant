@@ -31,6 +31,7 @@ export function listRowsManifest(value: unknown): ObservationListRowsRequest {
 
 const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 4 });
 const display = (value: number | null | undefined, unit = "") => value == null ? "暂无" : numberFormat.format(value) + unit;
+const displayFraction = (value: number | null | undefined) => display(value == null ? null : value * 100, "%");
 const quoteTime = new Intl.DateTimeFormat("zh-CN", { timeZone: "Asia/Shanghai", dateStyle: "short", timeStyle: "medium" });
 const quoteRowStatus = {
   missing: "未返回报价", "missing-price": "缺少有效价格", "different-session": "报价与列表日期不符", "future-timestamp": "行情时间晚于获取时间",
@@ -64,10 +65,12 @@ function StockListRow({ row, quote }: { row: ObservationListRowsPreview["rows"][
           ["最新价（元）", display(quote.snapshot.lastPrice)], ["报价昨收（元）", display(quote.snapshot.previousClose)],
           ["开盘（元）", display(quote.snapshot.open)], ["最高（元）", display(quote.snapshot.high)], ["最低（元）", display(quote.snapshot.low)],
           ["原始成交量", display(quote.snapshot.volume)], ["原始成交额", display(quote.snapshot.amount)],
-          ["供应商报价换手率", display(quote.snapshot.reportedTurnoverFraction == null
-            ? null : quote.snapshot.reportedTurnoverFraction * 100, "%")],
+          ["供应商报价涨跌额（元）", display(quote.snapshot.reportedChangeAmount)],
+          ["供应商报价涨跌幅", displayFraction(quote.snapshot.reportedChangeFraction)],
+          ["供应商报价振幅", displayFraction(quote.snapshot.reportedAmplitudeFraction)],
+          ["供应商报价换手率", displayFraction(quote.snapshot.reportedTurnoverFraction)],
           ["WHYJ 报价涨跌额（元）", display(quote.change.changeAmount)],
-          ["WHYJ 报价涨跌幅", display(quote.change.changeFraction === null ? null : quote.change.changeFraction * 100, "%")],
+          ["WHYJ 报价涨跌幅", displayFraction(quote.change.changeFraction)],
         ]} /> : <p className="supporting">{quoteRowStatus[quote.status]}</p>}
       </section>}
       <h5>供应商行情与估值</h5>

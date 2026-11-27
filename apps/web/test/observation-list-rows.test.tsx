@@ -69,17 +69,30 @@ test("presents provider data and WHYJ metrics with distinct zero and missing val
   expect(renderToStaticMarkup(<ObservationListRows read={undefined} />)).toContain("当前服务不支持历史股票列表");
 
   const timestamp = Date.parse(observedAt);
-  const renderQuote = (reportedTurnoverFraction?: number) => renderToStaticMarkup(<ObservationListResult result={result} quotes={{
+  const renderQuote = (reported: {
+    reportedTurnoverFraction?: number; reportedChangeAmount?: number; reportedChangeFraction?: number; reportedAmplitudeFraction?: number;
+  } = {}) => renderToStaticMarkup(<ObservationListResult result={result} quotes={{
     status: "observed", source: "tickflow", endpoint: "/v1/quotes", observedAt, units: "unknown",
     rows: [{ symbol, status: "available", sourceTimestamp: timestamp,
       snapshot: { symbol, timestamp, lastPrice: 12, previousClose: 10, open: 10, high: 12, low: 10, volume: 0, amount: null,
-        ...(reportedTurnoverFraction === undefined ? {} : { reportedTurnoverFraction }) },
+        ...reported },
       change: { producer: "whyj", changeAmount: 2, changeFraction: 0.2 } }],
   }} />);
-  const quoted = renderQuote(0.01);
-  expect(quoted).toContain("<dt>供应商报价换手率</dt><dd>1%</dd>");
-  expect(renderQuote(0)).toContain("<dt>供应商报价换手率</dt><dd>0%</dd>");
-  expect(renderQuote()).toContain("<dt>供应商报价换手率</dt><dd>暂无</dd>");
+  const quoted = renderQuote({
+    reportedTurnoverFraction: 0.01, reportedChangeAmount: -0.5, reportedChangeFraction: -0.05, reportedAmplitudeFraction: 0.3,
+  });
+  const quotedZero = renderQuote({
+    reportedTurnoverFraction: 0, reportedChangeAmount: 0, reportedChangeFraction: 0, reportedAmplitudeFraction: 0,
+  });
+  const quotedMissing = renderQuote();
+  for (const [field, value, zero] of [
+    ["供应商报价换手率", "1%", "0%"], ["供应商报价涨跌额（元）", "-0.5", "0"],
+    ["供应商报价涨跌幅", "-5%", "0%"], ["供应商报价振幅", "30%", "0%"],
+  ]) {
+    expect(quoted).toContain(`<dt>${field}</dt><dd>${value}</dd>`);
+    expect(quotedZero).toContain(`<dt>${field}</dt><dd>${zero}</dd>`);
+    expect(quotedMissing).toContain(`<dt>${field}</dt><dd>暂无</dd>`);
+  }
   expect(quoted).toContain("收盘 10 元");
   expect(quoted).toContain("报价 12 元");
   expect(quoted).toContain("tickflow · /v1/quotes");
