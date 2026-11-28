@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### 1.5.0 发布候选
+
+- npm 包和 Windows Desktop 版本对齐到 `1.5.0`。npm 上一公开版本为 [1.2.0](https://www.npmjs.com/package/whyj-quant/v/1.2.0)，Desktop 上一公开版本为 [1.4.0](https://github.com/yangjingo/WhyJ-Quant/releases/tag/v1.4.0)。
+- Desktop 接入共享 Host 和 React Workbench，浏览器、桌面和终端可查看同一研究会话。Windows 交付增加在线安装入口并继续提供完整安装包。 [共享 Host](https://github.com/yangjingo/WhyJ-Quant/pull/149) · [在线安装](https://github.com/yangjingo/WhyJ-Quant/pull/96)
+- Workbench 设置可检查并保存模型与数据源连接，观察列表新增带日期的历史图表和盘中视图。 [模型设置](https://github.com/yangjingo/WhyJ-Quant/pull/303) · [数据源设置](https://github.com/yangjingo/WhyJ-Quant/pull/297) · [日线图](https://github.com/yangjingo/WhyJ-Quant/pull/984)
+
+### 既有修复记录
+
 - 修复 #7：Windows 安装改为当前用户向导，允许选择目录并提示独立的数据位置；增加中文/空格非系统盘安装、快捷方式、重装目录与数据保留验收。
 - 修复 Desktop 工作流的环境相关测试失败：取消测试为冷启动留出时间且仍要求中断未完成的流/工具；Doctor CLI 测试核对实际失败阶段的修复建议，不再假定机器已装 AKShare。
 
