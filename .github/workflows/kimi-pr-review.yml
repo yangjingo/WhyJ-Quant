@@ -1,0 +1,105 @@
+name: Kimi PR review
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, ready_for_review, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to review in the run summary
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: kimi-review-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.actor != 'dependabot[bot]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      body: ${{ steps.review.outputs.body }}
+      head: ${{ steps.review.outputs.head }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Use the base script. The PR contributes only inert diff text.
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+      - name: Review the requested revision
+        if: hashFiles('.github/scripts/kimi-pr-review.mjs') != ''
+        id: review
+        uses: actions/github-script@v8
+        env:
+          KIMI_REVIEW_BASE_URL: ${{ secrets.KIMI_REVIEW_BASE_URL }}
+          KIMI_REVIEW_API_KEY: ${{ secrets.KIMI_REVIEW_API_KEY }}
+          MANUAL_PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const { eligiblePullRequest, reviewBody, reviewDiff } = await import(
+              process.env.GITHUB_WORKSPACE + '/.github/scripts/kimi-pr-review.mjs'
+            );
+            const event = context.payload.pull_request;
+            const number = event?.number ?? Number(process.env.MANUAL_PR_NUMBER);
+            if (!Number.isSafeInteger(number) || number < 1) throw new Error('Use a valid PR number.');
+            const params = { ...context.repo, pull_number: number };
+            const { data: pr } = await github.rest.pulls.get(params);
+            const baseRepo = context.repo.owner + '/' + context.repo.repo;
+            if (!eligiblePullRequest(pr, { baseRepo, head: event?.head.sha, automatic: Boolean(event) })) {
+              core.notice('PR is out of scope or its head has changed.');
+              return;
+            }
+            const { data: diff } = await github.rest.pulls.get({ ...params, mediaType: { format: 'diff' } });
+            const { data: current } = await github.rest.pulls.get(params);
+            if (current.head.sha !== pr.head.sha) {
+              core.notice('PR head changed while fetching the diff.');
+              return;
+            }
+            const credentials = { baseUrl: process.env.KIMI_REVIEW_BASE_URL, apiKey: process.env.KIMI_REVIEW_API_KEY };
+            const result = await reviewDiff(diff, credentials);
+            const body = reviewBody(result, pr.head.sha, credentials);
+            await core.summary.addRaw(body).write();
+            if (event) {
+              core.setOutput('body', body);
+              core.setOutput('head', pr.head.sha);
+            }
+
+  publish:
+    if: github.event_name == 'pull_request' && needs.review.outputs.body != ''
+    needs: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Publish the advisory review
+        uses: actions/github-script@v8
+        env:
+          REVIEW_BODY: ${{ needs.review.outputs.body }}
+          REVIEW_HEAD: ${{ needs.review.outputs.head }}
+        with:
+          script: |
+            const { REVIEW_BODY: body, REVIEW_HEAD: head } = process.env;
+            const params = { ...context.repo, pull_number: context.payload.pull_request.number };
+            const { data: pr } = await github.rest.pulls.get(params);
+            if (pr.state !== 'open' || pr.draft || pr.base.ref !== 'main' || pr.head.sha !== head) {
+              core.notice('PR is closed, out of scope, or its head has changed.');
+              return;
+            }
+            const marker = '<!-- kimi-pr-review:' + head + ' -->';
+            for await (const { data } of github.paginate.iterator(github.rest.pulls.listReviews, params)) {
+              if (data.some(review => review.user?.login === 'github-actions[bot]' && review.body?.includes(marker))) return;
+            }
+            await github.rest.pulls.createReview({ ...params, commit_id: head, event: 'COMMENT', body: marker + '\n' + body });

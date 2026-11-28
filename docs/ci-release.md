@@ -228,6 +228,14 @@ node apps/cli/dev/windows-npm-upgrade.mjs .\whyj-quant-1.4.0.tgz
 
 The local invocation records the installed Desktop check as unrun. Find hosted receipts, source and package identities, terminal transcripts and before/after Desktop captures under desktop-evidence/windows-npm-upgrade. The corrupt-tarball case exercises rejection before replacement. Manual installer interaction, native tray input and interruptions after replacement starts require separate evidence.
 
+## Optional Kimi Pull Request Review
+
+[Kimi PR review](../.github/workflows/kimi-pr-review.yml) submits a `COMMENT` review for ready, same-repository PRs targeting `main`. It runs on open, re-open, draft-to-ready, and new pushes. Reviews are advisory. `CI required` and `PR policy` remain the merge gates.
+
+Set the repository Actions secrets `KIMI_REVIEW_BASE_URL` to the gateway's HTTPS API base including `/v1` where applicable and `KIMI_REVIEW_API_KEY` to the gateway key. The trusted reviewer uses `dashscope/kimi-k3.1-pro` and checks that the gateway returns `kimi-k3.1-pro` with a complete review. Each run sends one diff up to 48 KiB, with a 60-second request deadline and a 768-token requested output limit. The model step uses a base-branch script and receives no PR write token. The separate publishing job attaches its review to the exact head and skips stale, closed, or already-reviewed revisions.
+
+To verify the connection from GitHub, open **Actions → Kimi PR review → Run workflow**, select `main` and enter a PR number. The run summary shows the route, returned model, reviewed SHA, and advisory text. Manual runs support historical PRs targeting `main` and only write the run summary. To stop calls, disable the workflow. To rotate credentials, update the dedicated secret.
+
 ## Optional Live Provider Evaluation
 
 The [optional live workflow](../.github/workflows/live-provider-evaluation.yml) is separate from required PR CI. Configure repository variables `WHYJ_LIVE_PROVIDER`, `WHYJ_LIVE_MODEL` and `WHYJ_LIVE_BASE_URL` and a dedicated restricted Actions secret `WHYJ_LIVE_API_KEY`. The base URL must be a trusted HTTPS OpenAI-compatible endpoint without credentials, query or fragment.
