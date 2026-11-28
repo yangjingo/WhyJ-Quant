@@ -29,7 +29,7 @@ bun install --cwd apps/web --frozen-lockfile
 bun run check:release
 ```
 
-The [CI workflow](../.github/workflows/ci.yml) uses Bun 1.3.14 and Node 24 on Linux and Windows. The gate covers types, dependency boundaries, policy regressions, test organization, tests, CLI build, documentation and `web:check` (React types, client lifecycle/editor/dependency regressions, production build and demo-fixture exclusion). The Web package has its own frozen lockfile; CI and npm publication install both roots. `web:demo` and `build:demo` explicitly select the synthetic development adapter. Browser captures verify presentation separately and do not prove real Host or Electron integration. Linux also builds the website. Both platforms pack and install the npm artifact outside the checkout, then check its version with install scripts disabled. This verifies package startup, not live providers or interactive acceptance.
+The [CI workflow](../.github/workflows/ci.yml) uses Bun 1.3.14 and Node 24 on Linux and Windows. The gate covers types, dependency boundaries, policy regressions, test organization, tests, CLI build, documentation and `web:check` (React types, client lifecycle/editor/dependency regressions, production build and demo-fixture exclusion). The Web package has its own frozen lockfile; CI and npm publication install both roots. `web:demo` and `build:demo` explicitly select the synthetic development adapter. Browser captures verify presentation separately and do not prove real Host or Electron integration. Linux also builds the website, installs the npm artifact outside the checkout with install scripts disabled, and checks its version. This verifies package startup, not live providers or interactive acceptance.
 
 [Desktop required](../.github/workflows/desktop.yml) runs on every PR and main push, including docs changes. It typechecks, prepares pinned runtimes, packages and exercises the installed application in a disposable Windows runner. This costs more than path filtering, but covers shared CLI dependencies that affect the shipped app. Local root checks do not replace it; manual Desktop publication also reuses the full CI gate.
 
@@ -92,6 +92,10 @@ The CLI resource-ownership regression deliberately holds two synthetic model res
 The Host resource-duration regression runs two complete sampling iterations for each synthetic variant under a bounded subprocess deadline. Its second iteration exercises the injected clock gap even on a slow runner. The standalone measurement harness still samples by elapsed duration.
 
 The fund-NAV concurrent-writer regression compares the complete sorted revision directory against the expected snapshot and commit marker. This preserves the missing-or-extra-file check without relying on filesystem enumeration order; it does not impose an ordering contract on storage consumers.
+
+The Linux release gate installs Chromium in a temporary test directory and runs a production Web smoke inside `cli:smoke`. A real browser opens the Workbench served by the built Host outside the checkout, sends one normal prompt, and waits for the controlled model's answer and completed session. The CI log records the result. Linux also verifies a fresh installation of the npm tarball.
+
+`Desktop required` exercises the Windows installer on a disposable runner. The installer test runs the candidate payload, verifies startup and same-version reinstall with state retention, then records the SHA-256 and uploads `windows-installer`. This candidate can be used for clean target-machine acceptance as documented under [Desktop Release and Website Handoff](#desktop-release-and-website-handoff).
 
 `bun run test:entry-e2e` is a Windows Desktop CI check after the shared assets are built. It starts an isolated Host and synthetic model, submits in a real browser, attaches and hides Electron, then cancels the same run from a real terminal. It verifies an explicit continuation, report save/reopen and follow-up identities, and separately quits the terminal and Desktop while the reused Host remains available. Its redacted receipt and screenshots are retained in `desktop-evidence`; a fixture failure remains a failed check. It does not establish external tool idempotency, live-provider quality, native tray input or clean target-machine acceptance. Actual multi-day resource measurements and native interaction remain tracked by #146 and #147, opt-in live-provider evaluation by #152, and exact-candidate acceptance by #56. These separate checks are not implied to have run.
 
@@ -212,13 +216,9 @@ The last three commands can fail when the package or command is missing. `Get-Co
 
 On Windows with npm 11.13.0, a controlled interruption during one package-replacement stage left the command unavailable; reinstalling the same local candidate restored it and retained synthetic settings. This is one observed recovery path, not a guarantee of automatic rollback or of every interruption point. Installed Desktop and clean-target upgrade acceptance remain tracked separately in #56 and #182.
 
-### Verify Windows CLI upgrades alongside Desktop
+### Reproduce a Windows npm upgrade
 
-The Windows Desktop workflow packs the CLI from the same candidate after installing Desktop on a disposable Windows runner. The npm upgrade probe verifies the published 1.2.0 tarball against its pinned npm integrity, installs both packages into a temporary global prefix and runs their actual terminals through ConPTY. The probe gives the terminals and Desktop isolated synthetic data and a PATH limited to Windows, the test prefix and a copy of Node. The installed Desktop attaches to the controlled Host while npm rejects a corrupt tarball and then installs the candidate. The probe checks that rejection preserves the prior installation, confirms the upgraded terminal sees the same running research, and verifies that an incompatible Host protocol leaves the existing owner intact.
-
-The baseline and candidate installs each have four minutes for npm dependency resolution and extraction. The other npm invocations, including corrupt-tarball rejection, each have two minutes. The workflow gives the whole probe step twenty minutes to cover those commands, the build, and the interaction checks. An npm timeout fails the check.
-
-Run the CLI portion on Windows after building and packing the candidate and installing the locked Desktop test dependencies.
+The standalone upgrade probe verifies the pinned npm baseline and candidate in a temporary global prefix. It runs the actual terminal through ConPTY and records its checks in `output/playwright/windows-npm-upgrade`. Use it for a focused CLI investigation. Run it after building and packing the candidate and installing the locked Desktop test dependencies.
 
 ~~~powershell
 bun run build
@@ -226,11 +226,11 @@ npm pack --ignore-scripts
 node apps/cli/dev/windows-npm-upgrade.mjs .\whyj-quant-1.4.0.tgz
 ~~~
 
-The local invocation records the installed Desktop check as unrun. Find hosted receipts, source and package identities, terminal transcripts and before/after Desktop captures under desktop-evidence/windows-npm-upgrade. The corrupt-tarball case exercises rejection before replacement. Manual installer interaction, native tray input and interruptions after replacement starts require separate evidence.
+The local CLI invocation leaves installed Desktop checks unrun. Clean Windows installer upgrade and native interaction use the candidate-specific acceptance procedure.
 
 ## Optional Kimi Pull Request Review
 
-[Kimi PR review](../.github/workflows/kimi-pr-review.yml) submits a `COMMENT` review for ready, same-repository PRs targeting `main`. It runs on open, re-open, draft-to-ready, and new pushes. Reviews are advisory. `CI required` and `PR policy` remain the merge gates.
+[Kimi PR review](../.github/workflows/kimi-pr-review.yml) submits a `COMMENT` review for ready, same-repository PRs targeting `main`. It runs on open, re-open, draft-to-ready, and new pushes. Reviews are advisory. See [Main Branch Protection](#main-branch-protection) for the required checks.
 
 Set the repository Actions secrets `KIMI_REVIEW_BASE_URL` to the gateway's HTTPS API base including `/v1` where applicable and `KIMI_REVIEW_API_KEY` to the gateway key. The trusted reviewer uses `dashscope/kimi-k3.1-pro` and checks that the gateway returns `kimi-k3.1-pro` with a complete review. Each run sends one diff up to 48 KiB, with a 60-second request deadline and a 768-token requested output limit. The model step uses a base-branch script and receives no PR write token. The separate publishing job attaches its review to the exact head and skips stale, closed, or already-reviewed revisions.
 

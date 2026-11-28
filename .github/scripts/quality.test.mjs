@@ -179,6 +179,26 @@ test("cross-entry validation remains required and the platform aggregate fails c
   assert.match(evidence.with.path, /output\/playwright\/entry-contracts/);
 });
 
+test("Linux runs production Web acceptance and Desktop retains its verified installer", () => {
+  const ci = parse(readFileSync(new URL("../workflows/ci.yml", import.meta.url), "utf8"));
+  const steps = ci.jobs.check.steps;
+  const browser = steps.find(step => step.name === "Install browser for production Web acceptance");
+  const release = steps.find(step => step.name === "Run complete release gate");
+  assert.equal(browser.if, "runner.os == 'Linux'");
+  assert.match(browser.run, /WHYJ_WEB_ACCEPTANCE_BROWSER_ROOT=.*GITHUB_ENV/);
+  assert.ok(steps.indexOf(browser) < steps.indexOf(release));
+  assert.equal(steps.find(step => step.name === "Pack and smoke-test the npm installation").if, "runner.os == 'Linux'");
+
+  const desktop = parse(readFileSync(new URL("../workflows/desktop.yml", import.meta.url), "utf8"));
+  const windows = desktop.jobs.windows.steps;
+  const install = windows.find(step => step.name === "Install and exercise the shipped application");
+  const upload = windows.find(step => step.with?.name === "windows-installer");
+  assert.match(install.run, /test-online-install\.mjs[\s\S]*?SHA256SUMS\.txt/);
+  assert.equal(windows.indexOf(upload), windows.indexOf(install) + 1);
+  assert.equal(upload.with["if-no-files-found"], "error");
+  assert.ok(windows.every(step => !step.run?.includes("windows-npm-upgrade.mjs")));
+});
+
 test("Desktop release tags must resolve to the tested installer source", () => {
   const current = "a".repeat(40), old = "b".repeat(40), tagObject = "c".repeat(40);
   const ref = "refs/tags/v1.4.0";

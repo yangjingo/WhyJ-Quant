@@ -1,47 +1,34 @@
-# WhyJ Quant Desktop 1.4.0
+# WhyJ Quant Desktop 1.5.0
 
-This Windows release updates the packaged research terminal from 1.3.1 with Pi 1.2, a configurable installation directory, and the shared JQ visual identity.
+This Windows x64 release brings the shared research Workbench into Desktop, adds connection checks in Settings, and introduces an online installer alongside the complete offline installer.
 
 ## Highlights
 
-- **Choose where to install.** The per-user Windows installer supports other drives and paths containing spaces or Chinese characters, while research data stays in its existing location. ([#16](https://github.com/yangjingo/WhyJ-Quant/pull/16))
-- **A consistent JQ identity.** The Desktop shell, terminal and newly generated reports share the JQ mark and warm color roles. Existing report files retain their original appearance. ([#28](https://github.com/yangjingo/WhyJ-Quant/pull/28))
-- **Clearer research controls.** Interrupt research with Ctrl+G, retry failed quotes with Ctrl+R, and find configuration and report guidance from the terminal. ([#15](https://github.com/yangjingo/WhyJ-Quant/pull/15))
+- **Open the shared Workbench in Desktop.** Desktop connects to the local Host used by the browser and terminal. Closing the window to the tray preserves the active run, and reopening the Workbench can reconnect to it. [Shared Host integration](https://github.com/yangjingo/WhyJ-Quant/pull/149)
+- **Verify connections before saving.** Model settings can check the selected provider and model. Market Data settings can test the selected source with a sample before saving it. [Model settings](https://github.com/yangjingo/WhyJ-Quant/pull/303) · [Data-source settings](https://github.com/yangjingo/WhyJ-Quant/pull/297)
+- **Choose the installer for your environment.** The online installer downloads and verifies the complete versioned Windows installer before starting installation. The complete installer can be downloaded separately for offline installation. [Online installer](https://github.com/yangjingo/WhyJ-Quant/pull/96)
 
 ## What's Changed
 
-### Runtime and Research
-
-- Adopt Pi 1.2 and consolidate research task, evidence and report workflows. This change landed directly without a PR. ([d00a856](https://github.com/yangjingo/WhyJ-Quant/commit/d00a856))
-- Reuse Pi APIs for explicitly selected community skills and MCP configuration. Skills are not downloaded on startup; MCP configuration does not start a JQ MCP client. ([#35](https://github.com/yangjingo/WhyJ-Quant/pull/35))
-- Add research data contracts and price-volume calculations. ([#6](https://github.com/yangjingo/WhyJ-Quant/pull/6))
-
-### Fixes
-
-- Correct backtest equity and compound annual return calculations. ([#4](https://github.com/yangjingo/WhyJ-Quant/pull/4))
-- Improve Chinese answer qualification checks and reuse unchanged message layouts during long conversations. ([#15](https://github.com/yangjingo/WhyJ-Quant/pull/15))
-
-### Documentation and Maintenance
-
-- Consolidate product scope, requirements and usage into the current Quant Harness guide. ([#66](https://github.com/yangjingo/WhyJ-Quant/pull/66))
-- Stabilize CI policy and test lifecycles, including deterministic overview recovery and skill cancellation tests. These are verification improvements, not new application features. ([#41](https://github.com/yangjingo/WhyJ-Quant/pull/41), [#42](https://github.com/yangjingo/WhyJ-Quant/pull/42), [#45](https://github.com/yangjingo/WhyJ-Quant/pull/45))
+- Stock lists can show fixed daily candles and dated auction curves. Same-day stock and ETF intraday views retain their provisional status. [Daily candles](https://github.com/yangjingo/WhyJ-Quant/pull/984) · [Auction chart](https://github.com/yangjingo/WhyJ-Quant/pull/998) · [Stock intraday](https://github.com/yangjingo/WhyJ-Quant/pull/994) · [ETF intraday](https://github.com/yangjingo/WhyJ-Quant/pull/996)
+- The installed package includes the shared React assets and the Host runtimes. The Workbench no longer requires a separately started Web development server. [React packaging](https://github.com/yangjingo/WhyJ-Quant/pull/247)
 
 ## Installation and Upgrade
 
-Download `WhyJ-Quant-Setup-1.4.0-win-x64.exe` from this Release's Assets and compare its SHA-256 with `SHA256SUMS.txt`. Windows 10 1809+ and Windows 11 x64 are supported. Bun, Python 3.13.12, AKShare 1.18.63, AKQuant and Git are bundled.
+Choose `WhyJ-Quant-Setup-1.5.0-win-x64.exe` or `WhyJ-Quant-Online-1.5.0-win-x64.exe` from the Release assets and compare its SHA-256 with `SHA256SUMS.txt`. The online entry requires network access to fetch the complete installer. Use the complete installer to install without that download.
 
-Reinstallation keeps the existing installation directory by default. Settings, sessions and reports remain in `%APPDATA%/WhyJ Quant/workspace/.ohquant`, independently of the application directory. AKShare is the default data source; configure an AI model connection with Ctrl+P.
+The installer uses the existing per-user application identity and keeps the selected installation directory on reinstall. Settings, sessions, and reports are stored separately from the application files. [Windows installer checks](https://github.com/yangjingo/WhyJ-Quant/blob/main/apps/desktop/scripts/test-install.ps1)
 
 ## Known Limitations
 
-- The installer is not Authenticode-signed. Windows may show an unknown-publisher warning, and strict application-control policies may block startup.
-- Model and market-data services require network access and any credentials required by the selected provider. Live provider behavior is not certified by installer checks.
-- The packaged Desktop still hosts the terminal interface. The separate Web research workspace introduced in [#27](https://github.com/yangjingo/WhyJ-Quant/pull/27) is not the Desktop entry; Electron workspace integration and packaging remain tracked by [#47](https://github.com/yangjingo/WhyJ-Quant/issues/47) and [#48](https://github.com/yangjingo/WhyJ-Quant/issues/48).
+- The installers are unsigned. Windows can display an unknown-publisher warning, and application-control policies can block installation or startup.
+- Model and market-data calls require network access and any credentials required by the selected provider. A successful connection sample covers the selected provider operation.
+- Installer automation covers a clean install and same-version reinstall. Cross-version and interactive acceptance depend on checks against the exact Windows candidate.
 
 ## Verification
 
-The published installer was built from [4a83606](https://github.com/yangjingo/WhyJ-Quant/commit/4a8360671f0a303c9d226af56ae7b4141e1849f8). Publication requires both platform CI checks and Windows installation acceptance. Automated coverage includes startup without developer runtimes on PATH, bundled Python/Git, settings persistence, Unicode multiline paste, resizing, restart/exit, custom installation paths, shortcuts, reinstallation and retained research data. These checks do not replace interactive acceptance on a user's Windows machine.
+Publication requires a successful main-branch CI run and installed-app acceptance of the exact Windows candidate. The publication workflow appends the candidate's Actions run to these notes. [Release and verification procedure](https://github.com/yangjingo/WhyJ-Quant/blob/main/docs/ci-release.md#desktop-release-and-website-handoff)
 
 ## Full Changelog
 
-[v1.3.1...v1.4.0](https://github.com/yangjingo/WhyJ-Quant/compare/v1.3.1...v1.4.0)
+[v1.4.0...v1.5.0](https://github.com/yangjingo/WhyJ-Quant/compare/v1.4.0...v1.5.0)
