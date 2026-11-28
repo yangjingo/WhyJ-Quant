@@ -9,12 +9,18 @@ import { evaluateLiveProvider, type LiveFetch } from "../dev/live-provider-eval.
 const configured = { WHYJ_LIVE_OPT_IN: "true", WHYJ_LIVE_PROVIDER: "fixture", WHYJ_LIVE_MODEL: "fixture-model", WHYJ_LIVE_BASE_URL: "https://provider.example/v1", WHYJ_LIVE_API_KEY: "fixture-private-key", GITHUB_SHA: "a".repeat(40) };
 const reply = (message: object) => Response.json({ choices: [{ message }] });
 
-it("keeps live evaluation manual, disabled by default and separate from PR workflows", () => {
+it("limits optional live evaluation to opted-in main pushes and explicit manual runs", () => {
   const workflow = parse(readFileSync(new URL("../../../.github/workflows/live-provider-evaluation.yml", import.meta.url), "utf8"));
-  expect(Object.keys(workflow.on)).toEqual(["workflow_dispatch"]);
+  expect(Object.keys(workflow.on).sort()).toEqual(["push", "workflow_dispatch"]);
+  expect(workflow.on.push).toEqual({
+    branches: ["main"],
+    paths: [".github/workflows/live-provider-evaluation.yml", "src/runtime/dev/live-provider-eval.ts"],
+  });
   expect(workflow.on.workflow_dispatch.inputs.run_live.default).toBe(false);
-  expect(workflow.jobs.evaluate.if).toContain("inputs.run_live");
-  expect(workflow.jobs.evaluate.if).toContain("refs/heads/main");
+  expect(workflow.jobs.evaluate.if.replace(/\s+/g, " ")).toBe(
+    "${{ github.ref == 'refs/heads/main' && ((github.event_name == 'workflow_dispatch' && inputs.run_live) || (github.event_name == 'push' && vars.WHYJ_LIVE_ON_MAIN == 'true')) }}",
+  );
+  expect(workflow.concurrency).toEqual({ group: "live-provider-evaluation", "cancel-in-progress": false });
 });
 
 it("never calls a provider without explicit opt-in or complete configuration", async () => {

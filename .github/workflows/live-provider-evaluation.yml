@@ -1,6 +1,11 @@
 name: Optional live provider evaluation
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/live-provider-evaluation.yml
+      - src/runtime/dev/live-provider-eval.ts
   workflow_dispatch:
     inputs:
       run_live:
@@ -12,9 +17,16 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: live-provider-evaluation
+  cancel-in-progress: false
+
 jobs:
   evaluate:
-    if: ${{ inputs.run_live && github.ref == 'refs/heads/main' }}
+    if: >-
+      ${{ github.ref == 'refs/heads/main' &&
+          ((github.event_name == 'workflow_dispatch' && inputs.run_live) ||
+           (github.event_name == 'push' && vars.WHYJ_LIVE_ON_MAIN == 'true')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 4
     steps:
