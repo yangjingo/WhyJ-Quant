@@ -24,13 +24,17 @@ const nodeExecutable = process.env.WHYJ_NODE_EXECUTABLE || Bun.which("node");
 assert.ok(nodeExecutable, "Node is required to verify the installed CLI contract.");
 const launchEnvironment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !["path", "whyj_bun_executable"].includes(key.toLowerCase())));
 const modelRequests: Array<{ tools: Array<{ function: { name: string } }>; messages: unknown }> = [];
+const webQuestion = "Reply to this packaged Web acceptance prompt.";
+const webAnswer = "Packaged Web research completed.";
 let holdNextModel = false, queuedModelStarted = () => {}, releaseQueuedModel = () => {};
 let queuedModelGate = Promise.resolve();
 const model = Bun.serve({ hostname: "127.0.0.1", port: 0, async fetch(request) {
-  modelRequests.push(await request.json() as (typeof modelRequests)[number]);
+  const input = await request.json() as (typeof modelRequests)[number];
+  modelRequests.push(input);
   if (holdNextModel) { holdNextModel = false; queuedModelStarted(); await queuedModelGate; }
   const chunk = { id: "package-fixture", object: "chat.completion.chunk", created: 0, model: "package-fixture" };
-  return new Response([{ ...chunk, choices: [{ index: 0, delta: { role: "assistant", content: "Packaged terminal research completed." }, finish_reason: null }] },
+  const content = JSON.stringify(input.messages).includes(webQuestion) ? webAnswer : "Packaged terminal research completed.";
+  return new Response([{ ...chunk, choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }] },
     { ...chunk, choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }].map(value => "data: " + JSON.stringify(value) + "\n\n").join("") + "data: [DONE]\n\n",
     { headers: { "content-type": "text/event-stream" } });
 } });
@@ -392,6 +396,21 @@ try {
   assert.equal(occupiedRegistry.readOwner("startup"), undefined);
   assert.equal(failedRegistry.readOwner("owner"), undefined);
   assert.equal(failedRegistry.readOwner("startup"), undefined);
+
+  const browserRuntime = process.env.WHYJ_WEB_ACCEPTANCE_BROWSER_ROOT;
+  if (browserRuntime) {
+    const calls = modelRequests.length;
+    const browser = Bun.spawn([nodeExecutable, join(import.meta.dir, "smoke-web-browser.mjs"), first.url, webQuestion, webAnswer], {
+      cwd: temporary, stdout: "pipe", stderr: "pipe", timeout: 65000,
+    });
+    const [code, stderr] = await Promise.all([browser.exited, new Response(browser.stderr).text()]);
+    assert.equal(code, 0, stderr || "Production Web browser smoke failed");
+    await settled();
+    assert.equal(modelRequests.length, calls + 1, "Web submission must issue one model request");
+    assert.match(JSON.stringify(modelRequests.at(-1)?.messages), /packaged Web acceptance prompt/);
+    console.log(JSON.stringify({ productionWeb: "pass", builtHost: true, browser: "chromium", model: "loopback-fixture" }));
+  }
+
   console.log(JSON.stringify({ packagedOneShotResourceRead: "pass", packagedMcpMixedScopes: "pass", concurrentPackagedLaunches: "pass", sourceReusesPackagedHost: "pass", builtAssets: "pass",
     packagedTerminalResearch: "pass", packagedTerminalCompact: "pass", packagedTerminalResume: "pass", packagedTerminalContext: "pass",
     packagedTerminalReferences: "pass", packagedTerminalReferenceSuggestions: "pass", packagedTerminalSkill: "pass", packagedTerminalManagement: "pass", packagedTerminalQueue: "pass", packagedTerminalActiveModel: "pass", packagedTerminalLatency: "pass", packagedTerminalContextUsage: "pass", packagedTerminalTurnCount: "pass", packagedTerminalReportRestore: "pass", packagedTerminalStructuredTask: "pass", packagedTerminalPortfolioSwitch: "pass", restrictedBrowserContinuation: "pass",

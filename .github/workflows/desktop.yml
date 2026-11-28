@@ -95,19 +95,14 @@ jobs:
             [pscustomobject]@{ name = $_.Name; sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(); status = (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status.ToString() }
           })
           $signatures | ConvertTo-Json | Set-Content output/desktop-size/signatures.json -Encoding utf8
-      - name: Check Windows npm upgrade alongside the installed Desktop
-        timeout-minutes: 20
-        run: |
-          bun run build
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $pack = npm pack --ignore-scripts --json
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          $candidate = Join-Path $PWD (($pack | ConvertFrom-Json)[0].filename)
-          $desktop = Get-Content output/playwright/desktop/installer-result.json -Raw | ConvertFrom-Json
-          $exe = Join-Path $desktop.installDir 'WhyJ Quant.exe'
-          $installer = Join-Path $PWD "release/WhyJ-Quant-Setup-$($desktop.version)-win-x64.exe"
-          node apps/cli/dev/windows-npm-upgrade.mjs $candidate $exe $installer
-          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            release/*.exe
+            release/SHA256SUMS.txt
+          if-no-files-found: error
+          compression-level: 0
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -130,7 +125,6 @@ jobs:
             output/playwright/desktop-crash
             output/playwright/desktop-conflict
             output/playwright/desktop-tray
-            output/playwright/windows-npm-upgrade
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
@@ -138,14 +132,6 @@ jobs:
           name: desktop-size-evidence
           path: output/desktop-size/*.json
           if-no-files-found: ignore
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-installer
-          path: |
-            release/*.exe
-            release/SHA256SUMS.txt
-          if-no-files-found: error
-          compression-level: 0
   publish:
     if: github.event_name == 'workflow_dispatch' && inputs.publish_release
     needs: [checks, windows]

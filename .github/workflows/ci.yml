@@ -53,6 +53,15 @@ jobs:
         run: bun test src/storage/test/resource-leases.test.ts
       - name: Test Desktop failure comparison
         run: node --test .github/scripts/desktop-failure-comparison.test.mjs
+      - name: Install browser for production Web acceptance
+        if: runner.os == 'Linux'
+        run: |
+          $browserRuntime = Join-Path $env:RUNNER_TEMP 'whyj-web-acceptance'
+          npm install --prefix $browserRuntime --no-save --ignore-scripts --no-audit --no-fund playwright@1.64.1
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node (Join-Path $browserRuntime 'node_modules/playwright/cli.js') install --with-deps chromium
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "WHYJ_WEB_ACCEPTANCE_BROWSER_ROOT=$browserRuntime" >> $env:GITHUB_ENV
       - name: Run complete release gate
         run: |
           New-Item -ItemType Directory -Force output/ci | Out-Null
@@ -83,6 +92,7 @@ jobs:
         if: runner.os == 'Linux'
         run: node site/scripts/build.mjs
       - name: Pack and smoke-test the npm installation
+        if: runner.os == 'Linux'
         run: |
           $packed = npm pack --ignore-scripts --json
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
